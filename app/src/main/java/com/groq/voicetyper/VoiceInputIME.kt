@@ -16,9 +16,12 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import kotlinx.coroutines.*
 import java.io.File
 
@@ -57,9 +60,9 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         val composeView = ComposeView(this)
 
         // Set lifecycle and VM store owners on the Compose View for correct tree resolution
-        androidx.lifecycle.ViewTreeLifecycleOwner.set(composeView, this)
-        androidx.lifecycle.ViewTreeViewModelStoreOwner.set(composeView, this)
-        androidx.savedstate.ViewTreeSavedStateRegistryOwner.set(composeView, this)
+        composeView.setViewTreeLifecycleOwner(this)
+        composeView.setViewTreeViewModelStoreOwner(this)
+        composeView.setViewTreeSavedStateRegistryOwner(this)
 
         composeView.setContent {
             IMEScreen(
