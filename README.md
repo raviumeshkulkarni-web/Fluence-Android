@@ -1,6 +1,6 @@
-# Groq Voice Typer for Android 🎙️🚀
+# AI Voice Typer for Android 🎙️🚀
 
-Groq Voice Typer is a lightweight, modern, and privacy-focused Android Voice Keyboard (IME) powered by the ultra-fast **Groq Whisper API**. It lets you dictate directly into any application's text fields at blistering speeds.
+AI Voice Typer is a lightweight, modern, and privacy-focused Android Voice Keyboard (IME) powered by the ultra-fast **Groq Whisper API**. It lets you dictate directly into any application's text fields at blistering speeds.
 
 ---
 
