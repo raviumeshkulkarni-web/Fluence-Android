@@ -25,18 +25,26 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
 
-    - name: Generate Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.4
-
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
     - name: Sign Release APK
       run: |
         keytool -genkeypair -v -keystore release.keystore -alias release-key -keyalg RSA -keysize 2048 -validity 10000 -storepass password123 -keypass password123 -dname "CN=GroqVoiceTyper, O=OpenSource, C=US"
-        APKSIGNER=$(find $ANDROID_HOME/build-tools/ -name "apksigner" | head -n 1)
-        UNSIGNED_APK=$(find app/build/outputs/apk/release/ -name "*-unsigned.apk" | head -n 1)
-        $APKSIGNER sign --ks release.keystore --ks-key-alias release-key --ks-pass pass:password123 --key-pass pass:password123 --out app-release.apk $UNSIGNED_APK
+        APKSIGNER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk} -name "apksigner" -type f | grep -v "\.jar" | head -n 1)
+        if [ -z "$APKSIGNER" ]; then
+          echo "ERROR: apksigner not found!"
+          exit 1
+        fi
+        echo "Found apksigner at: $APKSIGNER"
+        UNSIGNED_APK=$(find app/build/outputs/apk/release/ -name "*.apk" -type f | head -n 1)
+        if [ -z "$UNSIGNED_APK" ]; then
+          echo "ERROR: No release APK found!"
+          exit 1
+        fi
+        echo "Found unsigned APK at: $UNSIGNED_APK"
+        "$APKSIGNER" sign --ks release.keystore --ks-key-alias release-key --ks-pass pass:password123 --key-pass pass:password123 --out app-release.apk "$UNSIGNED_APK"
+        echo "Successfully signed APK as app-release.apk"
 
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v2
