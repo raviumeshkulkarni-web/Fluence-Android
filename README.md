@@ -16,9 +16,9 @@ AI Voice Typer is a lightweight, modern, and privacy-focused Android Voice Keybo
 
 ---
 
-## 🏆 Why AI Voice Typer? (vs. the Competition)
+## 🏆 Why AI Voice Typer and problem we are solving? (vs. the Competition)
 
-**The Problem:** Standard dictation tools are rigid—they stumble over jargon, ignore context, botch punctuation, and force tedious manual editing. Typing complex thoughts at 40 WPM kills your flow.
+**The Problem of cognitive bottleneck:** Standard dictation tools are rigid and they stumble over jargon, ignore context, botch punctuation, and force tedious manual editing. Typing complex thoughts at 40 WPM kills your flow.
 
 **The Solution:** AI Voice Typer captures your voice and transforms it into polished, production-ready text in real time. Context-aware transcription (92–97.9% accuracy) automatically punctuates, handles technical vocabulary, and works system-wide across any app. Dictate at the speed of thought without the friction. 🚀
 Most voice typing tools compromise between accuracy, privacy, and speed. **AI Voice Typer doesn't.**
