@@ -1,6 +1,6 @@
 # Fluence 🎙️✨
 
-### *Crystallize your thoughts at the speed of light*
+### *Crystallize your cognition at the speed of thought*
 
 **AI-powered voice typing system-wide on Android, right at your cursor.**
 
