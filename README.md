@@ -15,7 +15,7 @@ Fluence is a lightweight, premium, and privacy-focused Android voice typing syst
 ## 🎬 Watch It In Action
 
 <p align="center">
-  <video src="docs/assets/fluence_demo.mp4" width="320px" autoplay loop muted playsinline></video>
+  <video src="https://github.com/raviumeshkulkarni-web/AI-Voice-typer/raw/main/docs/assets/fluence_demo.mp4" width="320px" autoplay loop muted playsinline></video>
 </p>
 
 ---
