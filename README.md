@@ -52,6 +52,11 @@ Built for users who refuse to compromise on data security:
 ## 🛠️ Core Features
 
 * **Floating Bubble for easy access:** A sleek, glassmorphic bubble overlay that follows your focus. Tap to speak, or hold to talk and release to instantly transcribe.
+* **AI Agent Mode 🤖:** Double-tap the microphone button/orb in the keyboard or floating bubble to activate Agent Mode. Powered by **Llama 3.3 70B**, Agent Mode processes natural language voice commands to edit or generate text directly inside any app:
+  * *"Delete the last two sentences"* (calculates and performs precise local character deletion).
+  * *"Make it professional"* or *"Translate this to French"* (rewrites and replaces the text before your cursor).
+  * *"Draft an email to Bob explaining why I'm late"* (generates and inserts new text at your cursor).
+  * *"Select all"* or *"Send"* (executes cursor selections or automatically submits form text).
 * **Multi-Window Focus Engine:** Custom Accessibility Service checks active native app windows and nested WebViews (like Brave and Chrome) to ensure the bubble appears next to any editable input.
 * **Ultra-Low Latency:** Transcribes sentences in under `0.5s–1s` via Groq LPU API.
 * **Intelligent Text Injection:** Fallback mechanics inject text at the current cursor position, falling back to appending if standard cursor focus is blocked.
@@ -132,7 +137,7 @@ sequenceDiagram
 * **UI Toolkit:** Jetpack Compose (Material 3)
 * **Network Client:** OkHttp
 * **Local Security:** AndroidX Security Crypto
-* **AI Engine:** Groq Whisper STT API (`whisper-large-v3`)
+* **AI Engine:** Groq Whisper STT API (`whisper-large-v3`) & Llama 3.3 (`llama-3.3-70b-versatile`) for natural language commands
 
 ---
 
