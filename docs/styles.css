@@ -2,7 +2,7 @@
 
 /* CSS Variables */
 :root {
-    --bg-obsidian: #050505;
+    --bg-obsidian: #000000;
     --surface-dark: #121216;
     --primary-amethyst: #A855F7;
     --accent-cyan: #00f2fe;
@@ -61,31 +61,56 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
 }
 
-/* Background Ambient Glows */
-.ambient-glow-top {
+/* AMOLED Ambient Morphing Blobs */
+.ambient-blob {
     position: fixed;
-    top: -15vw;
-    left: -10vw;
-    width: 45vw;
-    height: 45vw;
-    background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, transparent 70%);
     border-radius: 50%;
-    filter: blur(80px);
+    filter: blur(120px);
+    opacity: 0.15;
     pointer-events: none;
     z-index: 0;
 }
 
-.ambient-glow-bottom {
-    position: fixed;
-    bottom: -20vw;
-    right: -10vw;
-    width: 55vw;
-    height: 55vw;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
-    border-radius: 50%;
-    filter: blur(80px);
-    pointer-events: none;
-    z-index: 0;
+.blob-1 {
+    top: -10%;
+    left: -10%;
+    width: 50vw;
+    height: 50vw;
+    background: radial-gradient(circle, var(--primary-amethyst) 0%, transparent 70%);
+    animation: float-blob-1 25s infinite alternate ease-in-out;
+}
+
+.blob-2 {
+    bottom: -10%;
+    right: -10%;
+    width: 60vw;
+    height: 60vw;
+    background: radial-gradient(circle, var(--accent-cyan) 0%, transparent 70%);
+    animation: float-blob-2 30s infinite alternate ease-in-out;
+}
+
+.blob-3 {
+    top: 30%;
+    right: 15%;
+    width: 40vw;
+    height: 40vw;
+    background: radial-gradient(circle, var(--glow-indigo) 0%, transparent 70%);
+    animation: float-blob-3 20s infinite alternate ease-in-out;
+}
+
+@keyframes float-blob-1 {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(10vw, 15vh) scale(1.2); }
+}
+
+@keyframes float-blob-2 {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(-15vw, -10vh) scale(0.9); }
+}
+
+@keyframes float-blob-3 {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(-5vw, 10vh) scale(1.1); }
 }
 
 /* Glassmorphism Panels */
@@ -1151,5 +1176,153 @@ footer {
         flex-direction: column;
         align-items: flex-start;
         padding: 32px 24px;
+    }
+}
+
+/* Problem & Comparison Section */
+.problem-solution-container {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    width: 100%;
+}
+
+.problem-solution-grid {
+    display: grid;
+    grid-template-cols: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+}
+
+.problem-card, .solution-card {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border-radius: 24px;
+}
+
+.card-badge {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-red {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #F87171;
+}
+
+.badge-green {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    color: var(--color-green);
+}
+
+.problem-card h2, .solution-card h2 {
+    font-size: 26px;
+    letter-spacing: -0.02em;
+}
+
+.problem-card p, .solution-card p {
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+/* Comparison Table */
+.comparison-table-wrapper {
+    padding: 32px;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    overflow: hidden;
+}
+
+.comparison-table-wrapper h3 {
+    font-size: 20px;
+    letter-spacing: -0.01em;
+}
+
+.table-scroll-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 600px;
+}
+
+.comparison-table th, .comparison-table td {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 14px;
+}
+
+.comparison-table th {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.comparison-table th.highlight-header {
+    color: var(--primary-amethyst);
+}
+
+.comparison-table td.feature-title {
+    font-weight: 500;
+    color: var(--text-white);
+}
+
+.comparison-table td.highlight-cell {
+    background: rgba(168, 85, 247, 0.03);
+    border-left: 1px solid rgba(168, 85, 247, 0.1);
+    border-right: 1px solid rgba(168, 85, 247, 0.1);
+    color: var(--text-white);
+}
+
+.comparison-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Feature Icon Wrapper updates */
+.feature-icon-wrapper {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(168, 85, 247, 0.15);
+}
+
+.feature-icon-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+@media (max-width: 768px) {
+    .comparison-table th, .comparison-table td {
+        padding: 12px 14px;
+        font-size: 13px;
+    }
+    .problem-card, .solution-card {
+        padding: 24px;
+    }
+    .comparison-table-wrapper {
+        padding: 20px;
     }
 }

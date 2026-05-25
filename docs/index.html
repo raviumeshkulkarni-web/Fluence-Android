@@ -16,9 +16,10 @@
 </head>
 <body>
 
-    <!-- Ambient Glow Backgrounds -->
-    <div class="ambient-glow-top"></div>
-    <div class="ambient-glow-bottom"></div>
+    <!-- AMOLED Ambient Morphing Blobs -->
+    <div class="ambient-blob blob-1"></div>
+    <div class="ambient-blob blob-2"></div>
+    <div class="ambient-blob blob-3"></div>
 
     <!-- Header Navigation -->
     <header id="site-header">
@@ -142,6 +143,64 @@
             </div>
         </section>
 
+        <!-- The Dictation Bottleneck & Comparison Table -->
+        <section class="problem-solution-container" id="problem-sec">
+            <div class="problem-solution-grid">
+                <div class="glass-panel problem-card">
+                    <div class="card-badge badge-red">The Problem</div>
+                    <h2>The Dictation Bottleneck</h2>
+                    <p>Traditional dictation systems are either slow, unpunctuated, or restricted to a specific custom keyboard. Google's streaming STT dictates word-by-word and frequently gets homophones wrong because it lacks contextual sentence-level comprehension. Furthermore, closed-source keyboards pose a massive telemetry and data privacy risk.</p>
+                </div>
+                <div class="glass-panel solution-card">
+                    <div class="card-badge badge-green">The Solution</div>
+                    <h2>The Fluence Approach</h2>
+                    <p>Fluence waits for you to finish your sentence/phrase, transcribes it using OpenAI's Whisper Large v3 model on Groq's LPU inference hardware in less than a second, and automatically injects fully-punctuated, context-aware text directly at your cursor.</p>
+                </div>
+            </div>
+
+            <div class="glass-panel comparison-table-wrapper">
+                <h3>Accuracy & Performance Comparison</h3>
+                <div class="table-scroll-container">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th class="highlight-header">Fluence (Groq Whisper v3)</th>
+                                <th>Google Speech-to-Text</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="feature-title">Accuracy</td>
+                                <td class="highlight-cell"><strong>92% – 97.9%</strong> (Human level)</td>
+                                <td>79% – 88%</td>
+                            </tr>
+                            <tr>
+                                <td class="feature-title">Punctuation</td>
+                                <td class="highlight-cell"><strong>Automatic & Intelligent</strong></td>
+                                <td>Rigid / Word-by-word</td>
+                            </tr>
+                            <tr>
+                                <td class="feature-title">Privacy</td>
+                                <td class="highlight-cell"><strong>Open Source (Zero Telemetry)</strong></td>
+                                <td>Closed Source (Data collected)</td>
+                            </tr>
+                            <tr>
+                                <td class="feature-title">System-wide Overlay</td>
+                                <td class="highlight-cell"><strong>Yes (Floating WisprFlow Bubble)</strong></td>
+                                <td>No (Restricted to keyboard)</td>
+                            </tr>
+                            <tr>
+                                <td class="feature-title">Accent & Jargon Handling</td>
+                                <td class="highlight-cell"><strong>Excellent (680k hr dataset)</strong></td>
+                                <td>Average (Often stumbles)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <!-- Onboarding Setup Wizard (Mirroring Screenshot 1) -->
         <section class="setup-wizard-section" id="setup-sec">
             <div class="setup-header">
@@ -247,28 +306,22 @@
             <h2>Engineered for Perfection</h2>
             <div class="features-grid">
                 <div class="glass-panel feature-card">
-                    <div class="feature-icon-wrapper icon-blue">
-                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
-                        </svg>
+                    <div class="feature-icon-wrapper">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-IRH-h6EGLp9Ogi--lETe3eocV0NriiwEbJdnDbTYRKc32XDpRoKVGGrPuc_2r-G8dbeLUFdNajk1MGkjkK0gSuKcQW4xxDVDaJLSU6rl9ebpFJK0egd7aCDuQo5cKT1_IkS5nOFitffjRM7DZi-u4-X5vzdLP83YVj50JUwk9qnx-XQT1vZ9HlAmEuC916N6rwayuLWIKtUaZoqglcKagrCYiovCSYBF3mfjWlPrmU_1vaZRUkH4GdFHEtV_V273BXmqpZ_Cq4z1" alt="Voice Dictation Icon">
                     </div>
                     <h3>Voice Dictation</h3>
                     <p>Powered by OpenAI's Groq-accelerated Whisper Large v3 model. Whisper transcribes in under a second with up to 97.9% word accuracy, handling complex jargon and heavy accents with ease.</p>
                 </div>
                 <div class="glass-panel feature-card">
-                    <div class="feature-icon-wrapper icon-purple">
-                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-                            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>
-                        </svg>
+                    <div class="feature-icon-wrapper">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBiLzj-O367o9g9aUI_K5j1keP4Ael80vfNublWLWsKg_jg4KJ8FcrWdsgCIlurGbsihPoUXtcMHBA8QzQABWEwnIs5-R2CHxBJXtLxGPhjWEFSkEH-_nIZxWLIhFYjGcStmxFVjXfk288MFzwNPutF5TZnj6DpEtUxlp-qE_GlCoA4LLPxBxUZ7puCkrSqdGAg5974mqPMYKHigRtimGK7x0sQh6n233F_ezpi3nq43k-XnIoOYbZl85xF2qjvkRkardfyOaXwIla8" alt="AI Agent Mode Icon">
                     </div>
                     <h3>AI Agent Mode</h3>
                     <p>Activated via double-tap. Powered by Llama 3.3 70B, Agent Mode accepts speech instructions directly next to your cursor, processing complex edits like "Delete the last sentence" or "Translate this to French".</p>
                 </div>
                 <div class="glass-panel feature-card">
-                    <div class="feature-icon-wrapper icon-emerald">
-                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-                            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
-                        </svg>
+                    <div class="feature-icon-wrapper">
+                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_xNK0ohlJogsTImVgdLGFmtsJSHuMVkDBya5pc9XBfZQaQVY3sM6fyjO7A6cJlYn1eDpGwwn7qwwr-zTT7XgasPmL77vDZ2xCnOQ8upPtn-IVJgNkDjh-40p0mQgLCnErH9GP9IYZ6KTMtjBmfx5j7UQgFb4133an6EqClfgkhJoed8oh0zKbIlUHRwcpKdRnJpsNv0YDuyDIQ_YQuSIrod9sxiNiIqe8vh2M2Z-DfbOpf7c-O2Fj2G2dBFviXYhKWQD9mK6tFeap" alt="Ironclad Privacy Icon">
                     </div>
                     <h3>Ironclad Privacy</h3>
                     <p>Built for users who refuse to compromise on security. Audio data is ephemeral and deleted instantly. Your API Key is stored safely on-device with Android Keystore hardware encryption.</p>
