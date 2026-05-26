@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.3.0)'
+        required: true
+        default: 'v1.3.0'
 
 permissions:
   contents: write
@@ -15,6 +21,17 @@ jobs:
     steps:
     - name: Checkout project
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set release tag name
+      id: tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "TAG_NAME=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
+        else
+          echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
+        fi
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -49,9 +66,10 @@ jobs:
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ env.TAG_NAME }}
         files: app-release.apk
-        name: Release ${{ github.ref_name }}
+        name: Release ${{ env.TAG_NAME }}
         draft: false
-        prerelease: ${{ contains(github.ref_name, '-') }}
+        prerelease: ${{ contains(env.TAG_NAME, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
