@@ -57,6 +57,8 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     // Offline pipeline — null when offline mode is disabled
     private var offlinePipeline: OfflineTranscriptionPipeline? = null
     private var isOfflineMode by mutableStateOf(false)
+    private var offlineInitJob: kotlinx.coroutines.Job? = null
+    private val offlineTextAccumulator = java.lang.StringBuilder()
 
     // IME State
     private var apiKey by mutableStateOf<String?>(null)
@@ -198,9 +200,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 isAgentMode = isAgentMode,
                 errorMessage = errorMessage,
                 onCancelRecording = {
-                    if (!isAgentMode && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+                    if (!isAgentMode && isOfflineMode) {
                         scope.launch {
+                            offlineInitJob?.cancel()
                             offlinePipeline?.forceRelease()
+                            offlineTextAccumulator.clear()
                             recordingState = RecordingState.IDLE
                         }
                     } else {
@@ -216,7 +220,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                         isAgentMode = true
                         audioRecorder.startRecording()
                     } else if (isOfflineMode && ModelAssetManager.isModelReadySync(this)) {
-                        recordingState = RecordingState.RECORDING
                         isAgentMode = false
                         startOfflineRecording()
                     } else {
@@ -226,10 +229,18 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                     }
                 },
                 onStopRecording = {
-                    if (!isAgentMode && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+                    if (!isAgentMode && isOfflineMode) {
                         recordingState = RecordingState.TRANSCRIBING
                         scope.launch {
-                            offlinePipeline?.stop()
+                            offlineInitJob?.cancel()
+                            offlinePipeline?.let {
+                                if (it.isRunning.value) it.stop() else it.forceRelease()
+                            }
+                            val finalTranscription = offlineTextAccumulator.toString().trim()
+                            if (finalTranscription.isNotEmpty()) {
+                                currentInputConnection?.commitText("$finalTranscription ", 1)
+                            }
+                            offlineTextAccumulator.clear()
                             recordingState = RecordingState.IDLE
                         }
                     } else {
@@ -325,10 +336,30 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+
+        // Pre-initialize offline pipeline in background after a delay so we don't interfere with keyboard slide-in animation
+        if (isOfflineMode && ModelAssetManager.isModelReadySync(this)) {
+            offlineInitJob?.cancel()
+            offlineInitJob = scope.launch {
+                kotlinx.coroutines.delay(600) // Let entry animations finish
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    try {
+                        val modelDir = ModelAssetManager.getModelDir(this@VoiceInputIME).absolutePath
+                        val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(this@VoiceInputIME).also {
+                            offlinePipeline = it
+                        }
+                        pipeline.initialize(modelDir)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
+                    }
+                }
+            }
+        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        offlineInitJob?.cancel()
         // Stop any ongoing recording when keyboard is closed
         if (recordingState == RecordingState.RECORDING) {
             if (!isAgentMode && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
@@ -339,14 +370,22 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 audioRecorder.cancelRecording()
             }
         }
-        // Force release pipeline to reclaim model memory (LMK safety)
-        scope.launch {
-            offlinePipeline?.forceRelease()
-        }
+        offlineTextAccumulator.clear()
         recordingState = RecordingState.IDLE
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_CRITICAL) {
+            Log.d(TAG, "onTrimMemory: Level $level. Releasing offline pipeline resources to reclaim RAM.")
+            scope.launch {
+                offlineInitJob?.cancel()
+                offlinePipeline?.forceRelease()
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -468,7 +507,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
             "en"
         }
     }
-
     private fun startOfflineRecording() {
         scope.launch {
             try {
@@ -476,22 +514,30 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(this@VoiceInputIME).also {
                     offlinePipeline = it
                 }
+                
+                // ACCUMULATE INSTEAD OF COMMITTING IMMEDIATELY
+                offlineTextAccumulator.clear()
                 pipeline.onTextTranscribed = { text ->
-                    currentInputConnection?.let { conn ->
-                        val cleanText = text.trim()
-                        if (cleanText.isNotEmpty()) {
-                            conn.commitText("$cleanText ", 1)
-                        }
+                    val cleanText = text.trim()
+                    if (cleanText.isNotEmpty()) {
+                        offlineTextAccumulator.append(cleanText).append(" ")
                     }
                 }
-                pipeline.initialize(modelDir)
+
+                if (!pipeline.isReady()) {
+                    // Model not yet warm — show loading indicator
+                    recordingState = RecordingState.TRANSCRIBING
+                    pipeline.initialize(modelDir)
+                }
+
+                // Model is warm — start capturing
+                recordingState = RecordingState.RECORDING
                 pipeline.start()
             } catch (e: Exception) {
                 showError("Offline transcription failed: ${e.localizedMessage}")
             }
         }
     }
-
     private fun showError(message: String) {
         errorMessage = message
         recordingState = RecordingState.ERROR

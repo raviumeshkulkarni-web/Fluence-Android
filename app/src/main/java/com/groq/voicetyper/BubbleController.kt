@@ -43,6 +43,8 @@ object BubbleController {
     private var offlinePipeline: OfflineTranscriptionPipeline? = null
     private var isOfflineMode = false
     private var offlineAmplitudeJob: kotlinx.coroutines.Job? = null
+    private var offlineInitJob: kotlinx.coroutines.Job? = null
+    private val offlineTextAccumulator = java.lang.StringBuilder()
 
     /**
      * Strong reference to the currently-focused editable accessibility node.
@@ -101,9 +103,31 @@ object BubbleController {
                 Log.e(TAG, "Failed to start FloatingBubbleService", e)
             }
         }
+
+        // Pre-initialize offline pipeline after a delay to allow entry animations to complete smoothly
+        val appCtx = context.applicationContext
+        if (OfflinePreferences.isOfflineModeEnabled(appCtx) && ModelAssetManager.isModelReadySync(appCtx)) {
+            offlineInitJob?.cancel()
+            offlineInitJob = scope.launch {
+                kotlinx.coroutines.delay(600) // Let overlay scale/fade animations finish
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    try {
+                        val modelDir = ModelAssetManager.getModelDir(appCtx).absolutePath
+                        val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(appCtx).also {
+                            offlinePipeline = it
+                        }
+                        pipeline.initialize(modelDir)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
+                    }
+                }
+            }
+        }
     }
 
     fun hideBubble() {
+        offlineInitJob?.cancel()
+        offlineInitJob = null
         // Only cancel if actively recording — don't discard an in-flight transcription
         if (_recordingState.value == RecordingState.RECORDING) {
             cancelRecording()
@@ -118,8 +142,17 @@ object BubbleController {
         }
         offlineAmplitudeJob?.cancel()
         offlineAmplitudeJob = null
-        scope.launch {
-            offlinePipeline?.forceRelease()
+        offlineTextAccumulator.clear()
+    }
+
+    fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND || 
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            Log.d(TAG, "onTrimMemory: Level $level. Releasing offline pipeline resources.")
+            scope.launch {
+                offlineInitJob?.cancel()
+                offlinePipeline?.forceRelease()
+            }
         }
     }
 
@@ -140,22 +173,35 @@ object BubbleController {
         initRecorder(context)
         _errorMessage.value = null
         _isAgentMode.value = agentMode
-        _recordingState.value = RecordingState.RECORDING
         _isBubbleExpanded.value = true
 
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(context)
         if (!agentMode && isOfflineMode && ModelAssetManager.isModelReadySync(context)) {
+            // startOfflineRecording manages _recordingState itself
             startOfflineRecording(context)
         } else {
+            _recordingState.value = RecordingState.RECORDING
             audioRecorder?.startRecording()
         }
     }
 
     fun stopRecording(context: Context) {
-        if (!_isAgentMode.value && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+        if (!_isAgentMode.value && isOfflineMode) {
             _recordingState.value = RecordingState.TRANSCRIBING
             scope.launch {
-                offlinePipeline?.stop()
+                offlineInitJob?.cancel()
+                offlinePipeline?.let {
+                    if (it.isRunning.value) it.stop() else it.forceRelease()
+                }
+                
+                val finalTranscription = offlineTextAccumulator.toString().trim()
+                if (finalTranscription.isNotEmpty()) {
+                    mainHandler.post {
+                        injectText(context, "$finalTranscription ")
+                    }
+                }
+                offlineTextAccumulator.clear()
+                
                 _recordingState.value = RecordingState.IDLE
                 _isBubbleExpanded.value = false
             }
@@ -172,11 +218,13 @@ object BubbleController {
     }
 
     fun cancelRecording() {
-        if (!_isAgentMode.value && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+        if (!_isAgentMode.value && isOfflineMode) {
             offlineAmplitudeJob?.cancel()
             offlineAmplitudeJob = null
             scope.launch {
+                offlineInitJob?.cancel()
                 offlinePipeline?.forceRelease()
+                offlineTextAccumulator.clear()
                 _recordingState.value = RecordingState.IDLE
                 _isBubbleExpanded.value = false
                 _isAgentMode.value = false
@@ -583,7 +631,6 @@ object BubbleController {
             }
         }
     }
-
     private fun startOfflineRecording(context: Context) {
         scope.launch {
             try {
@@ -591,12 +638,22 @@ object BubbleController {
                 val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(context).also {
                     offlinePipeline = it
                 }
+                
+                // ACCUMULATE INSTEAD OF INJECTING IMMEDIATELY
+                offlineTextAccumulator.clear()
                 pipeline.onTextTranscribed = { text ->
-                    mainHandler.post {
-                        injectText(context, text)
+                    val cleanText = text.trim()
+                    if (cleanText.isNotEmpty()) {
+                        offlineTextAccumulator.append(cleanText).append(" ")
                     }
                 }
-                pipeline.initialize(modelDir)
+
+                if (!pipeline.isReady()) {
+                    _recordingState.value = RecordingState.TRANSCRIBING
+                    pipeline.initialize(modelDir)
+                }
+
+                _recordingState.value = RecordingState.RECORDING
                 pipeline.start()
 
                 // Collect amplitude from offline pipeline for UI visualization

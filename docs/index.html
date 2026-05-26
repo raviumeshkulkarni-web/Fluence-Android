@@ -56,7 +56,7 @@
 
         <!-- Hero Section -->
         <section class="hero" id="hero-sec">
-            <div class="version-tag">Latest release v1.2.1</div>
+            <div class="version-tag">Latest release v1.3.0</div>
             <h1>Crystallize your cognition at the <span class="text-gradient">speed of thought</span></h1>
             <p>An open-source, system-wide floating voice typing assistant for Android powered by the ultra-fast Groq Whisper API.</p>
             <div class="hero-ctas">
@@ -357,10 +357,10 @@
                 <div class="glass-panel roadmap-card active">
                     <div class="roadmap-header">
                         <span class="roadmap-phase">Phase 1</span>
-                        <span class="roadmap-badge badge-active">In Development</span>
+                        <span class="roadmap-badge badge-active" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25);">Released</span>
                     </div>
                     <h3>Local Edge Models</h3>
-                    <p class="roadmap-desc">We are bringing offline voice typing to Fluence. By deploying lightweight, optimized edge models (such as Whisper Mobile/ONNX) directly on Android, the app will support zero-internet, completely offline transcription that runs entirely on-device while preserving transcription quality.</p>
+                    <p class="roadmap-desc">Offline voice typing is now live! Powered by Alibaba's quantized **SenseVoice-Small** (ONNX format) running locally via the `sherpa-onnx` runtime engine. Users can download the model on-demand (~230MB) directly to internal storage for 100% offline, privacy-first transcription with zero latency and zero data egress.</p>
                 </div>
                 <div class="glass-panel roadmap-card">
                     <div class="roadmap-header">
@@ -398,7 +398,7 @@
                 <details name="faq-accordion" class="glass-panel faq-item">
                     <summary>Can it run completely offline?</summary>
                     <div class="faq-content">
-                        <p>Currently, Fluence requires an internet connection to send audio to Groq Whisper v3. However, fully offline local edge models are the top priority on our roadmap (Phase 1) and will be released in an upcoming update to allow complete zero-internet voice typing.</p>
+                        <p>Yes! Fluence now supports 100% offline, on-device voice dictation. By toggling "Offline Transcription" in the settings, the app downloads an optimized on-device SenseVoice-Small ONNX model (~230MB). Once downloaded, all transcription is executed completely locally on your device with zero internet connectivity and zero data egress, providing maximum privacy and zero latency.</p>
                     </div>
                 </details>
             </div>

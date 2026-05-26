@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 class MainActivity : ComponentActivity() {
 
@@ -666,15 +668,22 @@ fun SetupScreen(
 
     // Load initial states and periodically update status parameters
     LaunchedEffect(Unit) {
-        apiKeyInput = SecurityUtils.getApiKey(context) ?: ""
+        val initialInfo = withContext(Dispatchers.IO) {
+            val key = SecurityUtils.getApiKey(context) ?: ""
+            val bubbleEnabled = context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
+                .getBoolean("floating_bubble_enabled", false)
+            val offlineEnabled = OfflinePreferences.isOfflineModeEnabled(context)
+            val modelDownloaded = ModelAssetManager.isModelReadySync(context)
+            val sizeBytes = ModelAssetManager.getModelSizeOnDisk(context)
+            InitialInfo(key, bubbleEnabled, offlineEnabled, modelDownloaded, sizeBytes)
+        }
+
+        apiKeyInput = initialInfo.key
         isKeySaved = apiKeyInput.isNotBlank()
-
-        isFloatingBubbleEnabled = context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
-            .getBoolean("floating_bubble_enabled", false)
-
-        isOfflineModeEnabled = OfflinePreferences.isOfflineModeEnabled(context)
-        isModelDownloaded = ModelAssetManager.isModelReadySync(context)
-        modelSizeMB = ModelAssetManager.getModelSizeOnDisk(context) / (1024L * 1024L)
+        isFloatingBubbleEnabled = initialInfo.bubbleEnabled
+        isOfflineModeEnabled = initialInfo.offlineEnabled
+        isModelDownloaded = initialInfo.modelDownloaded
+        modelSizeMB = initialInfo.sizeBytes / (1024L * 1024L)
 
         // Monitor download progress
         launch {
@@ -692,8 +701,10 @@ fun SetupScreen(
                     isModelDownloaded = true
                     modelSizeMB = ModelAssetManager.getModelSizeOnDisk(context) / (1024L * 1024L)
                 } else if (prog.state == ModelAssetManager.DownloadState.IDLE) {
-                    isModelDownloaded = ModelAssetManager.isModelReadySync(context)
-                    modelSizeMB = ModelAssetManager.getModelSizeOnDisk(context) / (1024L * 1024L)
+                    launch {
+                        isModelDownloaded = ModelAssetManager.isModelReady(context)
+                        modelSizeMB = ModelAssetManager.getModelSizeOnDisk(context) / (1024L * 1024L)
+                    }
                 }
             }
         }
@@ -707,41 +718,56 @@ fun SetupScreen(
         isSplashActive = false
     }
 
-    // Status sync loop running in background
+    // Status sync loop running in background (Optimized to offload to Dispatchers.IO)
     LaunchedEffect(Unit) {
         while (true) {
-            hasMicPermission = ContextCompat.checkSelfPermission(
-                context, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+            val results = withContext(Dispatchers.IO) {
+                val micPerm = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
 
-            val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            val enabledMethods = imeManager.enabledInputMethodList
-            val pkgName = context.packageName
+                val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                val enabledMethods = imeManager.enabledInputMethodList
+                val pkgName = context.packageName
 
-            isKeyboardEnabled = enabledMethods.any { it.packageName == pkgName }
+                val keyboardEnabled = enabledMethods.any { it.packageName == pkgName }
 
-            val selectedImeId = Settings.Secure.getString(
-                context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD
-            ) ?: ""
-            isKeyboardSelected = selectedImeId.contains(pkgName)
+                val selectedImeId = Settings.Secure.getString(
+                    context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD
+                ) ?: ""
+                val keyboardSelected = selectedImeId.contains(pkgName)
 
-            // Check overlay permission (Settings.canDrawOverlays is API 23+)
-            hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                Settings.canDrawOverlays(context)
-            } else {
-                true
+                val overlayPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Settings.canDrawOverlays(context)
+                } else {
+                    true
+                }
+
+                val accessibilityEnabled = isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java)
+
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val batteryOptimizationsIgnored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    powerManager.isIgnoringBatteryOptimizations(pkgName)
+                } else {
+                    true
+                }
+
+                StatusResults(
+                    hasMicPermission = micPerm,
+                    isKeyboardEnabled = keyboardEnabled,
+                    isKeyboardSelected = keyboardSelected,
+                    hasOverlayPermission = overlayPerm,
+                    isAccessibilityEnabled = accessibilityEnabled,
+                    isBatteryOptimizationsIgnored = batteryOptimizationsIgnored
+                )
             }
 
-            // Check if our accessibility service is active
-            isAccessibilityEnabled = isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java)
-
-            // Check if battery optimization is disabled for Fluence
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            isBatteryOptimizationsIgnored = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                powerManager.isIgnoringBatteryOptimizations(pkgName)
-            } else {
-                true
-            }
+            hasMicPermission = results.hasMicPermission
+            isKeyboardEnabled = results.isKeyboardEnabled
+            isKeyboardSelected = results.isKeyboardSelected
+            hasOverlayPermission = results.hasOverlayPermission
+            isAccessibilityEnabled = results.isAccessibilityEnabled
+            isBatteryOptimizationsIgnored = results.isBatteryOptimizationsIgnored
 
             delay(1500)
         }
@@ -1482,3 +1508,20 @@ fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<out andr
     }
     return false
 }
+
+private data class StatusResults(
+    val hasMicPermission: Boolean,
+    val isKeyboardEnabled: Boolean,
+    val isKeyboardSelected: Boolean,
+    val hasOverlayPermission: Boolean,
+    val isAccessibilityEnabled: Boolean,
+    val isBatteryOptimizationsIgnored: Boolean
+)
+
+private data class InitialInfo(
+    val key: String,
+    val bubbleEnabled: Boolean,
+    val offlineEnabled: Boolean,
+    val modelDownloaded: Boolean,
+    val sizeBytes: Long
+)

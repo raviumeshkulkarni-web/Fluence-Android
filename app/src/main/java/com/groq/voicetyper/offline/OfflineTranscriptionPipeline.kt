@@ -33,7 +33,7 @@ class OfflineTranscriptionPipeline(
         private const val MAX_CHUNK_DURATION_SEC = 25.0f   // Force-flush at 25s
         private const val VAD_SILENCE_THRESHOLD_SEC = 0.8f // Pause detection
         private const val SAMPLE_RATE = 16000
-        private const val IDLE_RELEASE_DELAY_MS = 30_000L
+        private const val IDLE_RELEASE_DELAY_MS = 60_000L // 1 minute idle cache
     }
 
     private val audioCapture = OfflineAudioCapture()
@@ -45,6 +45,9 @@ class OfflineTranscriptionPipeline(
 
     // Expose amplitude from audio capture
     val amplitude: StateFlow<Float> = audioCapture.amplitude
+
+    /** Returns true if both the VAD and transcriber engines are initialized and ready. */
+    fun isReady(): Boolean = transcriber.isReady() && vad != null
 
     private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var idleReleaseJob: Job? = null
@@ -92,6 +95,9 @@ class OfflineTranscriptionPipeline(
                 throw e
             }
         }
+        
+        // Schedule idle timeout to release model memory if not used
+        scheduleIdleRelease()
     }
 
     /**

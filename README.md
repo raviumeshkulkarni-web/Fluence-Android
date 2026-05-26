@@ -10,7 +10,7 @@
 
 **An AI powered voice typing system wide on Android, right at your cursor.**
 
-Fluence is a lightweight, premium, and privacy-focused Android voice typing system powered by the ultra-fast **Groq Whisper API (`whisper-large-v3`)**. Instead of forcing you to use a custom software keyboard, Fluence overlays a smart, floating bubble that automatically appears next to any text field when you focus it, whether you're browsing the web in **Brave/Chrome** or typing a message in a native messaging app.
+Fluence is a lightweight, premium, and privacy-focused Android voice typing system powered by the ultra-fast **Groq Whisper API (`whisper-large-v3`)** for cloud-based dictation, and a fully on-device **Alibaba SenseVoice-Small ONNX engine** for offline voice typing. Instead of forcing you to use a custom software keyboard, Fluence overlays a smart, floating bubble that automatically appears next to any text field when you focus it, whether you're browsing the web in **Brave/Chrome** or typing a message in a native messaging app.
 
 ---
 
@@ -51,6 +51,7 @@ Built for users who refuse to compromise on data security:
 
 ## 🛠️ Core Features
 
+* **Offline Transcription Mode 🔌:** Toggle 100% offline, English-only voice typing. Downloads Alibaba's **SenseVoice-Small** quantized model (~230MB) directly to internal storage on-demand. Audio is processed completely locally via the `sherpa-onnx` runtime with zero telemetry or cloud connection. Includes intelligent VAD (Voice Activity Detection) and automatic checksum verification.
 * **Floating Bubble for easy access:** A sleek, glassmorphic bubble overlay that follows your focus. Tap to speak, or hold to talk and release to instantly transcribe.
 * **AI Agent Mode 🤖:** Double-tap the microphone button/orb in the keyboard or floating bubble to activate Agent Mode. Powered by **Llama 3.3 70B**, Agent Mode processes natural language voice commands to edit or generate text directly inside any app:
   * *"Delete the last two sentences"* (calculates and performs precise local character deletion).
@@ -137,7 +138,9 @@ sequenceDiagram
 * **UI Toolkit:** Jetpack Compose (Material 3)
 * **Network Client:** OkHttp
 * **Local Security:** AndroidX Security Crypto
-* **AI Engine:** Groq Whisper STT API (`whisper-large-v3`) & Llama 3.3 (`llama-3.3-70b-versatile`) for natural language commands
+* **AI Engines:**
+  * **Cloud:** Groq Whisper STT API (`whisper-large-v3`) & Llama 3.3 (`llama-3.3-70b-versatile`)
+  * **Offline/On-Device:** Alibaba SenseVoice-Small (quantized int8 ONNX) via the `sherpa-onnx` runtime engine and Silero VAD for voice activity detection
 
 ---
 

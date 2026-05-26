@@ -216,6 +216,11 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        BubbleController.onTrimMemory(level)
+    }
+
     companion object {
         private const val NOTIFICATION_ID = 2026
     }

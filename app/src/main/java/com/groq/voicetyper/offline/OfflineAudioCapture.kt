@@ -137,7 +137,9 @@ class OfflineAudioCapture {
             _amplitude.value = maxVal.coerceIn(0f, 1f)
 
             // Pass normalized float samples to listener
-            listener.onAudioFrame(floatBuffer, readResult)
+            // Slice buffer to exact read length to prevent stale trailing data
+            val samplesToSend = if (readResult < FRAME_SIZE_SAMPLES) floatBuffer.copyOf(readResult) else floatBuffer
+            listener.onAudioFrame(samplesToSend, readResult)
         }
 
         try {

@@ -35,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,6 +87,7 @@ fun IMEScreen(
     isOfflineReady: Boolean = false,
     isOfflineMode: Boolean = false
 ) {
+    val coroutineScope = rememberCoroutineScope()
 
     // Recording duration timer
     var recordTimeSeconds by remember { mutableStateOf(0) }
@@ -290,7 +293,10 @@ fun IMEScreen(
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .scale(pingScale)
+                            .graphicsLayer {
+                                scaleX = pingScale
+                                scaleY = pingScale
+                            }
                     ) {
                         drawCircle(
                             color = (if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)).copy(alpha = pingAlpha),
@@ -315,23 +321,46 @@ fun IMEScreen(
                             .background(micBgColor)
                             .pointerInput(isEnabled) {
                                 if (!isEnabled) return@pointerInput
-                                detectTapGestures(
-                                    onPress = {
-                                        if (currentRecordingState == RecordingState.RECORDING) {
-                                            currentOnStopRecording()
-                                        }
-                                    },
-                                    onTap = {
-                                        if (currentRecordingState == RecordingState.IDLE || currentRecordingState == RecordingState.ERROR) {
-                                            currentOnStartRecording(false)
-                                        }
-                                    },
-                                    onDoubleTap = {
-                                        if (currentRecordingState == RecordingState.IDLE || currentRecordingState == RecordingState.ERROR) {
-                                            currentOnStartRecording(true)
+                                var lastTapTime = 0L
+                                var pendingStartJob: kotlinx.coroutines.Job? = null
+
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val down = awaitFirstDown()
+                                        down.consume()
+
+                                        // Wait for release
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            event.changes.forEach { it.consume() }
+                                        } while (event.changes.any { it.pressed })
+
+                                        // Finger lifted — determine action based on current state
+                                        val state = currentRecordingState
+                                        if (state == RecordingState.RECORDING || state == RecordingState.TRANSCRIBING) {
+                                            // STOP — immediate, no double-tap detection
+                                            pendingStartJob?.cancel()
+                                            if (state == RecordingState.RECORDING) {
+                                                currentOnStopRecording()
+                                            }
+                                        } else if (state == RecordingState.IDLE || state == RecordingState.ERROR) {
+                                            // START — with double-tap detection for agent mode
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastTapTime < 300) {
+                                                pendingStartJob?.cancel()
+                                                pendingStartJob = null
+                                                currentOnStartRecording(true)  // Double-tap → agent mode
+                                            } else {
+                                                pendingStartJob?.cancel()
+                                                pendingStartJob = coroutineScope.launch {
+                                                    kotlinx.coroutines.delay(250L)
+                                                    currentOnStartRecording(false)  // Single tap → dictation
+                                                }
+                                            }
+                                            lastTapTime = now
                                         }
                                     }
-                                )
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {

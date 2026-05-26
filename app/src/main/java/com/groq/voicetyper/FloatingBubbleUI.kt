@@ -43,7 +43,6 @@ fun FloatingBubbleUI(
     val context = LocalContext.current
     val isExpanded by BubbleController.isBubbleExpanded.collectAsState()
     val recordingState by BubbleController.recordingState.collectAsState()
-    val amplitude by BubbleController.amplitude.collectAsState()
     val errorMessage by BubbleController.errorMessage.collectAsState()
     var lastTapTime by remember { mutableStateOf(0L) }
     val coroutineScope = rememberCoroutineScope()
@@ -217,7 +216,7 @@ fun FloatingBubbleUI(
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             )
                         } else {
-                            SiriWaveform(amplitude = amplitude)
+                            SiriWaveform()
                         }
                     }
 
@@ -419,7 +418,8 @@ fun MiniFluenceOrb() {
  * Siri-Style multi-layered animated sine wave visualizer.
  */
 @Composable
-fun SiriWaveform(amplitude: Float) {
+fun SiriWaveform() {
+    val amplitude by BubbleController.amplitude.collectAsState()
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val wave1Color = if (isAgentMode) Color(0xFF00BBF9).copy(alpha = 0.45f) else Color(0xFF6366F1).copy(alpha = 0.45f)
     val wave2Color = if (isAgentMode) Color(0xFF00F5D4).copy(alpha = 0.65f) else Color(0xFFA855F7).copy(alpha = 0.65f)

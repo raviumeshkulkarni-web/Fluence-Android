@@ -52,6 +52,6 @@ jobs:
         files: app-release.apk
         name: Release ${{ github.ref_name }}
         draft: false
-        prerelease: false
+        prerelease: ${{ contains(github.ref_name, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
