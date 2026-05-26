@@ -153,6 +153,7 @@ object BubbleController {
 
     fun stopRecording(context: Context) {
         if (!_isAgentMode.value && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+            _recordingState.value = RecordingState.TRANSCRIBING
             scope.launch {
                 offlinePipeline?.stop()
                 _recordingState.value = RecordingState.IDLE

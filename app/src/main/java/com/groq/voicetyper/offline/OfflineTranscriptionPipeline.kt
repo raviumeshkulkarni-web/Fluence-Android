@@ -6,6 +6,7 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,8 @@ class OfflineTranscriptionPipeline(
 
     private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var idleReleaseJob: Job? = null
+    private var segmentChannel: Channel<FloatArray>? = null
+    private var workerJob: Job? = null
 
     var onTextTranscribed: ((String) -> Unit)? = null
 
@@ -103,6 +106,28 @@ class OfflineTranscriptionPipeline(
 
         _isRunning.value = true
 
+        // Create a new FIFO queue channel for sequential processing
+        val channel = Channel<FloatArray>(Channel.UNLIMITED)
+        segmentChannel = channel
+
+        // Launch a single sequential worker coroutine
+        workerJob = pipelineScope.launch {
+            for (samples in channel) {
+                try {
+                    val text = transcriber.transcribe(samples, SAMPLE_RATE)
+                    if (text.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            onTextTranscribed?.invoke(text)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in sequential transcription worker", e)
+                }
+            }
+        }
+
         audioCapture.startCapture(object : OfflineAudioCapture.AudioFrameListener {
             override fun onAudioFrame(samples: FloatArray, sampleCount: Int) {
                 if (!_isRunning.value) return
@@ -121,15 +146,8 @@ class OfflineTranscriptionPipeline(
             val segmentSamples = segment.samples.clone() // Clone to safely pass to background thread
             activeVad.pop()
 
-            Log.d(TAG, "Speech segment detected (size: ${segmentSamples.size} samples). Launching transcription.")
-            pipelineScope.launch {
-                val text = transcriber.transcribe(segmentSamples, SAMPLE_RATE)
-                if (text.isNotBlank()) {
-                    withContext(Dispatchers.Main) {
-                        onTextTranscribed?.invoke(text)
-                    }
-                }
-            }
+            Log.d(TAG, "Speech segment detected (size: ${segmentSamples.size} samples). Queueing for transcription.")
+            segmentChannel?.trySend(segmentSamples)
         }
     }
 
@@ -152,6 +170,16 @@ class OfflineTranscriptionPipeline(
             processVadSegments(activeVad)
         }
 
+        // Close channel and wait for the sequential worker to finish transcribing queued items
+        segmentChannel?.close()
+        try {
+            workerJob?.join()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error waiting for sequential worker completion", e)
+        }
+        segmentChannel = null
+        workerJob = null
+
         // Schedule idle timeout to release model memory if keyboard stays open/unused
         scheduleIdleRelease()
     }
@@ -172,6 +200,18 @@ class OfflineTranscriptionPipeline(
         _isRunning.value = false
 
         Log.d(TAG, "Force releasing pipeline resources")
+
+        // Cancel the worker job immediately
+        workerJob?.cancel()
+        segmentChannel?.close()
+        try {
+            workerJob?.join()
+        } catch (e: Exception) {
+            // Ignore
+        }
+        segmentChannel = null
+        workerJob = null
+
         try {
             audioCapture.stopCapture()
         } catch (e: Exception) {

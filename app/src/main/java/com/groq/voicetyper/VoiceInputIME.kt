@@ -227,6 +227,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 onStopRecording = {
                     if (!isAgentMode && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
+                        recordingState = RecordingState.TRANSCRIBING
                         scope.launch {
                             offlinePipeline?.stop()
                             recordingState = RecordingState.IDLE
