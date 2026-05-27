@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.File
 import com.groq.voicetyper.offline.*
 
 object BubbleController {
@@ -28,23 +27,13 @@ object BubbleController {
     private val _isBubbleExpanded = MutableStateFlow(false)
     val isBubbleExpanded: StateFlow<Boolean> = _isBubbleExpanded.asStateFlow()
 
-    private val _recordingState = MutableStateFlow(RecordingState.IDLE)
-    val recordingState: StateFlow<RecordingState> = _recordingState.asStateFlow()
+    // Delegate recording flows to the centralized TranscriptionSessionManager
+    val recordingState: StateFlow<RecordingState> = TranscriptionSessionManager.recordingState
+    val isAgentMode: StateFlow<Boolean> = TranscriptionSessionManager.isAgentMode
+    val errorMessage: StateFlow<String?> = TranscriptionSessionManager.errorMessage
+    val amplitude: StateFlow<Float> = TranscriptionSessionManager.amplitude
 
-    private val _isAgentMode = MutableStateFlow(false)
-    val isAgentMode: StateFlow<Boolean> = _isAgentMode.asStateFlow()
-
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-
-    private val _amplitude = MutableStateFlow(0f)
-    val amplitude: StateFlow<Float> = _amplitude.asStateFlow()
-
-    private var offlinePipeline: OfflineTranscriptionPipeline? = null
-    private var isOfflineMode = false
-    private var offlineAmplitudeJob: kotlinx.coroutines.Job? = null
-    private var offlineInitJob: kotlinx.coroutines.Job? = null
-    private val offlineTextAccumulator = java.lang.StringBuilder()
+    private var applicationContext: Context? = null
 
     /**
      * Strong reference to the currently-focused editable accessibility node.
@@ -52,30 +41,11 @@ object BubbleController {
      */
     private var activeNode: AccessibilityNodeInfo? = null
     private val nodeLock = Any()
-    private var audioRecorder: AudioRecorder? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var amplitudeCollectJob: kotlinx.coroutines.Job? = null
-
-    fun initRecorder(context: Context) {
-        if (audioRecorder == null) {
-            val appCtx = context.applicationContext
-            val recorder = AudioRecorder(appCtx)
-            audioRecorder = recorder
-            
-            // Monitor amplitude from AudioRecorder and update our state
-            amplitudeCollectJob?.cancel()
-            amplitudeCollectJob = scope.launch {
-                recorder.amplitude.collect {
-                    _amplitude.value = it
-                }
-            }
-        }
-    }
-
     fun showBubble(context: Context, node: AccessibilityNodeInfo) {
-        initRecorder(context)
+        applicationContext = context.applicationContext
 
         // Cache a strong reference to the focused node.
         // obtain() creates a copy so the original can be recycled by the caller.
@@ -104,56 +74,28 @@ object BubbleController {
             }
         }
 
-        // Pre-initialize offline pipeline after a delay to allow entry animations to complete smoothly
+        // Pre-initialize/pre-warm offline pipeline
         val appCtx = context.applicationContext
-        if (OfflinePreferences.isOfflineModeEnabled(appCtx) && ModelAssetManager.isModelReadySync(appCtx)) {
-            offlineInitJob?.cancel()
-            offlineInitJob = scope.launch {
-                kotlinx.coroutines.delay(600) // Let overlay scale/fade animations finish
-                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    try {
-                        val modelDir = ModelAssetManager.getModelDir(appCtx).absolutePath
-                        val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(appCtx).also {
-                            offlinePipeline = it
-                        }
-                        pipeline.initialize(modelDir)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
-                    }
-                }
-            }
-        }
+        TranscriptionSessionManager.preWarmOfflinePipeline(appCtx)
     }
 
     fun hideBubble() {
-        offlineInitJob?.cancel()
-        offlineInitJob = null
+        TranscriptionSessionManager.cancelPreWarm()
         // Only cancel if actively recording — don't discard an in-flight transcription
-        if (_recordingState.value == RecordingState.RECORDING) {
+        if (recordingState.value == RecordingState.RECORDING) {
             cancelRecording()
         }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
-        _isAgentMode.value = false
         @Suppress("DEPRECATION")
         synchronized(nodeLock) {
             activeNode?.recycle()
             activeNode = null
         }
-        offlineAmplitudeJob?.cancel()
-        offlineAmplitudeJob = null
-        offlineTextAccumulator.clear()
     }
 
     fun onTrimMemory(level: Int) {
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND || 
-            level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
-            Log.d(TAG, "onTrimMemory: Level $level. Releasing offline pipeline resources.")
-            scope.launch {
-                offlineInitJob?.cancel()
-                offlinePipeline?.forceRelease()
-            }
-        }
+        TranscriptionSessionManager.onTrimMemory(level)
     }
 
     /**
@@ -170,167 +112,77 @@ object BubbleController {
     }
 
     fun startRecording(context: Context, agentMode: Boolean = false) {
-        initRecorder(context)
-        _errorMessage.value = null
-        _isAgentMode.value = agentMode
         _isBubbleExpanded.value = true
+        applicationContext = context.applicationContext
 
-        isOfflineMode = OfflinePreferences.isOfflineModeEnabled(context)
-        if (!agentMode && isOfflineMode && ModelAssetManager.isModelReadySync(context)) {
-            // startOfflineRecording manages _recordingState itself
-            startOfflineRecording(context)
-        } else {
-            _recordingState.value = RecordingState.RECORDING
-            audioRecorder?.startRecording()
-        }
-    }
-
-    fun stopRecording(context: Context) {
-        if (!_isAgentMode.value && isOfflineMode) {
-            _recordingState.value = RecordingState.TRANSCRIBING
-            scope.launch {
-                offlineInitJob?.cancel()
-                offlinePipeline?.let {
-                    if (it.isRunning.value) it.stop() else it.forceRelease()
-                }
-                
-                val finalTranscription = offlineTextAccumulator.toString().trim()
-                if (finalTranscription.isNotEmpty()) {
+        val isOffline = OfflinePreferences.isOfflineModeEnabled(context)
+        TranscriptionSessionManager.startRecording(
+            context = context,
+            isOffline = isOffline,
+            agentMode = agentMode,
+            listener = object : SessionListener {
+                override fun onTranscription(text: String) {
                     mainHandler.post {
-                        injectText(context, "$finalTranscription ")
-                    }
-                }
-                offlineTextAccumulator.clear()
-                
-                _recordingState.value = RecordingState.IDLE
-                _isBubbleExpanded.value = false
-            }
-        } else {
-            _recordingState.value = RecordingState.TRANSCRIBING
-            val file = audioRecorder?.stopRecording()
-            if (file != null) {
-                transcribeAudio(context, file)
-            } else {
-                _recordingState.value = RecordingState.IDLE
-                _isBubbleExpanded.value = false
-            }
-        }
-    }
-
-    fun cancelRecording() {
-        if (!_isAgentMode.value && isOfflineMode) {
-            offlineAmplitudeJob?.cancel()
-            offlineAmplitudeJob = null
-            scope.launch {
-                offlineInitJob?.cancel()
-                offlinePipeline?.forceRelease()
-                offlineTextAccumulator.clear()
-                _recordingState.value = RecordingState.IDLE
-                _isBubbleExpanded.value = false
-                _isAgentMode.value = false
-            }
-        } else {
-            audioRecorder?.cancelRecording()
-            _recordingState.value = RecordingState.IDLE
-            _isBubbleExpanded.value = false
-            _isAgentMode.value = false
-        }
-    }
-
-    private fun transcribeAudio(context: Context, file: File) {
-        val apiKey = SecurityUtils.getApiKey(context)
-        if (apiKey.isNullOrBlank()) {
-            showError("API Key is missing. Set it in the app.")
-            file.delete()
-            return
-        }
-
-        _recordingState.value = RecordingState.TRANSCRIBING
-
-        scope.launch {
-            val languageCode = getKeyboardLanguageCode(context)
-            val result = GroqClient.transcribe(apiKey, file, languageCode)
-            result.fold(
-                onSuccess = { text ->
-                    if (text.isNotBlank()) {
-                        if (_isAgentMode.value) {
-                            processAgentCommand(context, apiKey, text)
-                        } else {
-                            injectText(context, text)
-                            _recordingState.value = RecordingState.IDLE
-                            _isBubbleExpanded.value = false
-                        }
-                    } else {
-                        _recordingState.value = RecordingState.IDLE
+                        injectText(context, "$text ")
                         _isBubbleExpanded.value = false
                     }
-                    _isAgentMode.value = false
-                },
-                onFailure = { error ->
-                    showError(error.localizedMessage ?: "Transcription failed")
-                    _isAgentMode.value = false
                 }
-            )
-        }
-    }
 
-    private fun getKeyboardLanguageCode(context: Context): String {
-        return try {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-            val subtype = imm?.currentInputMethodSubtype
-            val tag = subtype?.languageTag
-            if (!tag.isNullOrBlank()) {
-                val lang = tag.split("-")[0].lowercase()
-                if (lang.length == 2) lang else "en"
-            } else {
-                val localeLang = java.util.Locale.getDefault().language
-                if (!localeLang.isNullOrBlank() && localeLang.length == 2) localeLang else "en"
-            }
-        } catch (e: Exception) {
-            "en"
-        }
-    }
-
-    private suspend fun processAgentCommand(context: Context, apiKey: String, commandText: String) {
-        val contextText = synchronized(nodeLock) {
-            val node = activeNode
-            if (node != null) {
-                try { node.refresh() } catch (_: Exception) {}
-                if (node.isShowingHintText) {
-                    ""
-                } else {
-                    val fullText = node.text?.toString() ?: ""
-                    val selectionStart = node.textSelectionStart
-                    val beforeCursorText = if (selectionStart in 0..fullText.length) {
-                        fullText.substring(0, selectionStart)
-                    } else {
-                        fullText
-                    }
-                    if (beforeCursorText.length > 5000) {
-                        beforeCursorText.substring(beforeCursorText.length - 5000)
-                    } else {
-                        beforeCursorText
+                override fun onCommand(command: CommandResult, contextText: String) {
+                    mainHandler.post {
+                        executeCommandAction(context, command, contextText.length)
+                        _isBubbleExpanded.value = false
                     }
                 }
-            } else ""
-        }
-        val contextTextLength = contextText.length
 
-        val result = CommandProcessor.processCommand(apiKey, commandText, contextText)
-        result.fold(
-            onSuccess = { commandResult ->
-                mainHandler.post {
-                    executeCommandAction(context, commandResult, contextTextLength)
-                    _recordingState.value = RecordingState.IDLE
-                    _isBubbleExpanded.value = false
+                override fun getContextText(): String {
+                    return synchronized(nodeLock) {
+                        val node = activeNode
+                        if (node != null) {
+                            try { node.refresh() } catch (_: Exception) {}
+                            if (node.isShowingHintText) {
+                                ""
+                            } else {
+                                val fullText = node.text?.toString() ?: ""
+                                val selectionStart = node.textSelectionStart
+                                val beforeCursorText = if (selectionStart in 0..fullText.length) {
+                                    fullText.substring(0, selectionStart)
+                                } else {
+                                    fullText
+                                }
+                                if (beforeCursorText.length > 5000) {
+                                    beforeCursorText.substring(beforeCursorText.length - 5000)
+                                } else {
+                                    beforeCursorText
+                                }
+                            }
+                        } else ""
+                    }
                 }
-            },
-            onFailure = { error ->
-                mainHandler.post {
-                    showError(error.localizedMessage ?: "Command processing failed")
+
+                override fun onError(message: String) {
+                    mainHandler.post {
+                        // Error handling UI auto-collapses bubble on error after timeout
+                        mainHandler.removeCallbacksAndMessages(null)
+                        mainHandler.postDelayed({
+                            if (recordingState.value == RecordingState.IDLE) {
+                                _isBubbleExpanded.value = false
+                            }
+                        }, 4000)
+                    }
                 }
             }
         )
+    }
+
+    fun stopRecording(context: Context) {
+        TranscriptionSessionManager.stopRecording(context)
+    }
+
+    fun cancelRecording() {
+        val ctx = applicationContext ?: return
+        TranscriptionSessionManager.cancelRecording(ctx)
+        _isBubbleExpanded.value = false
     }
 
     private fun executeCommandAction(context: Context, result: CommandResult, contextTextLength: Int) {
@@ -364,21 +216,6 @@ object BubbleController {
                 }
             }
         }
-    }
-
-    private fun showError(message: String) {
-        _errorMessage.value = message
-        _recordingState.value = RecordingState.ERROR
-        Log.e(TAG, "Error: $message")
-
-        mainHandler.removeCallbacksAndMessages(null)
-        mainHandler.postDelayed({
-            if (_recordingState.value == RecordingState.ERROR) {
-                _recordingState.value = RecordingState.IDLE
-                _errorMessage.value = null
-                _isBubbleExpanded.value = false
-            }
-        }, 4000)
     }
 
     private fun restoreClipboard(clipboard: ClipboardManager, originalClip: android.content.ClipData?) {
@@ -556,9 +393,6 @@ object BubbleController {
         val selectionStart = node.textSelectionStart
         val selectionEnd = node.textSelectionEnd
 
-        // Deletion uses ACTION_SET_TEXT directly (not clipboard-paste with empty string)
-        // because shortening text via SET_TEXT is reliable across all OEMs, and apps
-        // will still see the text change and persist it.
         if (selectionStart >= count && selectionStart == selectionEnd) {
             val newText = StringBuilder(currentText).delete(selectionStart - count, selectionStart).toString()
             val bundle = Bundle()
@@ -572,7 +406,6 @@ object BubbleController {
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             }
         } else {
-            // Fallback to end of text deletion if cursor position is invalid/unset
             val textLength = currentText.length
             if (textLength >= count) {
                 val newText = StringBuilder(currentText).delete(textLength - count, textLength).toString()
@@ -590,10 +423,6 @@ object BubbleController {
         }
     }
 
-    /**
-     * Deletes one character (or selection) before the cursor.
-     * Uses ACTION_SET_TEXT directly — reliable for shortening text across all OEMs.
-     */
     fun performBackspace() {
         val node = synchronized(nodeLock) { activeNode } ?: return
         try { node.refresh() } catch (_: Exception) {}
@@ -628,45 +457,6 @@ object BubbleController {
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selectionStart)
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionStart)
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
-            }
-        }
-    }
-    private fun startOfflineRecording(context: Context) {
-        scope.launch {
-            try {
-                val modelDir = ModelAssetManager.getModelDir(context).absolutePath
-                val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(context).also {
-                    offlinePipeline = it
-                }
-                
-                // ACCUMULATE INSTEAD OF INJECTING IMMEDIATELY
-                offlineTextAccumulator.clear()
-                pipeline.onTextTranscribed = { text ->
-                    val cleanText = text.trim()
-                    if (cleanText.isNotEmpty()) {
-                        offlineTextAccumulator.append(cleanText).append(" ")
-                    }
-                }
-
-                if (!pipeline.isReady()) {
-                    _recordingState.value = RecordingState.TRANSCRIBING
-                    pipeline.initialize(modelDir)
-                }
-
-                _recordingState.value = RecordingState.RECORDING
-                pipeline.start()
-
-                // Collect amplitude from offline pipeline for UI visualization
-                offlineAmplitudeJob?.cancel()
-                offlineAmplitudeJob = scope.launch {
-                    pipeline.amplitude.collect {
-                        _amplitude.value = it
-                    }
-                }
-            } catch (e: Exception) {
-                mainHandler.post {
-                    showError(e.localizedMessage ?: "Offline transcription failed")
-                }
             }
         }
     }

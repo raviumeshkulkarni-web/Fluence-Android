@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -131,7 +132,10 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         }
 
         val view = ComposeView(this).apply {
-            setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            // Use hardware acceleration for 60fps fluidity
             setViewTreeLifecycleOwner(this@FloatingBubbleService)
             setViewTreeViewModelStoreOwner(this@FloatingBubbleService)
             setViewTreeSavedStateRegistryOwner(this@FloatingBubbleService)
@@ -190,8 +194,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         snapAnimator?.cancel()
         val startX = layoutParams.x
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
-        animator.duration = 250
-        animator.interpolator = android.view.animation.DecelerateInterpolator()
+        animator.duration = 350
+        animator.interpolator = android.view.animation.OvershootInterpolator(1.2f)
         animator.addUpdateListener { animation ->
             layoutParams.x = animation.animatedValue as Int
             composeView?.let {

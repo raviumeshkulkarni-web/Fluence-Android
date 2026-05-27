@@ -46,6 +46,9 @@ class OfflineTranscriptionPipeline(
     // Expose amplitude from audio capture
     val amplitude: StateFlow<Float> = audioCapture.amplitude
 
+    // Expose model loading/ready state to UI callers
+    val engineState: StateFlow<OfflineTranscriber.EngineState> = transcriber.engineState
+
     /** Returns true if both the VAD and transcriber engines are initialized and ready. */
     fun isReady(): Boolean = transcriber.isReady() && vad != null
 
@@ -57,21 +60,11 @@ class OfflineTranscriptionPipeline(
     var onTextTranscribed: ((String) -> Unit)? = null
 
     /**
-     * Initializes the pipeline:
-     *   1. Loads Silero VAD from APK assets (if not already loaded)
-     *   2. Ensures OfflineTranscriber engine is initialized
-     *
-     * Must be called before start(). Can be called from Dispatchers.IO.
+     * Synchronously loads the VAD model. Fast enough for main-thread execution (~1-2ms).
      */
-    suspend fun initialize(modelDir: String) = withContext(Dispatchers.IO) {
-        cancelIdleRelease()
-
-        // 1. Initialize transcriber
-        transcriber.initialize(modelDir)
-
-        // 2. Initialize Silero VAD
+    fun initializeVadSync() {
         if (vad == null) {
-            Log.d(TAG, "Initializing Silero VAD from APK assets")
+            Log.d(TAG, "Initializing Silero VAD from APK assets synchronously")
             try {
                 val sileroConfig = SileroVadModelConfig(
                     model = "silero_vad.onnx",
@@ -89,25 +82,35 @@ class OfflineTranscriptionPipeline(
                     debug = false
                 )
                 vad = Vad(context.assets, vadConfig)
-                Log.d(TAG, "Silero VAD initialized successfully")
+                Log.d(TAG, "Silero VAD initialized successfully (sync)")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize Vad", e)
+                Log.e(TAG, "Failed to initialize Vad synchronously", e)
                 throw e
             }
         }
-        
-        // Schedule idle timeout to release model memory if not used
+    }
+
+    /**
+     * Initializes the transcriber engine.
+     * Must be called before start() or during pre-warm. Can be called from Dispatchers.IO.
+     */
+    suspend fun initialize(modelDir: String) = withContext(Dispatchers.IO) {
+        cancelIdleRelease()
+        transcriber.initialize(modelDir)
         scheduleIdleRelease()
     }
 
     /**
      * Starts the recording → VAD → transcription pipeline.
+     * Captures audio immediately while loading the heavy transcription model in the background if not ready.
      */
-    fun start() {
+    fun start(modelDir: String) {
         if (_isRunning.value) return
         cancelIdleRelease()
 
-        val activeVad = vad ?: throw IllegalStateException("Pipeline not initialized. Call initialize first.")
+        // 1. Ensure VAD is initialized immediately
+        initializeVadSync()
+        val activeVad = vad ?: throw IllegalStateException("VAD is not initialized.")
         activeVad.reset()
 
         _isRunning.value = true
@@ -115,6 +118,18 @@ class OfflineTranscriptionPipeline(
         // Create a new FIFO queue channel for sequential processing
         val channel = Channel<FloatArray>(Channel.UNLIMITED)
         segmentChannel = channel
+
+        // 2. Launch model initialization concurrently in the background if not ready.
+        // Sherpa's internal Mutex ensures transcriber.transcribe() blocks until initialize() finishes.
+        pipelineScope.launch(Dispatchers.IO) {
+            try {
+                if (!transcriber.isReady()) {
+                    transcriber.initialize(modelDir)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Background transcription engine initialization failed", e)
+            }
+        }
 
         // Launch a single sequential worker coroutine
         workerJob = pipelineScope.launch {

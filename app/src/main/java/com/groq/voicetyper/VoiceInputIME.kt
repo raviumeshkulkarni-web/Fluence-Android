@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -49,23 +50,16 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
 
-    // Re-created in onCreate to ensure a fresh scope after destroy/re-create cycles
     private lateinit var scope: CoroutineScope
-    private lateinit var audioRecorder: AudioRecorder
     private lateinit var composeView: ComposeView
 
-    // Offline pipeline — null when offline mode is disabled
-    private var offlinePipeline: OfflineTranscriptionPipeline? = null
     private var isOfflineMode by mutableStateOf(false)
-    private var offlineInitJob: kotlinx.coroutines.Job? = null
-    private val offlineTextAccumulator = java.lang.StringBuilder()
 
-    // IME State
+    // IME State (delegated to TranscriptionSessionManager)
     private var apiKey by mutableStateOf<String?>(null)
     private var recordingState by mutableStateOf(RecordingState.IDLE)
     private var isAgentMode by mutableStateOf(false)
     private var errorMessage by mutableStateOf<String?>(null)
-    private val errorHandler = Handler(Looper.getMainLooper())
 
     // Backspace Swipe-to-Delete state
     private var initialCursorPos = -1
@@ -105,13 +99,31 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
         scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-        audioRecorder = AudioRecorder(this)
+
+        // Collect state from the centralized manager to update Compose states
+        scope.launch {
+            TranscriptionSessionManager.recordingState.collect {
+                recordingState = it
+            }
+        }
+        scope.launch {
+            TranscriptionSessionManager.isAgentMode.collect {
+                isAgentMode = it
+            }
+        }
+        scope.launch {
+            TranscriptionSessionManager.errorMessage.collect {
+                errorMessage = it
+            }
+        }
     }
 
     override fun onCreateInputView(): View {
         Log.d(TAG, "onCreateInputView: Creating Compose input view")
         composeView = ComposeView(this).apply {
-            setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
         }
 
         // Set the window background to transparent so the app behind is visible around the floating pill
@@ -123,16 +135,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 win.isNavigationBarContrastEnforced = false
-            }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                win.setDecorFitsSystemWindows(false)
-            } else {
-                @Suppress("DEPRECATION")
-                win.decorView.systemUiVisibility = (
-                    win.decorView.systemUiVisibility
-                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
             }
         }
 
@@ -150,7 +152,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
         composeView.setContent {
             IMEScreen(
-                audioRecorder = audioRecorder,
+                audioRecorder = AudioRecorder(this), // Pass a dummy unused instance
                 apiKey = apiKey,
                 onBackspace = {
                     val conn = currentInputConnection
@@ -200,71 +202,54 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 isAgentMode = isAgentMode,
                 errorMessage = errorMessage,
                 onCancelRecording = {
-                    if (!isAgentMode && isOfflineMode) {
-                        scope.launch {
-                            offlineInitJob?.cancel()
-                            offlinePipeline?.forceRelease()
-                            offlineTextAccumulator.clear()
-                            recordingState = RecordingState.IDLE
-                        }
-                    } else {
-                        audioRecorder.cancelRecording()
-                        recordingState = RecordingState.IDLE
-                        isAgentMode = false
-                    }
+                    TranscriptionSessionManager.cancelRecording(this@VoiceInputIME)
                 },
                 onStartRecording = { agentMode ->
-                    errorMessage = null
-                    if (agentMode) {
-                        recordingState = RecordingState.RECORDING
-                        isAgentMode = true
-                        audioRecorder.startRecording()
-                    } else if (isOfflineMode && ModelAssetManager.isModelReadySync(this)) {
-                        isAgentMode = false
-                        startOfflineRecording()
-                    } else {
-                        recordingState = RecordingState.RECORDING
-                        isAgentMode = false
-                        audioRecorder.startRecording()
-                    }
+                    val isOffline = OfflinePreferences.isOfflineModeEnabled(this@VoiceInputIME)
+                    TranscriptionSessionManager.startRecording(
+                        context = this@VoiceInputIME,
+                        isOffline = isOffline,
+                        agentMode = agentMode,
+                        listener = object : SessionListener {
+                            override fun onTranscription(text: String) {
+                                currentInputConnection?.commitText("$text ", 1)
+                            }
+
+                            override fun onCommand(command: CommandResult, contextText: String) {
+                                executeCommandAction(command, contextText)
+                            }
+
+                            override fun getContextText(): String {
+                                return currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
+                            }
+
+                            override fun onError(message: String) {
+                                // State handled by manager
+                            }
+                        }
+                    )
                 },
                 onStopRecording = {
-                    if (!isAgentMode && isOfflineMode) {
-                        recordingState = RecordingState.TRANSCRIBING
-                        scope.launch {
-                            offlineInitJob?.cancel()
-                            offlinePipeline?.let {
-                                if (it.isRunning.value) it.stop() else it.forceRelease()
-                            }
-                            val finalTranscription = offlineTextAccumulator.toString().trim()
-                            if (finalTranscription.isNotEmpty()) {
-                                currentInputConnection?.commitText("$finalTranscription ", 1)
-                            }
-                            offlineTextAccumulator.clear()
-                            recordingState = RecordingState.IDLE
-                        }
-                    } else {
-                        recordingState = RecordingState.TRANSCRIBING
-                        val file = audioRecorder.stopRecording()
-                        if (file != null) {
-                            transcribeAudio(file)
-                        } else {
-                            recordingState = RecordingState.IDLE
-                        }
-                    }
+                    TranscriptionSessionManager.stopRecording(this@VoiceInputIME)
                 },
                 onSwitchKeyboard = {
-                    val token = window?.window?.attributes?.token
-                    if (token != null) {
-                        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        try {
-                            imm.switchToNextInputMethod(token, false)
-                        } catch (e: Exception) {
+                    try {
+                        var switched = false
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            switched = this@VoiceInputIME.switchToNextInputMethod(false)
+                        } else {
+                            val token = this@VoiceInputIME.window?.window?.attributes?.token
+                            if (token != null) {
+                                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                switched = imm.switchToNextInputMethod(token, false)
+                            }
+                        }
+                        if (!switched) {
+                            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                             imm.showInputMethodPicker()
                         }
-                    } else {
-                        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                        imm.showInputMethodPicker()
+                    } catch (e: Throwable) {
+                        android.util.Log.e("VoiceInputIME", "Failed to switch keyboard", e)
                     }
                 },
                 isOfflineReady = ModelAssetManager.isModelReadySync(this),
@@ -277,46 +262,24 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
-
+        // Guard: composeView must be initialized AND laid out (height > 0).
+        // onComputeInsets can be called by the framework before onCreateInputView
+        // completes its first layout pass, in which case height is 0.
         if (!::composeView.isInitialized) return
-        val windowHeight = composeView.height
-        if (windowHeight <= 0) return
+        val view = composeView
+        val windowHeight = view.height
+        if (windowHeight <= 0) return  // Not yet laid out; skip inset computation.
 
-        val displayMetrics = resources.displayMetrics
-        val density = displayMetrics.density
+        val navBarHeight = 0 // Optional: adjust if nav bar padding is needed
 
+        // Touch transparent padding around pill
+        val density = resources.displayMetrics.density
         val pillWidth = (240 * density).toInt()
         val pillHeight = (64 * density).toInt()
-        val windowWidth = displayMetrics.widthPixels
-
-        val left = (windowWidth - pillWidth) / 2
-        val right = (windowWidth + pillWidth) / 2
-
-        // The top of the pill bar is estimated from the bottom.
-        // We add some margin for safety (e.g. 16dp bottom padding + 64dp pill height)
-        val bottomMargin = (16 * density).toInt()
-        val isStatusVisible = recordingState != RecordingState.IDLE || errorMessage != null
-        val topOffset = if (isStatusVisible) {
-            (48 * density).toInt()
-        } else {
-            0
-        }
-
-        // Get actual navigation bar height since the window now layouts under it
-        val insetsBottom = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            composeView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            @Suppress("DEPRECATION")
-            composeView.rootWindowInsets?.stableInsetBottom
-        } else {
-            null
-        }
-        val navBarHeight = insetsBottom ?: run {
-            val resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
-            if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
-        }
-
-        val top = windowHeight - navBarHeight - pillHeight - bottomMargin - topOffset
+        
+        val left = (view.width - pillWidth) / 2
+        val right = left + pillWidth
+        val top = windowHeight - pillHeight - (16 * density).toInt()
         val bottom = windowHeight - navBarHeight
 
         val rect = android.graphics.Rect(left, top.coerceAtLeast(0), right, bottom.coerceAtLeast(0))
@@ -328,50 +291,22 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         Log.d(TAG, "onStartInputView: Starting input view, restarting=$restarting, inputType=${info?.inputType}")
-        // Refresh API Key from EncryptedSharedPreferences on open
         apiKey = SecurityUtils.getApiKey(this)
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
-        recordingState = RecordingState.IDLE
-        errorMessage = null
+
+        TranscriptionSessionManager.preWarmOfflinePipeline(this)
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-
-        // Pre-initialize offline pipeline in background after a delay so we don't interfere with keyboard slide-in animation
-        if (isOfflineMode && ModelAssetManager.isModelReadySync(this)) {
-            offlineInitJob?.cancel()
-            offlineInitJob = scope.launch {
-                kotlinx.coroutines.delay(600) // Let entry animations finish
-                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    try {
-                        val modelDir = ModelAssetManager.getModelDir(this@VoiceInputIME).absolutePath
-                        val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(this@VoiceInputIME).also {
-                            offlinePipeline = it
-                        }
-                        pipeline.initialize(modelDir)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
-                    }
-                }
-            }
-        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        offlineInitJob?.cancel()
-        // Stop any ongoing recording when keyboard is closed
+        TranscriptionSessionManager.cancelPreWarm()
+        
         if (recordingState == RecordingState.RECORDING) {
-            if (!isAgentMode && isOfflineMode && offlinePipeline?.isRunning?.value == true) {
-                scope.launch {
-                    offlinePipeline?.forceRelease()
-                }
-            } else {
-                audioRecorder.cancelRecording()
-            }
+            TranscriptionSessionManager.cancelRecording(this)
         }
-        offlineTextAccumulator.clear()
-        recordingState = RecordingState.IDLE
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -379,75 +314,33 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_BACKGROUND || level == TRIM_MEMORY_RUNNING_CRITICAL) {
-            Log.d(TAG, "onTrimMemory: Level $level. Releasing offline pipeline resources to reclaim RAM.")
-            scope.launch {
-                offlineInitJob?.cancel()
-                offlinePipeline?.forceRelease()
-            }
-        }
+        TranscriptionSessionManager.onTrimMemory(level)
     }
 
     override fun onDestroy() {
-        errorHandler.removeCallbacksAndMessages(null)
+        // Cancel any active recording FIRST, before we destroy anything.
+        // This ensures the SessionManager's state is clean before we reset it.
+        if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
+            TranscriptionSessionManager.cancelRecording(this)
+        }
+
+        // Destroy the session manager state (resets all StateFlows, releases pipeline).
+        TranscriptionSessionManager.destroy()
+
+        // Explicitly clear ViewTree owners from the decor view to prevent leaking
+        // references to the destroyed service instance when switching keyboards.
+        window?.window?.decorView?.let { decorView ->
+            decorView.setViewTreeLifecycleOwner(null)
+            decorView.setViewTreeViewModelStoreOwner(null)
+            decorView.setViewTreeSavedStateRegistryOwner(null)
+        }
+
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         store.clear()
+        // Cancel the IME's own coroutine scope (the state collectors launched in onCreate).
+        // This is safe to cancel because TranscriptionSessionManager has its own process-level scope.
         scope.cancel()
         super.onDestroy()
-    }
-
-    /**
-     * Sends audio to GroqClient for transcription and commits the result to the input field.
-     * File ownership is transferred to GroqClient — it handles deletion.
-     */
-    private fun transcribeAudio(file: File) {
-        val key = apiKey
-        if (key.isNullOrBlank()) {
-            showError("API Key is missing. Set it in the app.")
-            // GroqClient owns file deletion, but since we're not calling it, delete here
-            file.delete()
-            return
-        }
-
-        recordingState = RecordingState.TRANSCRIBING
-
-        scope.launch {
-            val languageCode = getKeyboardLanguageCode()
-            val result = GroqClient.transcribe(key, file, languageCode)
-            result.fold(
-                onSuccess = { text ->
-                    if (text.isNotBlank()) {
-                        if (isAgentMode) {
-                            val contextText = currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
-                            val cmdResult = CommandProcessor.processCommand(key, text, contextText)
-                            cmdResult.fold(
-                                onSuccess = { commandResult ->
-                                    executeCommandAction(commandResult, contextText)
-                                    recordingState = RecordingState.IDLE
-                                },
-                                onFailure = { error ->
-                                    showError(error.localizedMessage ?: "Agent processing failed")
-                                }
-                            )
-                        } else {
-                            currentInputConnection?.let { connection ->
-                                // Trim and insert with a clean trailing space for easy formatting
-                                val cleanText = text.trim()
-                                connection.commitText("$cleanText ", 1)
-                            }
-                            recordingState = RecordingState.IDLE
-                        }
-                    } else {
-                        recordingState = RecordingState.IDLE
-                    }
-                    isAgentMode = false
-                },
-                onFailure = { error ->
-                    showError(error.localizedMessage ?: "Transcription failed")
-                    isAgentMode = false
-                }
-            )
-        }
     }
 
     private fun executeCommandAction(result: CommandResult, contextText: String) {
@@ -489,68 +382,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 }
             }
         }
-    }
-
-    private fun getKeyboardLanguageCode(): String {
-        return try {
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            val subtype = imm?.currentInputMethodSubtype
-            val tag = subtype?.languageTag
-            if (!tag.isNullOrBlank()) {
-                val lang = tag.split("-")[0].lowercase()
-                if (lang.length == 2) lang else "en"
-            } else {
-                val localeLang = java.util.Locale.getDefault().language
-                if (!localeLang.isNullOrBlank() && localeLang.length == 2) localeLang else "en"
-            }
-        } catch (e: Exception) {
-            "en"
-        }
-    }
-    private fun startOfflineRecording() {
-        scope.launch {
-            try {
-                val modelDir = ModelAssetManager.getModelDir(this@VoiceInputIME).absolutePath
-                val pipeline = offlinePipeline ?: OfflineTranscriptionPipeline(this@VoiceInputIME).also {
-                    offlinePipeline = it
-                }
-                
-                // ACCUMULATE INSTEAD OF COMMITTING IMMEDIATELY
-                offlineTextAccumulator.clear()
-                pipeline.onTextTranscribed = { text ->
-                    val cleanText = text.trim()
-                    if (cleanText.isNotEmpty()) {
-                        offlineTextAccumulator.append(cleanText).append(" ")
-                    }
-                }
-
-                if (!pipeline.isReady()) {
-                    // Model not yet warm — show loading indicator
-                    recordingState = RecordingState.TRANSCRIBING
-                    pipeline.initialize(modelDir)
-                }
-
-                // Model is warm — start capturing
-                recordingState = RecordingState.RECORDING
-                pipeline.start()
-            } catch (e: Exception) {
-                showError("Offline transcription failed: ${e.localizedMessage}")
-            }
-        }
-    }
-    private fun showError(message: String) {
-        errorMessage = message
-        recordingState = RecordingState.ERROR
-        Log.e(TAG, "Error: $message")
-
-        // Auto-clear error state back to IDLE after 4 seconds
-        errorHandler.removeCallbacksAndMessages(null)
-        errorHandler.postDelayed({
-            if (recordingState == RecordingState.ERROR) {
-                recordingState = RecordingState.IDLE
-                errorMessage = null
-            }
-        }, 4000)
     }
 
     companion object {

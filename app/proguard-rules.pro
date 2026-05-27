@@ -30,8 +30,23 @@
 -keep class androidx.compose.runtime.** { *; }
 
 # --- App classes ---
-# Keep all application classes to prevent R8 from breaking services and Compose overlays
--keep class com.groq.voicetyper.** { *; }
+# Keep JSON deserialization structures to prevent R8 from stripping field names
+-keep class com.groq.voicetyper.CommandResult { *; }
+-keep class com.groq.voicetyper.offline.ModelAssetManager$DownloadProgress { *; }
+-keep class com.groq.voicetyper.offline.ModelAssetManager$DownloadState { *; }
+-keep class com.groq.voicetyper.offline.OfflineTranscriber$EngineState { *; }
+-keep class com.groq.voicetyper.RecordingState { *; }
+
+# --- Sherpa ONNX ---
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-keepclassmembers class com.k2fsa.sherpa.onnx.** { *; }
+-keepclasseswithmembernames class com.k2fsa.sherpa.onnx.** {
+    native <methods>;
+}
+
+# --- ONNX Runtime ---
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
 
 
 # --- General ---

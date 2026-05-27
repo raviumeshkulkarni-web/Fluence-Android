@@ -16,7 +16,7 @@ import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
 object ModelAssetManager {
-    const val MODEL_DIR_NAME = "sensevoice"
+    const val MODEL_DIR_NAME = "sensevoice_v2"
     const val MODEL_FILENAME = "model.int8.onnx"
     const val TOKENS_FILENAME = "tokens.txt"
 
@@ -52,6 +52,10 @@ object ModelAssetManager {
      * Does NOT calculate hashes to avoid blocking the main thread.
      */
     fun isModelReadySync(context: Context): Boolean {
+        val currentState = _progress.value.state
+        if (currentState == DownloadState.DOWNLOADING || currentState == DownloadState.VERIFYING) {
+            return false
+        }
         val dir = File(context.filesDir, MODEL_DIR_NAME)
         if (!dir.exists() || !dir.isDirectory) return false
 
@@ -67,6 +71,10 @@ object ModelAssetManager {
      * Comprehensive asynchronous check including SHA256 validation.
      */
     suspend fun isModelReady(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val currentState = _progress.value.state
+        if (currentState == DownloadState.DOWNLOADING || currentState == DownloadState.VERIFYING) {
+            return@withContext false
+        }
         val dir = File(context.filesDir, MODEL_DIR_NAME)
         if (!dir.exists() || !dir.isDirectory) return@withContext false
 

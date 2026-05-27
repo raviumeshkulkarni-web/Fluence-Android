@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -88,6 +89,8 @@ fun IMEScreen(
     isOfflineMode: Boolean = false
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val view = androidx.compose.ui.platform.LocalView.current
+    val offlineEngineState by TranscriptionSessionManager.offlineEngineState.collectAsState()
 
     // Recording duration timer
     var recordTimeSeconds by remember { mutableStateOf(0) }
@@ -158,7 +161,17 @@ fun IMEScreen(
 
     val statusText = when (recordingState) {
         RecordingState.IDLE -> if (isOfflineReady && isOfflineMode) "Ready (offline)" else if (apiKey.isNullOrBlank()) "API KEY REQUIRED" else "Ready"
-        RecordingState.RECORDING -> if (isAgentMode) "AI Command Mode... ($timeText)" else if (isOfflineMode) "Listening (offline)... ($timeText)" else "Listening... ($timeText)"
+        RecordingState.RECORDING -> {
+            if (isAgentMode) {
+                "AI Command Mode... ($timeText)"
+            } else if (isOfflineMode && offlineEngineState == OfflineEngineState.LOADING) {
+                "Preparing model... ($timeText)"
+            } else if (isOfflineMode) {
+                "Listening (offline)... ($timeText)"
+            } else {
+                "Listening... ($timeText)"
+            }
+        }
         RecordingState.TRANSCRIBING -> "Transcribing..."
         RecordingState.ERROR -> errorMessage ?: "ERROR"
     }
@@ -193,17 +206,6 @@ fun IMEScreen(
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        val glowPaint = remember {
-            android.graphics.Paint().apply {
-                this.style = android.graphics.Paint.Style.STROKE
-            }
-        }
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val glowRadiusPx = with(density) { 8.dp.toPx() }
-        val glowMaskFilter = remember(glowRadiusPx) {
-            android.graphics.BlurMaskFilter(glowRadiusPx, android.graphics.BlurMaskFilter.Blur.NORMAL)
-        }
-
         // Centered Glass Pill Bar
         Row(
             modifier = Modifier
@@ -213,13 +215,22 @@ fun IMEScreen(
                     val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
                     val glowColor = baseGlowColor.copy(alpha = if (isListening) 0.65f else 0.45f)
                     val shapeRadiusPx = 32.dp.toPx()
+                    val maxOffset = 8.dp.toPx()
 
-                    drawIntoCanvas { canvas ->
-                        glowPaint.color = glowColor.toArgb()
-                        glowPaint.strokeWidth = 2.dp.toPx() + glowRadiusPx * 0.4f
-                        glowPaint.maskFilter = glowMaskFilter
-                        val rect = android.graphics.RectF(0f, 0f, size.width, size.height)
-                        canvas.nativeCanvas.drawRoundRect(rect, shapeRadiusPx, shapeRadiusPx, glowPaint)
+                    // Draw concentric layers for a soft gradient glow (hardware-accelerated)
+                    val steps = 5
+                    for (i in 1..steps) {
+                        val offset = maxOffset * (i.toFloat() / steps)
+                        val alpha = glowColor.alpha * (1.0f - (i.toFloat() / (steps + 1)))
+                        val strokeWidth = maxOffset / steps * 1.5f
+                        
+                        drawRoundRect(
+                            color = glowColor.copy(alpha = alpha),
+                            topLeft = Offset(-offset, -offset),
+                            size = Size(size.width + offset * 2, size.height + offset * 2),
+                            cornerRadius = CornerRadius(shapeRadiusPx + offset, shapeRadiusPx + offset),
+                            style = Stroke(width = strokeWidth)
+                        )
                     }
                 }
                 .background(
@@ -321,13 +332,23 @@ fun IMEScreen(
                             .background(micBgColor)
                             .pointerInput(isEnabled) {
                                 if (!isEnabled) return@pointerInput
-                                var lastTapTime = 0L
-                                var pendingStartJob: kotlinx.coroutines.Job? = null
-
                                 awaitPointerEventScope {
                                     while (true) {
                                         val down = awaitFirstDown()
                                         down.consume()
+
+                                        var isLongPressTriggered = false
+                                        val state = currentRecordingState
+
+                                        // Check for long press to enter Agent Mode
+                                        val longPressJob = coroutineScope.launch {
+                                            kotlinx.coroutines.delay(500)
+                                            if (state == RecordingState.IDLE || state == RecordingState.ERROR) {
+                                                isLongPressTriggered = true
+                                                view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                                                currentOnStartRecording(true)
+                                            }
+                                        }
 
                                         // Wait for release
                                         do {
@@ -335,29 +356,20 @@ fun IMEScreen(
                                             event.changes.forEach { it.consume() }
                                         } while (event.changes.any { it.pressed })
 
-                                        // Finger lifted — determine action based on current state
-                                        val state = currentRecordingState
+                                        longPressJob.cancel()
+
                                         if (state == RecordingState.RECORDING || state == RecordingState.TRANSCRIBING) {
-                                            // STOP — immediate, no double-tap detection
-                                            pendingStartJob?.cancel()
+                                            // STOP
+                                            view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
                                             if (state == RecordingState.RECORDING) {
                                                 currentOnStopRecording()
                                             }
                                         } else if (state == RecordingState.IDLE || state == RecordingState.ERROR) {
-                                            // START — with double-tap detection for agent mode
-                                            val now = System.currentTimeMillis()
-                                            if (now - lastTapTime < 300) {
-                                                pendingStartJob?.cancel()
-                                                pendingStartJob = null
-                                                currentOnStartRecording(true)  // Double-tap → agent mode
-                                            } else {
-                                                pendingStartJob?.cancel()
-                                                pendingStartJob = coroutineScope.launch {
-                                                    kotlinx.coroutines.delay(250L)
-                                                    currentOnStartRecording(false)  // Single tap → dictation
-                                                }
+                                            // START standard dictation if long press wasn't triggered
+                                            if (!isLongPressTriggered) {
+                                                view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                                                currentOnStartRecording(false)
                                             }
-                                            lastTapTime = now
                                         }
                                     }
                                 }
