@@ -12,6 +12,8 @@
 
 Fluence is a lightweight, privacy-focused Android voice typing app that works two ways: cloud mode uses the **Groq Whisper API (`whisper-large-v3`)** for fast, highly accurate transcription, and offline mode runs **Alibaba SenseVoice-Small** entirely on your device with no internet required. Either way, a glassmorphic floating bubble sits next to your cursor and injects text directly into whatever app you are typing in.
 
+> ✦ **Agent Mode & Offline Mode are now both live in v1.3.0.**
+
 ---
 
 ## 🎬 Visual Showcase
@@ -29,21 +31,22 @@ Traditional dictation tools are slow, unpunctuated, or locked to a specific keyb
 **The Fluence Approach:**
 Fluence waits for you to finish speaking, then transcribes your full sentence in under a second with proper punctuation and context-aware text. It injects the result directly at your cursor in any app, without forcing you to use a custom keyboard.
 
-| Feature | **Fluence** | Google Speech-to-Text |
-| :--- | :---: | :---: |
-| **Accuracy** | **92% to 97.9%** (Human level) | 79% to 88% |
-| **Punctuation** | **Automatic & Intelligent** | Rigid / Word-by-word |
-| **Privacy** | **Open Source (Zero Telemetry)** | Closed Source (Data collected) |
-| **Offline Mode** | **Yes (100% on-device)** | No |
-| **System-wide Overlay** | **Yes (Floating Bubble)** | No (Restricted to keyboard) |
-| **Accent & Jargon Handling** | **Excellent (680k hr dataset)** | Average (Often stumbles) |
+| Feature | **Fluence (Groq Whisper v3)** | **Fluence (SenseVoice Offline)** | Google Speech-to-Text |
+| :--- | :---: | :---: | :---: |
+| **Accuracy** | **92% - 97.9%** (Human level) | **85% - 93%** (On-device) | 79% - 88% |
+| **Punctuation** | **Automatic & Intelligent** | **Automatic & Intelligent** | Rigid / Word-by-word |
+| **Privacy** | **Open Source (Zero Telemetry)** | **100% On-Device (Zero Egress)** | Closed Source (Data collected) |
+| **System-wide Overlay** | **Yes (Floating Bubble)** | **Yes (Floating Bubble)** | No (Restricted to keyboard) |
+| **Accent & Jargon Handling** | **Excellent (680k hr dataset)** | **Good (Industrial dataset)** | Average (Often stumbles) |
+| **Internet Required** | Cloud only | **No. Fully Offline.** | Cloud only |
 
 ---
 
 ## 🔒 Privacy & Local Security
 
 Built for users who will not compromise on data security:
-* **Zero Telemetry or Logs:** No tracking code, analytics scripts, or background logging.
+* **Zero Telemetry or Logs:** No tracking code, analytics scripts, background logging, keystroke recording, or usage statistics. None. Every line is verifiable since the project is fully open source.
+* **No Keystroke Monitoring:** Fluence does not read, log, or transmit what you type. The Accessibility Service is used only to detect which text field is focused, never to read your typing.
 * **Android Keystore Encryption:** Your Groq API Key is encrypted locally using hardware-backed cryptography via `EncryptedSharedPreferences`.
 * **Direct HTTPS Transmission:** In cloud mode, audio goes directly from your device to the Groq API endpoint (`https://api.groq.com`). No middlemen or intermediate servers.
 * **Ephemeral Storage:** The captured audio snippet is saved in your app's private cache and deleted immediately once transcription finishes, whether it succeeds or fails.
@@ -56,7 +59,7 @@ Built for users who will not compromise on data security:
 * **Offline Transcription Mode 🔌:** Toggle 100% offline, on-device voice typing. Downloads Alibaba's **SenseVoice-Small** quantized ONNX model (~230 MB) to internal storage on demand. All audio processing happens locally via the `sherpa-onnx` runtime. Includes Silero VAD (Voice Activity Detection) and automatic checksum verification on the model file.
 * **Cloud Transcription Mode:** Uses the Groq-accelerated **Whisper Large v3** model for fast, highly accurate, multi-language transcription in under a second when you are online.
 * **Floating Bubble for easy access:** A sleek, glassmorphic bubble overlay that follows your text cursor. Tap to speak, or hold to talk and release to transcribe instantly.
-* **AI Agent Mode 🤖:** Double-tap the microphone to activate Agent Mode. Powered by **Llama 3.3 70B**, it processes natural language voice commands to edit or generate text in any app:
+* **AI Agent Mode 🤖:** Hold the microphone to activate Agent Mode. Powered by **Llama 3.3 70B**, it processes natural language voice commands to edit or generate text in any app:
   * *"Delete the last two sentences"* (calculates and performs precise local character deletion).
   * *"Make it professional"* or *"Translate this to French"* (rewrites and replaces the text before your cursor).
   * *"Draft an email to Bob explaining why I'm late"* (generates and inserts new text at your cursor).
@@ -117,7 +120,7 @@ sequenceDiagram
 ### Onboarding Steps
 1. **Enter Groq API Key**: Paste your key (starts with `gsk_`) from the [Groq Console](https://console.groq.com). Not needed if you only use offline mode.
 2. **Microphone Permission**: Allow the app to record audio.
-3. **Accessibility Service**: Turn on **Fluence** in your system accessibility settings so it can detect text field focus events.
+3. **Accessibility Service**: Turn on **Fluence** in your system **Accessibility** settings so it can detect text field focus events. *(This is an Accessibility Service, not a keyboard.)*
 4. **Draw Over Other Apps**: Grant overlay permission so the bubble can float near your cursor.
 5. **Practice Field**: Try dictation right inside the configuration screen.
 
@@ -126,7 +129,7 @@ sequenceDiagram
 ## ⚙️ Troubleshooting
 
 #### 1. The bubble is not appearing in certain text fields
-* Make sure you have enabled the **Fluence Accessibility Service** in settings.
+* Make sure you have enabled the **Fluence Accessibility Service** in your system Accessibility settings (not keyboard settings).
 * Try tapping outside the text field and back in to trigger a fresh focus event.
 
 #### 2. The app returns a red error when transcribing
@@ -137,6 +140,7 @@ sequenceDiagram
 #### 3. Offline model is not working
 * Make sure the model download completed without errors. You can re-trigger the download from the offline settings toggle.
 * The initial model download requires approximately 230 MB of free storage space.
+* If download verification fails, delete the partial file from app storage and retry.
 
 ---
 

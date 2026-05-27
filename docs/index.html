@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fluence 🎙️ | Privacy-First AI Voice Dictation for Android</title>
-    <meta name="description" content="Fluence is an open-source, system-wide floating overlay voice dictation and AI agent assistant for Android. Powered by Groq Whisper and Llama 3.3.">
+    <meta name="description" content="Fluence is an open-source, system-wide floating overlay voice dictation and AI agent assistant for Android. Powered by Groq Whisper and Llama 3.3. Fully offline mode available.">
     
     <!-- Google Fonts: Sora (Headings), Hanken Grotesk (Body), Geist Mono (Labels) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -56,13 +56,19 @@
 
         <!-- Hero Section -->
         <section class="hero" id="hero-sec">
-            <div class="version-tag">Latest release v1.3.0</div>
+            <div class="hero-badges">
+                <div class="version-tag">Latest release v1.3.0</div>
+                <div class="status-live-tag">
+                    <span class="live-dot"></span>
+                    Agent Mode &amp; Offline Mode are Now Live
+                </div>
+            </div>
             <h1>Crystallize your cognition at the <span class="text-gradient">speed of thought</span></h1>
-            <p>An open-source, system-wide voice typing app for Android. Use Groq Whisper for cloud-powered transcription, or switch to 100% on-device offline mode with no internet required.</p>
+            <p>An open-source, system-wide voice typing app for Android. Use Groq Whisper for cloud-powered transcription, or switch to 100% on-device offline mode with AI Agent Mode for intelligent voice commands. No internet required.</p>
             <div class="hero-ctas">
                 <a href="https://github.com/raviumeshkulkarni-web/Fluence/releases/latest" class="btn-primary" id="hero-btn-dl">
                     <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-6h2v6zm0-8h-2V6h2v2z"/>
+                        <path d="M19 9h-4V3H9v6H5l7 7 7-7zm-8 2V5h2v6h1.17L12 13.17 9.83 11H11zm-6 7h14v2H5z"/>
                     </svg>
                     Download APK
                 </a>
@@ -146,19 +152,9 @@
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
                 Tap the floating bubble to trigger the transcription demo
             </div>
-
-            <!-- Quick Install & Setup -->
-            <div class="quick-install-box glass-panel">
-                <h3>⚡ Quick Install & Setup</h3>
-                <ul class="quick-install-list">
-                    <li><strong>Download APK:</strong> Get the latest version from <a href="https://github.com/raviumeshkulkarni-web/Fluence/releases/latest" target="_blank" rel="noopener">GitHub Releases</a> and install it on your Android device.</li>
-                    <li><strong>Configure API:</strong> Open the Fluence app and paste your Groq API Key (stored securely on-device with hardware encryption).</li>
-                    <li><strong>Enable Keyboard:</strong> Turn on the <em>Fluence Keyboard Service</em> inside your system input settings.</li>
-                    <li><strong>Grant Overlay:</strong> Enable the <em>Draw Over Other Apps</em> permission to show the floating overlay trigger.</li>
-                </ul>
-            </div>
         </section>
 
+        <!-- Problem & Solution Section -->
         <section class="problem-solution-container" id="problem-sec">
             <div class="problem-solution-stack">
                 <div class="glass-panel problem-card">
@@ -174,13 +170,14 @@
             </div>
 
             <div class="glass-panel comparison-table-wrapper">
-                <h3>Accuracy & Performance Comparison</h3>
+                <h3>Accuracy &amp; Performance Comparison</h3>
                 <div class="table-scroll-container">
                     <table class="comparison-table">
                         <thead>
                             <tr>
                                 <th>Feature</th>
                                 <th class="highlight-header">Fluence (Groq Whisper v3)</th>
+                                <th class="highlight-header-offline">Fluence (SenseVoice Offline)</th>
                                 <th>Google Speech-to-Text</th>
                             </tr>
                         </thead>
@@ -188,27 +185,38 @@
                             <tr>
                                 <td class="feature-title">Accuracy</td>
                                 <td class="highlight-cell"><strong>92% – 97.9%</strong> (Human level)</td>
+                                <td class="highlight-cell-offline"><strong>85% – 93%</strong> (On-device)</td>
                                 <td>79% – 88%</td>
                             </tr>
                             <tr>
                                 <td class="feature-title">Punctuation</td>
-                                <td class="highlight-cell"><strong>Automatic & Intelligent</strong></td>
+                                <td class="highlight-cell"><strong>Automatic &amp; Intelligent</strong></td>
+                                <td class="highlight-cell-offline"><strong>Automatic &amp; Intelligent</strong></td>
                                 <td>Rigid / Word-by-word</td>
                             </tr>
                             <tr>
                                 <td class="feature-title">Privacy</td>
                                 <td class="highlight-cell"><strong>Open Source (Zero Telemetry)</strong></td>
+                                <td class="highlight-cell-offline"><strong>100% On-Device (Zero Egress)</strong></td>
                                 <td>Closed Source (Data collected)</td>
                             </tr>
                             <tr>
                                 <td class="feature-title">System-wide Overlay</td>
-                                <td class="highlight-cell"><strong>Yes (System-wide Overlay Button)</strong></td>
+                                <td class="highlight-cell"><strong>Yes (Floating Bubble)</strong></td>
+                                <td class="highlight-cell-offline"><strong>Yes (Floating Bubble)</strong></td>
                                 <td>No (Restricted to keyboard)</td>
                             </tr>
                             <tr>
-                                <td class="feature-title">Accent & Jargon Handling</td>
+                                <td class="feature-title">Accent &amp; Jargon Handling</td>
                                 <td class="highlight-cell"><strong>Excellent (680k hr dataset)</strong></td>
+                                <td class="highlight-cell-offline"><strong>Good (Industrial dataset)</strong></td>
                                 <td>Average (Often stumbles)</td>
+                            </tr>
+                            <tr>
+                                <td class="feature-title">Internet Required</td>
+                                <td class="highlight-cell"><strong>Cloud only</strong></td>
+                                <td class="highlight-cell-offline"><strong>No. Fully Offline.</strong></td>
+                                <td>Cloud only</td>
                             </tr>
                         </tbody>
                     </table>
@@ -216,7 +224,7 @@
             </div>
         </section>
 
-        <!-- Onboarding Setup Wizard (Mirroring Screenshot 1) -->
+        <!-- Setup & Install Section (Quick Install + Wizard side-by-side) -->
         <section class="setup-wizard-section" id="setup-sec">
             <div class="setup-header">
                 <div class="setup-header-logo">
@@ -237,77 +245,96 @@
                 <h2>Setup Wizard</h2>
                 <p>Crystallize your cognition at the speed of thought</p>
             </div>
-            
-            <div class="setup-stepper-container">
-                <!-- Step 1 -->
-                <div class="setup-step-row">
-                    <div class="setup-timeline-column">
-                        <div class="timeline-circle active" id="step-1-circle">
-                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+
+            <!-- Side-by-side: Quick Install card (left) + Stepper (right) -->
+            <div class="setup-layout-grid">
+
+                <!-- Quick Install & Setup (moved here, adjacent to wizard) -->
+                <div class="quick-install-box glass-panel">
+                    <h3>⚡ Quick Install &amp; Setup</h3>
+                    <ul class="quick-install-list">
+                        <li><strong>Download APK:</strong> Get the latest version from <a href="https://github.com/raviumeshkulkarni-web/Fluence/releases/latest" target="_blank" rel="noopener">GitHub Releases</a> and install it on your Android device.</li>
+                        <li><strong>Configure API:</strong> Open the Fluence app and paste your Groq API Key (stored securely on-device with hardware encryption). Not needed for offline mode.</li>
+                        <li><strong>Enable Accessibility Service:</strong> Turn on the <em>Fluence Accessibility Service</em> inside your system Accessibility settings so Fluence can detect text field focus events.</li>
+                        <li><strong>Grant Overlay:</strong> Enable the <em>Draw Over Other Apps</em> permission to show the floating bubble near your cursor.</li>
+                        <li><strong>Offline Download:</strong> Requires a one-time download of the SenseVoice-Small model (~230 MB) within the app settings to enable 100% offline transcription.</li>
+                        <li><strong>Single Tap:</strong> Starts or stops standard voice transcription.</li>
+                        <li><strong>Hold / Long Press:</strong> Activates AI Agent Mode to process natural language voice commands.</li>
+                    </ul>
+                </div>
+
+                <!-- Setup Wizard Stepper -->
+                <div class="setup-stepper-container">
+                    <!-- Step 1 -->
+                    <div class="setup-step-row">
+                        <div class="setup-timeline-column">
+                            <div class="timeline-circle active" id="step-1-circle">
+                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                            </div>
+                            <div class="timeline-line"></div>
                         </div>
-                        <div class="timeline-line"></div>
-                    </div>
-                    <div class="setup-card-wrapper">
-                        <div class="setup-card">
-                            <div class="setup-step-num">Step 1</div>
-                            <h3>API Configuration</h3>
-                            <p>Requires a Groq API Key to perform local-to-cloud transcription securely.</p>
-                            <div class="setup-input-group">
-                                <label class="setup-input-label" for="groq-key-input">Groq API Key (gsk_...)</label>
-                                <div class="input-container">
-                                    <input type="password" class="setup-input-field" id="groq-key-input" placeholder="gsk_••••••••••••••••••••••••••••••••" value="gsk_key_demo_placeholder_value_secured_keystore">
-                                    <button class="input-action-btn" id="btn-toggle-key">Show</button>
+                        <div class="setup-card-wrapper">
+                            <div class="setup-card">
+                                <div class="setup-step-num">Step 1</div>
+                                <h3>API Configuration</h3>
+                                <p>Requires a Groq API Key to perform local-to-cloud transcription securely. Skip this step if you only use offline mode.</p>
+                                <div class="setup-input-group">
+                                    <label class="setup-input-label" for="groq-key-input">Groq API Key (gsk_...)</label>
+                                    <div class="input-container">
+                                        <input type="password" class="setup-input-field" id="groq-key-input" placeholder="gsk_••••••••••••••••••••••••••••••••" value="gsk_key_demo_placeholder_value_secured_keystore">
+                                        <button class="input-action-btn" id="btn-toggle-key">Show</button>
+                                    </div>
+                                </div>
+                                <div class="setup-card-footer">
+                                    <span class="setup-status-message" id="save-status" style="opacity: 0;">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan);"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        Key saved securely
+                                    </span>
+                                    <button class="btn-setup-save" id="btn-save-key">Save</button>
                                 </div>
                             </div>
-                            <div class="setup-card-footer">
-                                <span class="setup-status-message" id="save-status" style="opacity: 0;">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan);"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                    Key saved securely
-                                </span>
-                                <button class="btn-setup-save" id="btn-save-key">Save</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Step 2 -->
+                    <div class="setup-step-row">
+                        <div class="setup-timeline-column">
+                            <div class="timeline-circle active" id="step-2-circle">
+                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
+                            </div>
+                            <div class="timeline-line"></div>
+                        </div>
+                        <div class="setup-card-wrapper">
+                            <div class="setup-card">
+                                <div class="setup-step-num">Step 2</div>
+                                <h3>Microphone Access</h3>
+                                <p>Grant audio recording access to enable speech-to-text dictation.</p>
+                                <div class="setup-card-footer">
+                                    <div></div>
+                                    <button class="btn-setup-status">Granted</button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Step 2 -->
-                <div class="setup-step-row">
-                    <div class="setup-timeline-column">
-                        <div class="timeline-circle active" id="step-2-circle">
-                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
-                        </div>
-                        <div class="timeline-line"></div>
-                    </div>
-                    <div class="setup-card-wrapper">
-                        <div class="setup-card">
-                            <div class="setup-step-num">Step 2</div>
-                            <h3>Microphone Access</h3>
-                            <p>Grant audio recording access to enable speech-to-text dictation.</p>
-                            <div class="setup-card-footer">
-                                <div></div>
-                                <button class="btn-setup-status">Granted</button>
+                    
+                    <!-- Step 3 -->
+                    <div class="setup-step-row">
+                        <div class="setup-timeline-column">
+                            <div class="timeline-circle" id="step-3-circle">
+                                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
                             </div>
+                            <div class="timeline-line"></div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Step 3 -->
-                <div class="setup-step-row">
-                    <div class="setup-timeline-column">
-                        <div class="timeline-circle" id="step-3-circle">
-                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-3 0h2v2H5v-2zm0-3h2v2H5V8zm3 6h8v2H8v-2zm8-3h2v2h-2v-2zm0-3h2v2h-2V8zm3 3h2v2h-2v-2zm0-3h2v2h-2V8z"/></svg>
-                        </div>
-                        <div class="timeline-line"></div>
-                    </div>
-                    <div class="setup-card-wrapper">
-                        <div class="setup-card">
-                            <div class="setup-step-num">Step 3</div>
-                            <h3>Enable Service</h3>
-                            <p>Activate the Fluence keyboard under your system input settings.</p>
-                            <div class="setup-card-footer">
-                                <div class="switch-container">
-                                    <span class="switch-label">Keyboard Service</span>
-                                    <div class="switch-el" id="switch-service"></div>
+                        <div class="setup-card-wrapper">
+                            <div class="setup-card">
+                                <div class="setup-step-num">Step 3</div>
+                                <h3>Enable Accessibility Service</h3>
+                                <p>Activate the Fluence Accessibility Service under your system Accessibility settings so it can detect focused text fields.</p>
+                                <div class="setup-card-footer">
+                                    <div class="switch-container">
+                                        <span class="switch-label">Accessibility Service</span>
+                                        <div class="switch-el" id="switch-service"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -316,37 +343,148 @@
             </div>
         </section>
 
-        <!-- Core Features Section (Screenshot 3 Style) -->
+        <!-- Core Features Section: 2x2 vertical card grid -->
         <section class="features-container" id="features-sec">
             <h2>Engineered for Perfection</h2>
-            <div class="features-list">
-                <div class="glass-panel feature-card-row">
+            <div class="features-grid">
+
+                <!-- Card 1: Voice Dictation -->
+                <div class="glass-panel feature-card-vertical" id="feat-voice">
                     <div class="feature-icon-box">
-                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-IRH-h6EGLp9Ogi--lETe3eocV0NriiwEbJdnDbTYRKc32XDpRoKVGGrPuc_2r-G8dbeLUFdNajk1MGkjkK0gSuKcQW4xxDVDaJLSU6rl9ebpFJK0egd7aCDuQo5cKT1_IkS5nOFitffjRM7DZi-u4-X5vzdLP83YVj50JUwk9qnx-XQT1vZ9HlAmEuC916N6rwayuLWIKtUaZoqglcKagrCYiovCSYBF3mfjWlPrmU_1vaZRUkH4GdFHEtV_V273BXmqpZ_Cq4z1" alt="Voice Dictation Icon">
+                        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="icon-grad-voice" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                                    <stop offset="0%" stop-color="#A855F7"/>
+                                    <stop offset="100%" stop-color="#00f2fe"/>
+                                </linearGradient>
+                                <filter id="glow-voice">
+                                    <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                </filter>
+                            </defs>
+                            <!-- Microphone body -->
+                            <rect x="22" y="10" width="12" height="20" rx="6" stroke="url(#icon-grad-voice)" stroke-width="2" fill="none" filter="url(#glow-voice)"/>
+                            <!-- Microphone arc -->
+                            <path d="M14 28c0 7.732 6.268 14 14 14s14-6.268 14-14" stroke="url(#icon-grad-voice)" stroke-width="2" stroke-linecap="round" fill="none"/>
+                            <!-- Stand -->
+                            <line x1="28" y1="42" x2="28" y2="47" stroke="url(#icon-grad-voice)" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="22" y1="47" x2="34" y2="47" stroke="url(#icon-grad-voice)" stroke-width="2" stroke-linecap="round"/>
+                            <!-- Waveform bars beside mic -->
+                            <rect x="8" y="23" width="2.5" height="10" rx="1.25" fill="url(#icon-grad-voice)" opacity="0.6"/>
+                            <rect x="12" y="19" width="2.5" height="18" rx="1.25" fill="url(#icon-grad-voice)" opacity="0.8"/>
+                            <rect x="41.5" y="23" width="2.5" height="10" rx="1.25" fill="url(#icon-grad-voice)" opacity="0.6"/>
+                            <rect x="45.5" y="19" width="2.5" height="18" rx="1.25" fill="url(#icon-grad-voice)" opacity="0.8"/>
+                        </svg>
                     </div>
                     <div class="feature-text">
                         <h3>Voice Dictation</h3>
-                        <p>Powered by OpenAI's Groq-accelerated Whisper Large v3 model. Whisper transcribes in under a second with up to 97.9% word accuracy, handling complex jargon and heavy accents with ease.</p>
+                        <p>Powered by Groq-accelerated Whisper Large v3. Transcribes in under a second with up to 97.9% word accuracy, handling complex jargon and heavy accents with ease.</p>
                     </div>
                 </div>
-                <div class="glass-panel feature-card-row">
+
+                <!-- Card 2: AI Agent Mode -->
+                <div class="glass-panel feature-card-vertical" id="feat-agent">
                     <div class="feature-icon-box">
-                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBiLzj-O367o9g9aUI_K5j1keP4Ael80vfNublWLWsKg_jg4KJ8FcrWdsgCIlurGbsihPoUXtcMHBA8QzQABWEwnIs5-R2CHxBJXtLxGPhjWEFSkEH-_nIZxWLIhFYjGcStmxFVjXfk288MFzwNPutF5TZnj6DpEtUxlp-qE_GlCoA4LLPxBxUZ7puCkrSqdGAg5974mqPMYKHigRtimGK7x0sQh6n233F_ezpi3nq43k-XnIoOYbZl85xF2qjvkRkardfyOaXwIla8" alt="AI Agent Mode Icon">
+                        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="icon-grad-agent" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                                    <stop offset="0%" stop-color="#A855F7"/>
+                                    <stop offset="100%" stop-color="#00f2fe"/>
+                                </linearGradient>
+                                <filter id="glow-agent">
+                                    <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                </filter>
+                            </defs>
+                            <!-- Outer orbit ring -->
+                            <circle cx="28" cy="28" r="19" stroke="url(#icon-grad-agent)" stroke-width="1.5" stroke-dasharray="2.5 4" stroke-linecap="round" opacity="0.6"/>
+                            <!-- Mid orbit ring -->
+                            <circle cx="28" cy="28" r="13" stroke="url(#icon-grad-agent)" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.85" filter="url(#glow-agent)"/>
+                            <!-- Inner core -->
+                            <circle cx="28" cy="28" r="5" fill="url(#icon-grad-agent)" filter="url(#glow-agent)"/>
+                            <!-- Lightning bolt center -->
+                            <path d="M30 24l-4 5h3l-1 4 4-5h-3l1-4z" fill="white" opacity="0.95"/>
+                            <!-- Orbit dot -->
+                            <circle cx="28" cy="9" r="2.5" fill="url(#icon-grad-agent)" filter="url(#glow-agent)"/>
+                        </svg>
                     </div>
                     <div class="feature-text">
                         <h3>AI Agent Mode</h3>
-                        <p>Activated via double-tap. Powered by Llama 3.3 70B, Agent Mode accepts speech instructions directly next to your cursor, processing complex edits like "Delete the last sentence" or "Translate this to French".</p>
+                        <p>Hold to activate. Powered by Llama 3.3 70B, Agent Mode accepts speech instructions right at your cursor: edit, rewrite, translate, or generate text in any app.</p>
                     </div>
                 </div>
-                <div class="glass-panel feature-card-row">
+
+                <!-- Card 3: Ironclad Privacy -->
+                <div class="glass-panel feature-card-vertical" id="feat-privacy">
                     <div class="feature-icon-box">
-                        <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_xNK0ohlJogsTImVgdLGFmtsJSHuMVkDBya5pc9XBfZQaQVY3sM6fyjO7A6cJlYn1eDpGwwn7qwwr-zTT7XgasPmL77vDZ2xCnOQ8upPtn-IVJgNkDjh-40p0mQgLCnErH9GP9IYZ6KTMtjBmfx5j7UQgFb4133an6EqClfgkhJoed8oh0zKbIlUHRwcpKdRnJpsNv0YDuyDIQ_YQuSIrod9sxiNiIqe8vh2M2Z-DfbOpf7c-O2Fj2G2dBFviXYhKWQD9mK6tFeap" alt="Ironclad Privacy Icon">
+                        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="icon-grad-priv" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                                    <stop offset="0%" stop-color="#A855F7"/>
+                                    <stop offset="100%" stop-color="#00f2fe"/>
+                                </linearGradient>
+                                <filter id="glow-priv">
+                                    <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                </filter>
+                            </defs>
+                            <!-- Shield outline -->
+                            <path d="M28 8l16 6v10c0 9-7 16-16 20C19 40 12 33 12 24V14l16-6z" stroke="url(#icon-grad-priv)" stroke-width="2" fill="rgba(168,85,247,0.08)" filter="url(#glow-priv)"/>
+                            <!-- Lock body -->
+                            <rect x="22" y="28" width="12" height="9" rx="2.5" stroke="url(#icon-grad-priv)" stroke-width="1.8" fill="none"/>
+                            <!-- Lock shackle -->
+                            <path d="M23.5 28v-3.5a4.5 4.5 0 019 0V28" stroke="url(#icon-grad-priv)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+                            <!-- Keyhole dot -->
+                            <circle cx="28" cy="32.5" r="1.8" fill="url(#icon-grad-priv)" filter="url(#glow-priv)"/>
+                        </svg>
                     </div>
                     <div class="feature-text">
                         <h3>Ironclad Privacy</h3>
-                        <p>Built for users who refuse to compromise on security. Audio data is ephemeral and deleted instantly. Your API Key is stored safely on-device with Android Keystore hardware encryption.</p>
+                        <p>Zero telemetry, zero keyloggers, zero analytics. Audio is ephemeral and deleted instantly after transcription. Your API Key is hardware-encrypted via Android Keystore.</p>
                     </div>
                 </div>
+
+                <!-- Card 4: Local Edge Model -->
+                <div class="glass-panel feature-card-vertical" id="feat-offline">
+                    <div class="feature-icon-box">
+                        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="icon-grad-offline" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                                    <stop offset="0%" stop-color="#A855F7"/>
+                                    <stop offset="100%" stop-color="#00f2fe"/>
+                                </linearGradient>
+                                <filter id="glow-offline">
+                                    <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                </filter>
+                            </defs>
+                            <!-- Chip body -->
+                            <rect x="17" y="17" width="22" height="22" rx="4" stroke="url(#icon-grad-offline)" stroke-width="2" fill="rgba(0,242,254,0.06)" filter="url(#glow-offline)"/>
+                            <!-- Chip inner core -->
+                            <rect x="22" y="22" width="12" height="12" rx="2" fill="url(#icon-grad-offline)" opacity="0.25"/>
+                            <!-- Chip pins top/bottom/left/right -->
+                            <line x1="22" y1="17" x2="22" y2="12" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="28" y1="17" x2="28" y2="12" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="34" y1="17" x2="34" y2="12" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="22" y1="39" x2="22" y2="44" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="28" y1="39" x2="28" y2="44" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="34" y1="39" x2="34" y2="44" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="17" y1="22" x2="12" y2="22" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="17" y1="28" x2="12" y2="28" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="17" y1="34" x2="12" y2="34" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="39" y1="22" x2="44" y2="22" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="39" y1="28" x2="44" y2="28" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <line x1="39" y1="34" x2="44" y2="34" stroke="url(#icon-grad-offline)" stroke-width="1.8" stroke-linecap="round"/>
+                            <!-- No-cloud strike (small diagonal) -->
+                            <line x1="24" y1="26" x2="32" y2="30" stroke="url(#icon-grad-offline)" stroke-width="1.5" stroke-linecap="round" filter="url(#glow-offline)"/>
+                        </svg>
+                    </div>
+                    <div class="feature-text">
+                        <h3>Local Edge Model</h3>
+                        <p>100% offline voice typing powered by Alibaba's SenseVoice-Small ONNX model (~230 MB, downloaded on demand). All inference runs on-device via sherpa-onnx. No internet, no data egress, ever.</p>
+                    </div>
+                </div>
+
             </div>
         </section>
 
@@ -354,21 +492,21 @@
         <section class="roadmap-section" id="roadmap-sec">
             <h2>Future Roadmap</h2>
             <div class="roadmap-grid">
-                <div class="glass-panel roadmap-card active">
+                <div class="glass-panel roadmap-card">
                     <div class="roadmap-header">
                         <span class="roadmap-phase">Phase 1</span>
-                        <span class="roadmap-badge badge-active" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25);">Released</span>
+                        <span class="roadmap-badge badge-planned">Planned</span>
                     </div>
-                    <h3>Local Edge Models</h3>
-                    <p class="roadmap-desc">Offline voice typing is now live. Powered by Alibaba's quantized SenseVoice-Small ONNX model running locally via the sherpa-onnx runtime. Download the model on demand (~230 MB) to internal storage for fully offline, privacy-first transcription. No internet, no data egress, no cloud calls.</p>
+                    <h3>Desktop Release</h3>
+                    <p>Bringing system-wide voice dictation and AI agent assistance to desktop. Plans include a cross-platform app for Windows, macOS, and Linux with global keyboard triggers, clipboard injection, and local LLM support.</p>
                 </div>
                 <div class="glass-panel roadmap-card">
                     <div class="roadmap-header">
                         <span class="roadmap-phase">Phase 2</span>
                         <span class="roadmap-badge badge-planned">Planned</span>
                     </div>
-                    <h3>Desktop Release</h3>
-                    <p>Bringing system-wide voice dictation and AI agent assistance to desktop. Plans include a cross-platform app for Windows, macOS, and Linux with global keyboard triggers, clipboard injection, and local LLM support.</p>
+                    <h3>Provider Flexibility</h3>
+                    <p>Support for any OpenAI-compatible API endpoint, so you are never locked into a single provider. Bring your own key from Mistral, OpenRouter, Cerebras, or any other compatible service. Additional offline models will also be added based on user feedback.</p>
                 </div>
             </div>
         </section>
@@ -380,25 +518,31 @@
                 <details name="faq-accordion" class="glass-panel faq-item" open>
                     <summary>Is Fluence free to use?</summary>
                     <div class="faq-content">
-                        <p>Yes, Fluence is 100% free and open-source under the Apache 2.0 license. Since transcription is processed using API keys, you only pay for your own usage. Groq offers a generous free tier for developers, and even on paid tiers, Whisper transcription costs a fraction of a cent per hour of usage.</p>
+                        <p>Yes, Fluence is 100% free and open-source under the Apache 2.0 license. Since transcription is processed using API keys, you only pay for your own usage. Groq offers a generous free tier for developers, and even on paid tiers, Whisper transcription costs a fraction of a cent per hour of usage. Offline mode using SenseVoice has no API cost whatsoever.</p>
+                    </div>
+                </details>
+                <details name="faq-accordion" class="glass-panel faq-item">
+                    <summary>Does Fluence track my keystrokes or usage?</summary>
+                    <div class="faq-content">
+                        <p>Absolutely not. Fluence does <strong>not</strong> record, store, or transmit keystrokes, typing speed, session length, usage frequency, or any behavioral data whatsoever. There are zero analytics libraries, zero crash reporters, and zero background telemetry beacons in the codebase. The app contains no tracking code of any kind. Every line of this is verifiable since the project is fully open source.</p>
                     </div>
                 </details>
                 <details name="faq-accordion" class="glass-panel faq-item">
                     <summary>How is my data privacy protected?</summary>
                     <div class="faq-content">
-                        <p>Fluence is built on ironclad privacy principles. There is zero telemetry and no server logging. Audio recording is ephemeral—sent securely to the Whisper API, transcribed, and instantly discarded. Your Groq API key is stored safely on your device inside the Android Keystore using hardware-backed encryption.</p>
-                    </div>
-                </details>
-                <details name="faq-accordion" class="glass-panel faq-item">
-                    <summary>Does it support languages other than English?</summary>
-                    <div class="faq-content">
-                        <p>Yes. Whisper Large v3 supports 99+ languages with high accuracy. It features automatic language detection (so you can speak in your native language, and it will transcribe correctly) and automatic translation to English if configured.</p>
+                        <p>Fluence is built on ironclad privacy principles. There is zero telemetry and no server logging of any kind. Audio is recorded, sent securely to the Whisper API, transcribed, and instantly discarded from both the API and your device. Your Groq API key is stored inside the Android Keystore using hardware-backed encryption, never in plain text. In offline mode, no audio or data ever leaves your device at all.</p>
                     </div>
                 </details>
                 <details name="faq-accordion" class="glass-panel faq-item">
                     <summary>Can it run completely offline?</summary>
                     <div class="faq-content">
-                        <p>Yes! Fluence now supports 100% offline, on-device voice dictation. By toggling "Offline Transcription" in the settings, the app downloads an optimized on-device SenseVoice-Small ONNX model (~230MB). Once downloaded, all transcription is executed completely locally on your device with zero internet connectivity and zero data egress, providing maximum privacy and zero latency.</p>
+                        <p>Yes! Fluence fully supports 100% offline, on-device voice dictation. Toggle "Offline Transcription" in settings and the app downloads Alibaba's optimized SenseVoice-Small ONNX model (~230 MB, one-time download). Once downloaded, all transcription runs completely locally on your device with zero internet connectivity and zero data egress. Offline mode also works with AI Agent Mode for local text editing commands.</p>
+                    </div>
+                </details>
+                <details name="faq-accordion" class="glass-panel faq-item">
+                    <summary>Does it support languages other than English?</summary>
+                    <div class="faq-content">
+                        <p>Yes. Whisper Large v3 supports 99+ languages with high accuracy and automatic language detection. Just speak in your native language and it transcribes correctly. SenseVoice offline mode also supports multiple languages including Chinese, Japanese, Korean, and more, with automatic detection.</p>
                     </div>
                 </details>
             </div>

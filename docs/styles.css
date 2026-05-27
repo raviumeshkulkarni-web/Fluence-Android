@@ -253,6 +253,14 @@ main {
     gap: 24px;
 }
 
+/* Hero badge group */
+.hero-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
 .version-tag {
     background: rgba(99, 102, 241, 0.1);
     border: 1px solid rgba(99, 102, 241, 0.2);
@@ -276,6 +284,37 @@ main {
     background: var(--accent-cyan);
     border-radius: 50%;
     box-shadow: 0 0 10px var(--accent-cyan);
+}
+
+/* "Now Live" status badge below version tag */
+.status-live-tag {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.22);
+    color: #34d399;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 14px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.04em;
+}
+
+.live-dot {
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: #34d399;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #34d399;
+    animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px #34d399; }
+    50% { opacity: 0.6; box-shadow: 0 0 4px #34d399; }
 }
 
 .hero h1 {
@@ -360,13 +399,13 @@ main {
     fill: currentColor;
 }
 
-/* Phone Simulator Section */
+/* Phone Simulator Section — reduced bottom padding to eliminate dead zone gap */
 .simulator-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 24px;
-    padding: 40px 0;
+    padding: 40px 0 0 0;
 }
 
 .device-frame {
@@ -759,7 +798,7 @@ main {
     fill: var(--primary-amethyst);
 }
 
-/* Feature Grid Section */
+/* Feature Grid Section — 2×2 vertical cards */
 .features-container {
     display: flex;
     flex-direction: column;
@@ -772,36 +811,54 @@ main {
     letter-spacing: -0.02em;
 }
 
-.features-list {
-    display: flex;
-    flex-direction: column;
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 24px;
     width: 100%;
 }
 
-.feature-card-row {
-    flex-direction: row;
-    gap: 28px;
+/* Vertical card layout (icon top, text below) */
+.feature-card-vertical {
+    display: flex;
+    flex-direction: column;
     align-items: flex-start;
+    gap: 20px;
+    padding: 32px;
 }
 
+/* Premium gradient-border icon box */
 .feature-icon-box {
-    width: 56px;
-    height: 56px;
-    border-radius: 16px;
-    overflow: hidden;
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+    background: rgba(168, 85, 247, 0.08);
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 20px rgba(168, 85, 247, 0.15);
+    /* Gradient border via box-shadow + outline trick */
+    outline: 1.5px solid transparent;
+    box-shadow:
+        0 0 0 1.5px rgba(168, 85, 247, 0.35),
+        0 0 0 1px rgba(0, 242, 254, 0.15),
+        0 4px 24px rgba(168, 85, 247, 0.2),
+        inset 0 1px 0 rgba(255,255,255,0.06);
     flex-shrink: 0;
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
 }
 
-.feature-icon-box img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+.feature-card-vertical:hover .feature-icon-box {
+    box-shadow:
+        0 0 0 1.5px rgba(168, 85, 247, 0.6),
+        0 0 0 1px rgba(0, 242, 254, 0.3),
+        0 6px 30px rgba(168, 85, 247, 0.35),
+        inset 0 1px 0 rgba(255,255,255,0.08);
+    transform: translateY(-2px);
+}
+
+.feature-icon-box svg {
+    width: 40px;
+    height: 40px;
 }
 
 .feature-text {
@@ -811,7 +868,7 @@ main {
 }
 
 .feature-text h3 {
-    font-size: 20px;
+    font-size: 19px;
     font-weight: 600;
 }
 
@@ -821,7 +878,7 @@ main {
     line-height: 1.6;
 }
 
-/* Onboarding Setup Wizard Section (Mirroring Screenshot 1) */
+/* Setup Wizard Section */
 .setup-wizard-section {
     display: flex;
     flex-direction: column;
@@ -856,10 +913,18 @@ main {
     color: var(--text-muted);
 }
 
+/* Side-by-side layout: Quick Install (left) + Stepper (right) */
+.setup-layout-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    width: 100%;
+    align-items: start;
+}
+
 .setup-stepper-container {
     display: flex;
     width: 100%;
-    max-width: 480px;
     flex-direction: column;
     position: relative;
 }
@@ -1307,6 +1372,11 @@ footer {
     color: var(--primary-amethyst);
 }
 
+/* Offline column header */
+.comparison-table th.highlight-header-offline {
+    color: var(--accent-cyan);
+}
+
 .comparison-table td.feature-title {
     font-weight: 500;
     color: var(--text-white);
@@ -1316,6 +1386,14 @@ footer {
     background: rgba(168, 85, 247, 0.03);
     border-left: 1px solid rgba(168, 85, 247, 0.1);
     border-right: 1px solid rgba(168, 85, 247, 0.1);
+    color: var(--text-white);
+}
+
+/* Offline column cells — distinct cyan tint */
+.comparison-table td.highlight-cell-offline {
+    background: rgba(0, 242, 254, 0.03);
+    border-left: 1px solid rgba(0, 242, 254, 0.1);
+    border-right: 1px solid rgba(0, 242, 254, 0.1);
     color: var(--text-white);
 }
 
@@ -1507,10 +1585,10 @@ footer {
     100% { opacity: 1; transform: translateY(0); }
 }
 
-/* Unified Glassmorphic Card (Matching the FAQ styling) */
+/* Unified Glassmorphic Card */
 .problem-card,
 .solution-card,
-.feature-card-row,
+.feature-card-vertical,
 .roadmap-card,
 .faq-item,
 .quick-install-box {
@@ -1527,12 +1605,11 @@ footer {
     transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease, transform 0.3s ease;
 }
 
-/* Unified Hover Glow (Triggered on hover, open details, and active roadmap phases) */
+/* Unified Hover Glow */
 .problem-card:hover,
 .solution-card:hover,
-.feature-card-row:hover,
+.feature-card-vertical:hover,
 .roadmap-card:hover,
-.roadmap-card.active,
 .faq-item:hover,
 .faq-item[open],
 .quick-install-box:hover {
@@ -1542,12 +1619,12 @@ footer {
     transform: translateY(-2px);
 }
 
-/* Quick Install Box spacing overrides */
+/* Quick Install Box — now lives beside the Setup Wizard */
 .quick-install-box {
-    margin-top: 32px;
-    max-width: 600px;
+    margin-top: 0;
     width: 100%;
     text-align: left;
+    align-self: start;
 }
 
 .quick-install-box h3 {
@@ -1602,25 +1679,32 @@ footer {
 }
 
 /* Extra Responsive Adjustments */
-@media (max-width: 768px) {
-    .feature-card-row {
-        flex-direction: column;
-        gap: 16px;
+@media (max-width: 900px) {
+    /* Stack feature grid to single column on medium screens */
+    .features-grid {
+        grid-template-columns: 1fr;
     }
+    /* Stack setup layout vertically */
+    .setup-layout-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
     .problem-card,
     .solution-card,
-    .feature-card-row,
+    .feature-card-vertical,
     .roadmap-card,
     .faq-item,
     .quick-install-box {
         padding: 24px;
         gap: 12px;
     }
-    .quick-install-box {
-        margin-top: 24px;
-    }
     .faq-item summary {
         font-size: 15px;
+    }
+    .features-grid {
+        grid-template-columns: 1fr;
     }
 }
 
