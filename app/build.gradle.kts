@@ -14,6 +14,11 @@ val localProperties = Properties().apply {
     }
 }
 
+val hasReleaseSigning = localProperties.getProperty("release.keystore.path") != null &&
+        localProperties.getProperty("release.keystore.password") != null &&
+        localProperties.getProperty("release.key.alias") != null &&
+        localProperties.getProperty("release.key.password") != null
+
 android {
     namespace = "com.groq.voicetyper"
     compileSdk = 34
@@ -39,22 +44,11 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = localProperties.getProperty("release.keystore.path")
-            val keystorePassword = localProperties.getProperty("release.keystore.password")
-            val keyAlias = localProperties.getProperty("release.key.alias")
-            val keyPassword = localProperties.getProperty("release.key.password")
-
-            if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
-                storeFile = file(keystorePath)
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
-            } else {
-                val debugConfig = signingConfigs.getByName("debug")
-                storeFile = debugConfig.storeFile
-                storePassword = debugConfig.storePassword
-                this.keyAlias = debugConfig.keyAlias
-                this.keyPassword = debugConfig.keyPassword
+            if (hasReleaseSigning) {
+                storeFile = file(localProperties.getProperty("release.keystore.path"))
+                storePassword = localProperties.getProperty("release.keystore.password")
+                this.keyAlias = localProperties.getProperty("release.key.alias")
+                this.keyPassword = localProperties.getProperty("release.key.password")
             }
         }
     }
@@ -63,7 +57,11 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
