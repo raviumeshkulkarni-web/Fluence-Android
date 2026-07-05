@@ -29,6 +29,16 @@ object CommandProcessor {
         commandText: String,
         contextText: String,
         modelName: String = MODEL_LLAMA
+    ): Result<CommandResult> {
+        return processCommand("https://api.groq.com/openai", modelName, apiKey, commandText, contextText)
+    }
+
+    suspend fun processCommand(
+        baseUrl: String,
+        modelName: String,
+        apiKey: String,
+        commandText: String,
+        contextText: String
     ): Result<CommandResult> = withContext(Dispatchers.IO) {
         try {
             val systemPrompt = """
@@ -80,12 +90,18 @@ object CommandProcessor {
 
             val mediaType = "application/json; charset=utf-8".toMediaType()
             val requestBody = requestJson.toString().toRequestBody(mediaType)
+            val finalUrl = SecurityUtils.buildApiUrl(baseUrl, "chat/completions")
 
-            val request = Request.Builder()
-                .url(CHAT_URL)
+            val requestBuilder = Request.Builder()
+                .url(finalUrl)
                 .header("Authorization", "Bearer $apiKey")
                 .post(requestBody)
-                .build()
+
+            if (baseUrl.contains("mistral.ai")) {
+                requestBuilder.header("x-api-key", apiKey)
+            }
+
+            val request = requestBuilder.build()
 
             client.newCall(request).execute().use { response ->
                 val bodyString = response.body?.string()

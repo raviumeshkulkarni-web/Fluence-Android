@@ -242,22 +242,37 @@ object TranscriptionSessionManager {
     }
 
     private fun transcribeAudioOnline(context: Context, file: File) {
-        val apiKey = SecurityUtils.getApiKey(context)
-        if (apiKey.isNullOrBlank()) {
-            showError("API Key is missing. Set it in the app.")
+        val sttPreset = SecurityUtils.getSttPreset(context)
+        val sttKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
+        if (sttKey.isNullOrBlank()) {
+            showError("API Key is missing for STT provider: ${sttPreset.uppercase()}")
+            file.delete()
+            return
+        }
+
+        val llmPreset = SecurityUtils.getLlmPreset(context)
+        val llmKey = SecurityUtils.getProviderApiKey(context, "llm", llmPreset)
+        if (_isAgentMode.value && llmKey.isNullOrBlank()) {
+            showError("API Key is missing for Agent provider: ${llmPreset.uppercase()}")
             file.delete()
             return
         }
 
         scope.launch {
             val languageCode = getKeyboardLanguageCode(context)
-            val result = GroqClient.transcribe(apiKey, file, languageCode)
+            val sttBaseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
+            val sttModel = SecurityUtils.getSttModel(context, sttPreset)
+
+            val result = GroqClient.transcribe(sttBaseUrl, sttModel, sttKey, file, languageCode)
             result.fold(
                 onSuccess = { text ->
                     if (text.isNotBlank()) {
                         if (_isAgentMode.value) {
                             val contextText = currentListener?.getContextText() ?: ""
-                            val cmdResult = CommandProcessor.processCommand(apiKey, text, contextText)
+                            val llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, llmPreset)
+                            val llmModel = SecurityUtils.getLlmModel(context, llmPreset)
+
+                            val cmdResult = CommandProcessor.processCommand(llmBaseUrl, llmModel, llmKey!!, text, contextText)
                             cmdResult.fold(
                                 onSuccess = { commandResult ->
                                     withContext(Dispatchers.Main) {

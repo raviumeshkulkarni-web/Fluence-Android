@@ -37,6 +37,16 @@ object GroqClient {
         apiKey: String,
         audioFile: File,
         language: String? = null
+    ): Result<String> {
+        return transcribe("https://api.groq.com/openai", MODEL_WHISPER, apiKey, audioFile, language)
+    }
+
+    suspend fun transcribe(
+        baseUrl: String,
+        model: String,
+        apiKey: String,
+        audioFile: File,
+        language: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             if (!audioFile.exists() || audioFile.length() == 0L) {
@@ -45,7 +55,7 @@ object GroqClient {
 
             val bodyBuilder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("model", MODEL_WHISPER)
+                .addFormDataPart("model", model)
                 .addFormDataPart("response_format", "json")
                 .addFormDataPart(
                     "file",
@@ -59,12 +69,18 @@ object GroqClient {
             }
 
             val requestBody = bodyBuilder.build()
+            val finalUrl = SecurityUtils.buildApiUrl(baseUrl, "audio/transcriptions")
 
-            val request = Request.Builder()
-                .url(TRANSCRIPTION_URL)
+            val requestBuilder = Request.Builder()
+                .url(finalUrl)
                 .header("Authorization", "Bearer $apiKey")
                 .post(requestBody)
-                .build()
+
+            if (baseUrl.contains("mistral.ai")) {
+                requestBuilder.header("x-api-key", apiKey)
+            }
+
+            val request = requestBuilder.build()
 
             client.newCall(request).execute().use { response ->
                 val bodyString = response.body?.string()
@@ -106,13 +122,65 @@ object GroqClient {
         }
     }
 
+    suspend fun fetchModels(
+        baseUrl: String,
+        apiKey: String
+    ): Result<List<String>> = withContext(Dispatchers.IO) {
+        try {
+            val finalUrl = SecurityUtils.buildApiUrl(baseUrl, "models")
+            val requestBuilder = Request.Builder()
+                .url(finalUrl)
+                .header("Authorization", "Bearer $apiKey")
+                .get()
+
+            if (baseUrl.contains("mistral.ai")) {
+                requestBuilder.header("x-api-key", apiKey)
+            }
+
+            val request = requestBuilder.build()
+
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string()
+                if (!response.isSuccessful) {
+                    val errorMessage = parseErrorMessage(bodyString) ?: "HTTP Error ${response.code}"
+                    Log.e(TAG, "Fetch models failed: $errorMessage (HTTP ${response.code})")
+                    return@withContext Result.failure(Exception(errorMessage))
+                }
+
+                if (bodyString.isNullOrEmpty()) {
+                    return@withContext Result.failure(Exception("Response body is empty"))
+                }
+
+                try {
+                    val jsonObject = JSONObject(bodyString)
+                    val dataArray = jsonObject.getJSONArray("data")
+                    val models = mutableListOf<String>()
+                    for (i in 0 until dataArray.length()) {
+                        val mObj = dataArray.getJSONObject(i)
+                        models.add(mObj.getString("id"))
+                    }
+                    Result.success(models.sorted())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to parse models JSON response: $bodyString", e)
+                    Result.failure(Exception("Failed to parse models response"))
+                }
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Network request for models failed", e)
+            Result.failure(Exception("Network error. Please check your internet connection."))
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error during model fetch", e)
+            Result.failure(Exception("An unexpected error occurred: ${e.localizedMessage}"))
+        }
+    }
+
     private fun parseErrorMessage(responseBody: String?): String? {
         if (responseBody.isNullOrEmpty()) return null
         return try {
             val json = JSONObject(responseBody)
             if (json.has("error")) {
                 val errorObj = json.getJSONObject("error")
-                errorObj.optString("message", null)
+                if (errorObj.has("message")) errorObj.getString("message") else null
             } else {
                 null
             }

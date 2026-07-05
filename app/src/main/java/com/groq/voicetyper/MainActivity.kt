@@ -586,10 +586,58 @@ fun SetupScreen(
     var isKeyboardEnabled by remember { mutableStateOf(false) }
     var isKeyboardSelected by remember { mutableStateOf(false) }
 
-    // API Key inputs
-    var apiKeyInput by remember { mutableStateOf("") }
-    var isKeySaved by remember { mutableStateOf(false) }
-    var isPasswordVisible by remember { mutableStateOf(false) }
+    // Speech-to-Text (STT) state variables
+    var sttPreset by remember { mutableStateOf("groq") }
+    var sttBaseUrl by remember { mutableStateOf("https://api.groq.com/openai") }
+    var sttModel by remember { mutableStateOf("whisper-large-v3") }
+    var sttApiKeyInput by remember { mutableStateOf("") }
+    var isSttKeySaved by remember { mutableStateOf(false) }
+    var sttModelsList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isSttModelsLoading by remember { mutableStateOf(false) }
+    var isSttPasswordVisible by remember { mutableStateOf(false) }
+    var sttDropdownExpanded by remember { mutableStateOf(false) }
+
+    // AI Agent (LLM) state variables
+    var llmPreset by remember { mutableStateOf("groq") }
+    var llmBaseUrl by remember { mutableStateOf("https://api.groq.com/openai") }
+    var llmModel by remember { mutableStateOf("llama-3.3-70b-versatile") }
+    var llmApiKeyInput by remember { mutableStateOf("") }
+    var isLlmKeySaved by remember { mutableStateOf(false) }
+    var llmModelsList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLlmModelsLoading by remember { mutableStateOf(false) }
+    var isLlmPasswordVisible by remember { mutableStateOf(false) }
+    var llmDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Helper functions for dynamic model fetching
+    fun triggerSttModelFetch(baseUrl: String, apiKey: String) {
+        coroutineScope.launch {
+            isSttModelsLoading = true
+            val res = GroqClient.fetchModels(baseUrl, apiKey)
+            res.fold(
+                onSuccess = { sttModelsList = it },
+                onFailure = { 
+                    android.util.Log.e("MainActivity", "Failed to fetch STT models", it)
+                    sttModelsList = emptyList()
+                }
+            )
+            isSttModelsLoading = false
+        }
+    }
+
+    fun triggerLlmModelFetch(baseUrl: String, apiKey: String) {
+        coroutineScope.launch {
+            isLlmModelsLoading = true
+            val res = GroqClient.fetchModels(baseUrl, apiKey)
+            res.fold(
+                onSuccess = { llmModelsList = it },
+                onFailure = { 
+                    android.util.Log.e("MainActivity", "Failed to fetch LLM models", it)
+                    llmModelsList = emptyList()
+                }
+            )
+            isLlmModelsLoading = false
+        }
+    }
 
     // Beta Features Settings
     var isFloatingBubbleEnabled by remember { mutableStateOf(false) }
@@ -669,21 +717,53 @@ fun SetupScreen(
     // Load initial states and periodically update status parameters
     LaunchedEffect(Unit) {
         val initialInfo = withContext(Dispatchers.IO) {
-            val key = SecurityUtils.getApiKey(context) ?: ""
+            val sPreset = SecurityUtils.getSttPreset(context)
+            val sBase = SecurityUtils.getSttBaseUrl(context, sPreset)
+            val sModel = SecurityUtils.getSttModel(context, sPreset)
+            val sKey = SecurityUtils.getProviderApiKey(context, "stt", sPreset) ?: ""
+
+            val lPreset = SecurityUtils.getLlmPreset(context)
+            val lBase = SecurityUtils.getLlmBaseUrl(context, lPreset)
+            val lModel = SecurityUtils.getLlmModel(context, lPreset)
+            val lKey = SecurityUtils.getProviderApiKey(context, "llm", lPreset) ?: ""
+
             val bubbleEnabled = context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
                 .getBoolean("floating_bubble_enabled", false)
             val offlineEnabled = OfflinePreferences.isOfflineModeEnabled(context)
             val modelDownloaded = ModelAssetManager.isModelReadySync(context)
             val sizeBytes = ModelAssetManager.getModelSizeOnDisk(context)
-            InitialInfo(key, bubbleEnabled, offlineEnabled, modelDownloaded, sizeBytes)
+
+            ExtendedInitialInfo(
+                sPreset, sBase, sModel, sKey,
+                lPreset, lBase, lModel, lKey,
+                bubbleEnabled, offlineEnabled, modelDownloaded, sizeBytes
+            )
         }
 
-        apiKeyInput = initialInfo.key
-        isKeySaved = apiKeyInput.isNotBlank()
+        sttPreset = initialInfo.sttPreset
+        sttBaseUrl = initialInfo.sttBaseUrl
+        sttModel = initialInfo.sttModel
+        sttApiKeyInput = initialInfo.sttKey
+        isSttKeySaved = sttApiKeyInput.isNotBlank()
+
+        llmPreset = initialInfo.llmPreset
+        llmBaseUrl = initialInfo.llmBaseUrl
+        llmModel = initialInfo.llmModel
+        llmApiKeyInput = initialInfo.llmKey
+        isLlmKeySaved = llmApiKeyInput.isNotBlank()
+
         isFloatingBubbleEnabled = initialInfo.bubbleEnabled
         isOfflineModeEnabled = initialInfo.offlineEnabled
         isModelDownloaded = initialInfo.modelDownloaded
         modelSizeMB = initialInfo.sizeBytes / (1024L * 1024L)
+
+        // Fetch models in background if keys are saved
+        if (isSttKeySaved && sttApiKeyInput.isNotBlank()) {
+            triggerSttModelFetch(sttBaseUrl, sttApiKeyInput)
+        }
+        if (isLlmKeySaved && llmApiKeyInput.isNotBlank()) {
+            triggerLlmModelFetch(llmBaseUrl, llmApiKeyInput)
+        }
 
         // Monitor download progress
         launch {
@@ -898,7 +978,7 @@ fun SetupScreen(
                         }
                 ) {
                     // Calculated Step States
-                    val step1Completed = isKeySaved
+                    val step1Completed = isSttKeySaved && isLlmKeySaved
                     val step2Completed = hasMicPermission
                     val step3Completed = isKeyboardEnabled
                     val step4Completed = isKeyboardSelected
@@ -912,74 +992,436 @@ fun SetupScreen(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // Step 1: Groq API Key Setup
+                        // Step 1: API Configuration
                         OnboardingStepCard(
                             stepNumber = 1,
                             title = "API Configuration",
-                            description = "Requires a Groq API Key to perform local-to-cloud transcription securely.",
+                            description = "Configure Speech-to-Text and AI Agent providers securely.",
                             isCompleted = step1Completed,
                             isActive = step1Active,
                             isLastStep = false,
                             activeLineBrush = activeLineBrush
                         ) {
+                            // ---- 1. SPEECH TO TEXT PROVIDER SECTION ----
+                            Text(
+                                text = "1. Speech-to-Text (STT) Provider",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+
+                            // STT Preset Dropdown Selector
+                            var sttPresetExpanded by remember { mutableStateOf(false) }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = sttPreset.uppercase(java.util.Locale.getDefault()),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("STT Provider") },
+                                    trailingIcon = {
+                                        TextButton(onClick = { sttPresetExpanded = true }) {
+                                            Text("▼", color = Color(0xFFDDB7FF), fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                DropdownMenu(
+                                    expanded = sttPresetExpanded,
+                                    onDismissRequest = { sttPresetExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    listOf("groq", "mistral", "custom").forEach { preset ->
+                                        DropdownMenuItem(
+                                            text = { Text(preset.uppercase(java.util.Locale.getDefault())) },
+                                            onClick = {
+                                                sttPreset = preset
+                                                sttPresetExpanded = false
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    sttBaseUrl = SecurityUtils.getSttBaseUrl(context, preset)
+                                                    sttModel = SecurityUtils.getSttModel(context, preset)
+                                                    val savedKey = SecurityUtils.getProviderApiKey(context, "stt", preset) ?: ""
+                                                    withContext(Dispatchers.Main) {
+                                                        sttApiKeyInput = savedKey
+                                                        isSttKeySaved = savedKey.isNotBlank()
+                                                        sttModelsList = emptyList()
+                                                        if (savedKey.isNotBlank()) {
+                                                            triggerSttModelFetch(sttBaseUrl, savedKey)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // STT Base URL (Visible for Custom only)
+                            if (sttPreset == "custom") {
+                                OutlinedTextField(
+                                    value = sttBaseUrl,
+                                    onValueChange = {
+                                        sttBaseUrl = it
+                                        isSttKeySaved = false
+                                    },
+                                    label = { Text("STT Base URL (e.g. https://api.openai.com)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            // STT API Key
                             OutlinedTextField(
-                                value = apiKeyInput,
-                                onValueChange = { apiKeyInput = it },
-                                label = { Text("Groq API Key (gsk_...)") },
-                                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                value = sttApiKeyInput,
+                                onValueChange = {
+                                    sttApiKeyInput = it
+                                    isSttKeySaved = false
+                                },
+                                label = { Text("${sttPreset.uppercase(java.util.Locale.getDefault())} STT API Key") },
+                                visualTransformation = if (isSttPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 trailingIcon = {
-                                    TextButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                        Text(if (isPasswordVisible) "Hide" else "Show", color = Color(0xFFDDB7FF))
+                                    TextButton(onClick = { isSttPasswordVisible = !isSttPasswordVisible }) {
+                                        Text(if (isSttPasswordVisible) "Hide" else "Show", color = Color(0xFFDDB7FF))
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = Color(0xFFDDB7FF),
                                     unfocusedBorderColor = Color(0x33FFFFFF),
-                                    focusedLabelColor = Color(0xFFDDB7FF)
+                                    focusedLabelColor = Color(0xFFDDB7FF),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
                                 )
                             )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
+                            // STT Model Selection
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = sttModel,
+                                    onValueChange = {
+                                        sttModel = it
+                                        isSttKeySaved = false
+                                    },
+                                    label = { Text("STT Model Name (e.g. whisper-large-v3)") },
+                                    trailingIcon = {
+                                        if (isSttModelsLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                color = Color(0xFFDDB7FF),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else if (sttModelsList.isNotEmpty()) {
+                                            TextButton(onClick = { sttDropdownExpanded = true }) {
+                                                Text("▼", color = Color(0xFFDDB7FF), fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                if (sttModelsList.isNotEmpty()) {
+                                    DropdownMenu(
+                                        expanded = sttDropdownExpanded,
+                                        onDismissRequest = { sttDropdownExpanded = false },
+                                        modifier = Modifier.fillMaxWidth(0.9f)
+                                    ) {
+                                        sttModelsList.forEach { model ->
+                                            DropdownMenuItem(
+                                                text = { Text(model) },
+                                                onClick = {
+                                                    sttModel = model
+                                                    sttDropdownExpanded = false
+                                                    isSttKeySaved = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Save STT Button & Status
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (isKeySaved) "✓ Key saved securely" else "Key not saved",
-                                    color = if (isKeySaved) Color(0xFF00F2FE) else Color(0xFFFF5252),
+                                    text = if (isSttKeySaved) "✓ STT saved" else "STT config not saved",
+                                    color = if (isSttKeySaved) Color(0xFF00F2FE) else Color(0xFFFF5252),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium
                                 )
 
                                 Button(
                                     onClick = {
-                                        if (apiKeyInput.isNotBlank()) {
-                                            SecurityUtils.saveApiKey(context, apiKeyInput)
-                                            isKeySaved = true
-                                            Toast.makeText(context, "API Key Saved", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            SecurityUtils.clearApiKey(context)
-                                            isKeySaved = false
-                                            Toast.makeText(context, "API Key Cleared", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            SecurityUtils.saveSttPreset(context, sttPreset)
+                                            SecurityUtils.saveSttBaseUrl(context, sttPreset, sttBaseUrl)
+                                            SecurityUtils.saveSttModel(context, sttPreset, sttModel)
+                                            if (sttApiKeyInput.isNotBlank()) {
+                                                SecurityUtils.saveProviderApiKey(context, "stt", sttPreset, sttApiKeyInput)
+                                                isSttKeySaved = true
+                                                Toast.makeText(context, "STT Config Saved", Toast.LENGTH_SHORT).show()
+                                                triggerSttModelFetch(sttBaseUrl, sttApiKeyInput)
+                                            } else {
+                                                SecurityUtils.clearProviderApiKey(context, "stt", sttPreset)
+                                                isSttKeySaved = false
+                                                Toast.makeText(context, "STT Key Cleared", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color.Transparent
-                                    ),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                                     contentPadding = PaddingValues(),
-                                    modifier = Modifier.height(38.dp)
+                                    modifier = Modifier.height(36.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxHeight()
                                             .background(shiftingButtonBrush, RoundedCornerShape(100.dp))
-                                            .padding(horizontal = 20.dp),
+                                            .padding(horizontal = 16.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("Save", color = Color(0xFF0E0E14), fontWeight = FontWeight.Bold)
+                                        Text("Save STT", color = Color(0xFF0E0E14), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0x1EFFFFFF)))
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // ---- 2. AI AGENT PROVIDER SECTION ----
+                            Text(
+                                text = "2. AI Agent (LLM) Provider",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+
+                            // LLM Preset Dropdown Selector
+                            var llmPresetExpanded by remember { mutableStateOf(false) }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = llmPreset.uppercase(java.util.Locale.getDefault()),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Agent Provider") },
+                                    trailingIcon = {
+                                        TextButton(onClick = { llmPresetExpanded = true }) {
+                                            Text("▼", color = Color(0xFFDDB7FF), fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                DropdownMenu(
+                                    expanded = llmPresetExpanded,
+                                    onDismissRequest = { llmPresetExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    listOf("groq", "mistral", "custom").forEach { preset ->
+                                        DropdownMenuItem(
+                                            text = { Text(preset.uppercase(java.util.Locale.getDefault())) },
+                                            onClick = {
+                                                llmPreset = preset
+                                                llmPresetExpanded = false
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, preset)
+                                                    llmModel = SecurityUtils.getLlmModel(context, preset)
+                                                    val savedKey = SecurityUtils.getProviderApiKey(context, "llm", preset) ?: ""
+                                                    withContext(Dispatchers.Main) {
+                                                        llmApiKeyInput = savedKey
+                                                        isLlmKeySaved = savedKey.isNotBlank()
+                                                        llmModelsList = emptyList()
+                                                        if (savedKey.isNotBlank()) {
+                                                            triggerLlmModelFetch(llmBaseUrl, savedKey)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // LLM Base URL (Visible for Custom only)
+                            if (llmPreset == "custom") {
+                                OutlinedTextField(
+                                    value = llmBaseUrl,
+                                    onValueChange = {
+                                        llmBaseUrl = it
+                                        isLlmKeySaved = false
+                                    },
+                                    label = { Text("Agent Base URL (e.g. https://api.openai.com)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            // LLM API Key
+                            OutlinedTextField(
+                                value = llmApiKeyInput,
+                                onValueChange = {
+                                    llmApiKeyInput = it
+                                    isLlmKeySaved = false
+                                },
+                                label = { Text("${llmPreset.uppercase(java.util.Locale.getDefault())} Agent API Key") },
+                                visualTransformation = if (isLlmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    TextButton(onClick = { isLlmPasswordVisible = !isLlmPasswordVisible }) {
+                                        Text(if (isLlmPasswordVisible) "Hide" else "Show", color = Color(0xFFDDB7FF))
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFFDDB7FF),
+                                    unfocusedBorderColor = Color(0x33FFFFFF),
+                                    focusedLabelColor = Color(0xFFDDB7FF),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // LLM Model Selection
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = llmModel,
+                                    onValueChange = {
+                                        llmModel = it
+                                        isLlmKeySaved = false
+                                    },
+                                    label = { Text("Agent Model Name (e.g. llama-3.3-70b-versatile)") },
+                                    trailingIcon = {
+                                        if (isLlmModelsLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                color = Color(0xFFDDB7FF),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else if (llmModelsList.isNotEmpty()) {
+                                            TextButton(onClick = { llmDropdownExpanded = true }) {
+                                                Text("▼", color = Color(0xFFDDB7FF), fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDDB7FF),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedLabelColor = Color(0xFFDDB7FF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                if (llmModelsList.isNotEmpty()) {
+                                    DropdownMenu(
+                                        expanded = llmDropdownExpanded,
+                                        onDismissRequest = { llmDropdownExpanded = false },
+                                        modifier = Modifier.fillMaxWidth(0.9f)
+                                    ) {
+                                        llmModelsList.forEach { model ->
+                                            DropdownMenuItem(
+                                                text = { Text(model) },
+                                                onClick = {
+                                                    llmModel = model
+                                                    llmDropdownExpanded = false
+                                                    isLlmKeySaved = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Save LLM Button & Status
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isLlmKeySaved) "✓ Agent saved" else "Agent config not saved",
+                                    color = if (isLlmKeySaved) Color(0xFF00F2FE) else Color(0xFFFF5252),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            SecurityUtils.saveLlmPreset(context, llmPreset)
+                                            SecurityUtils.saveLlmBaseUrl(context, llmPreset, llmBaseUrl)
+                                            SecurityUtils.saveLlmModel(context, llmPreset, llmModel)
+                                            if (llmApiKeyInput.isNotBlank()) {
+                                                SecurityUtils.saveProviderApiKey(context, "llm", llmPreset, llmApiKeyInput)
+                                                isLlmKeySaved = true
+                                                Toast.makeText(context, "Agent Config Saved", Toast.LENGTH_SHORT).show()
+                                                triggerLlmModelFetch(llmBaseUrl, llmApiKeyInput)
+                                            } else {
+                                                SecurityUtils.clearProviderApiKey(context, "llm", llmPreset)
+                                                isLlmKeySaved = false
+                                                Toast.makeText(context, "Agent Key Cleared", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                    contentPadding = PaddingValues(),
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .background(shiftingButtonBrush, RoundedCornerShape(100.dp))
+                                            .padding(horizontal = 16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("Save Agent", color = Color(0xFF0E0E14), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                     }
                                 }
                             }
@@ -1520,6 +1962,21 @@ private data class StatusResults(
 
 private data class InitialInfo(
     val key: String,
+    val bubbleEnabled: Boolean,
+    val offlineEnabled: Boolean,
+    val modelDownloaded: Boolean,
+    val sizeBytes: Long
+)
+
+private data class ExtendedInitialInfo(
+    val sttPreset: String,
+    val sttBaseUrl: String,
+    val sttModel: String,
+    val sttKey: String,
+    val llmPreset: String,
+    val llmBaseUrl: String,
+    val llmModel: String,
+    val llmKey: String,
     val bubbleEnabled: Boolean,
     val offlineEnabled: Boolean,
     val modelDownloaded: Boolean,
