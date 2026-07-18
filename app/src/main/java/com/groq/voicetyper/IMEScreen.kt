@@ -69,6 +69,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.groq.voicetyper.theme.BrandAmethyst
+import com.groq.voicetyper.theme.Error
+import com.groq.voicetyper.theme.Panel
+import com.groq.voicetyper.theme.TextPrimary
+import com.groq.voicetyper.theme.TextDisabled
 
 @Composable
 fun IMEScreen(
@@ -137,26 +142,25 @@ fun IMEScreen(
         label = "pingAlpha"
     )
 
-    // Color definitions from Stitch designs
     val micBgColor = when (recordingState) {
-        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7) // Teal vs Amethyst Violet
-        RecordingState.TRANSCRIBING -> Color(0xFF1E1F23) // Dark Grey
-        RecordingState.ERROR -> Color(0xFFFF5252) // Error Red
-        RecordingState.IDLE -> if (isEnabled) Color(0xFFE3E2E7) else Color(0xFF474649)
+        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+        RecordingState.TRANSCRIBING -> Panel
+        RecordingState.ERROR -> Error
+        RecordingState.IDLE -> if (isEnabled) TextPrimary else TextDisabled
     }
 
     val micIconColor = when (recordingState) {
-        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF0D0E12) else Color(0xFF1B1B21) // Dark contrast
+        RecordingState.RECORDING -> Color(0xFF0D0E12)
         RecordingState.TRANSCRIBING -> Color.White
         RecordingState.ERROR -> Color.White
-        RecordingState.IDLE -> Color(0xFF121317)
+        RecordingState.IDLE -> Panel
     }
 
     val statusTextColor = when (recordingState) {
-        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-        RecordingState.TRANSCRIBING -> if (isAgentMode) Color(0xFF80FFE8) else Color(0xFFD18CFF)
-        RecordingState.ERROR -> Color(0xFFFF5252)
-        RecordingState.IDLE -> Color(0xFFE3E2E7)
+        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+        RecordingState.TRANSCRIBING -> if (isAgentMode) Color(0xFF80FFE8) else BrandAmethyst.copy(alpha = 0.7f)
+        RecordingState.ERROR -> Error
+        RecordingState.IDLE -> TextPrimary
     }
 
     val statusText = when (recordingState) {
@@ -212,8 +216,8 @@ fun IMEScreen(
                 .size(width = 240.dp, height = 64.dp)
                 .drawBehind {
                     val isListening = recordingState == RecordingState.RECORDING
-                    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-                    val glowColor = baseGlowColor.copy(alpha = if (isListening) 0.65f else 0.45f)
+                    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+                    val glowColor = baseGlowColor.copy(alpha = if (isListening) 0.35f else 0.20f)
                     val shapeRadiusPx = 32.dp.toPx()
                     val maxOffset = 8.dp.toPx()
 
@@ -242,13 +246,13 @@ fun IMEScreen(
                     brush = Brush.linearGradient(
                         colors = if (isAgentMode) {
                             listOf(
-                                Color(0xFF00F5D4),
-                                Color(0xFF00BBF9).copy(alpha = 0.5f)
+                                Color(0xFF00F5D4).copy(alpha = 0.6f),
+                                Color(0xFF00BBF9).copy(alpha = 0.25f)
                             )
                         } else {
                             listOf(
-                                Color(0xFFA855F7),
-                                Color(0xFF6366F1).copy(alpha = 0.5f)
+                                BrandAmethyst.copy(alpha = 0.6f),
+                                Color(0xFF6366F1).copy(alpha = 0.25f)
                             )
                         }
                     ),
@@ -310,7 +314,7 @@ fun IMEScreen(
                             }
                     ) {
                         drawCircle(
-                            color = (if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)).copy(alpha = pingAlpha),
+                            color = (if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst).copy(alpha = pingAlpha),
                             radius = size.minDimension / 2,
                             style = Stroke(width = 1.5.dp.toPx())
                         )

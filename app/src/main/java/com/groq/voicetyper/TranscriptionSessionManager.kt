@@ -8,6 +8,7 @@ import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflinePipelineProvider
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.offline.OfflineTranscriber
+import com.groq.voicetyper.history.HistoryRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -188,6 +189,10 @@ object TranscriptionSessionManager {
                     }
                     val finalTranscription = offlineTextAccumulator.toString().trim()
                     if (finalTranscription.isNotEmpty()) {
+                        val lang = getKeyboardLanguageCode(context)
+                        CoroutineScope(Dispatchers.IO).launch {
+                            HistoryRepository.save(finalTranscription, "offline", "sensevoice-small", lang, 0L, false)
+                        }
                         withContext(Dispatchers.Main) {
                             currentListener?.onTranscription(finalTranscription)
                         }
@@ -267,7 +272,11 @@ object TranscriptionSessionManager {
             result.fold(
                 onSuccess = { text ->
                     if (text.isNotBlank()) {
-                        if (_isAgentMode.value) {
+                        val isAgent = _isAgentMode.value
+                        CoroutineScope(Dispatchers.IO).launch {
+                            HistoryRepository.save(text, sttPreset, sttModel, languageCode, 0L, isAgent)
+                        }
+                        if (isAgent) {
                             val contextText = currentListener?.getContextText() ?: ""
                             val llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, llmPreset)
                             val llmModel = SecurityUtils.getLlmModel(context, llmPreset)
