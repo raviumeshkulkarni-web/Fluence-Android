@@ -857,6 +857,7 @@ private fun SortBottomSheet(
         containerColor = PanelElevated,
         contentColor = TextPrimary,
         shape = FluenceShapes.Large,
+        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         dragHandle = {
             Box(
                 modifier = Modifier
