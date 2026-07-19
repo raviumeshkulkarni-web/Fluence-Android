@@ -24,3 +24,11 @@ runs.json
 run_detail.json
 release.json
 jobs.json
+
+# JVM crash / replay logs
+hs_err_pid*.log
+replay_pid*.log
+
+# Agent artifacts
+.sisyphus/
+screenshot_home.png
