@@ -23,6 +23,9 @@ interface TranscriptionHistoryDao {
     @Query("DELETE FROM transcription_history")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM transcription_history WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("DELETE FROM transcription_history WHERE timestamp < :cutoff")
     suspend fun deleteOlderThan(cutoff: Long)
 

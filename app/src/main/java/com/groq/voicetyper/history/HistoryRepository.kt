@@ -20,6 +20,8 @@ object HistoryRepository {
 
     suspend fun delete(entry: TranscriptionEntry) = dao!!.delete(entry)
 
+    suspend fun deleteByIds(ids: List<Long>) = dao!!.deleteByIds(ids)
+
     suspend fun clearAll() {
         dao!!.deleteAll()
     }
