@@ -135,10 +135,10 @@ fun OfflineConfigScreen(
                         }
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = TextPrimary,
+                        checkedThumbColor = Panel,
                         checkedTrackColor = TextPrimary,
-                        uncheckedTrackColor = TextPrimary.copy(alpha = 0.2f),
-                        uncheckedThumbColor = TextPrimary
+                        uncheckedThumbColor = TextPrimary,
+                        uncheckedTrackColor = Panel
                     )
                 )
             }
