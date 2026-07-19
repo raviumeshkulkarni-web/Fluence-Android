@@ -88,29 +88,7 @@ fun AboutScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "flu",
-                        color = TextPrimary,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = SoraFont
-                    )
-                    Text(
-                        text = "ence",
-                        color = BrandCyan,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = SoraFont
-                    )
-                    Text(
-                        text = "transcribe",
-                        color = TextTertiary,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Normal,
-                        fontFamily = SoraFont
-                    )
-                }
+                FluenceProductLockup(productName = "Transcribe", orbSize = 48.dp, wordmarkSize = 28.sp)
             }
 
             Spacer(modifier = Modifier.height(32.dp))

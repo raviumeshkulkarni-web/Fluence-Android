@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
@@ -37,6 +38,12 @@ val SoraFont = FontFamily(
 val GeistMonoFont = FontFamily(
     Font(googleFont = GoogleFont("Geist Mono"), fontProvider = fontProvider, weight = FontWeight.Medium),
     Font(googleFont = GoogleFont("Geist Mono"), fontProvider = fontProvider, weight = FontWeight.Normal),
+)
+
+// Product name script (brand artwork only — Fluence Capture / Fluence Transcribe)
+// Bundled locally so the script face is always present (no network/fallback dependency).
+val AlluraFont = FontFamily(
+    androidx.compose.ui.text.font.Font(resId = R.font.allura, weight = FontWeight.Normal),
 )
 
 // ── CompositionLocal for mono font ──────────────────────────────────────────

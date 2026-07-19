@@ -477,10 +477,7 @@ private fun HomeHeader(
             }
         } else {
             Spacer(modifier = Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("fluence", color = TextPrimary, style = FluenceTypography.headlineMedium.copy(fontFamily = SoraFont, fontWeight = FontWeight.SemiBold))
-                Text("transcribe", color = TextTertiary, style = FluenceTypography.headlineMedium.copy(fontFamily = SoraFont, fontWeight = FontWeight.Normal))
-            }
+            FluenceProductLockup(productName = "Transcribe", orbSize = 32.dp, wordmarkSize = 20.sp)
             Spacer(modifier = Modifier.weight(1f))
             IconButton(
                 onClick = onSettings,
