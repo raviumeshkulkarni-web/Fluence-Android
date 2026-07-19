@@ -70,6 +70,13 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                 }
             }
         }
+
+        // Observe recording state to dynamically manage FLAG_KEEP_SCREEN_ON
+        scope.launch {
+            BubbleController.recordingState.collect { state ->
+                updateScreenOnFlag(state == RecordingState.RECORDING)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -193,6 +200,22 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         }
         composeView = null
         isViewAdded = false
+    }
+
+    private fun updateScreenOnFlag(keepScreenOn: Boolean) {
+        if (!isViewAdded || composeView == null || !composeView!!.isAttachedToWindow) return
+        val lp = layoutParams
+        val oldFlags = lp.flags
+        if (keepScreenOn) {
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        } else {
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.inv()
+        }
+        if (lp.flags != oldFlags) {
+            if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
+                windowManager.updateViewLayout(composeView, lp)
+            }
+        }
     }
 
     private var snapAnimator: android.animation.ValueAnimator? = null

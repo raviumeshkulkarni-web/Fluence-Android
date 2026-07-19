@@ -104,6 +104,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         scope.launch {
             TranscriptionSessionManager.recordingState.collect {
                 recordingState = it
+                updateScreenOnFlag(it == RecordingState.RECORDING)
             }
         }
         scope.launch {
@@ -381,6 +382,15 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                     conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                 }
             }
+        }
+    }
+
+    private fun updateScreenOnFlag(keepScreenOn: Boolean) {
+        val w = window?.window ?: return
+        if (keepScreenOn) {
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
