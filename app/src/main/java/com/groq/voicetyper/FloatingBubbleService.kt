@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.WindowManager
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
@@ -50,7 +51,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     private var composeView: ComposeView? = null
     private lateinit var layoutParams: WindowManager.LayoutParams
     private var isViewAdded = false
-    private var isAnchoredRight = true
+    private var isAnchoredRightState = mutableStateOf(true)
+    private val isAnchoredRight: Boolean get() = isAnchoredRightState.value
 
     override fun onCreate() {
         super.onCreate()
@@ -130,7 +132,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             x = lastX ?: (resources.displayMetrics.widthPixels - collapsedSize - padding)
             y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
         }
-        isAnchoredRight = lastIsAnchoredRight
+        isAnchoredRightState.value = lastIsAnchoredRight
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(
@@ -159,7 +161,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         val screenWidth = resources.displayMetrics.widthPixels
                         val lp = this@FloatingBubbleService.layoutParams
                         val isLeft = (lp.x + padding) + collapsedSize / 2 < screenWidth / 2
-                        isAnchoredRight = !isLeft
+                        isAnchoredRightState.value = !isLeft
                         lastIsAnchoredRight = isAnchoredRight
                         val targetX = if (isLeft) -padding else screenWidth - collapsedSize - padding
                         animateSnap(targetX)
@@ -174,7 +176,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                                 windowManager.updateViewLayout(composeView, lp)
                             }
                         }
-                    }
+                    },
+                    isAnchoredRight = isAnchoredRightState.value
                 )
             }
         }

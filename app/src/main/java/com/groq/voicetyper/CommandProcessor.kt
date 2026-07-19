@@ -139,7 +139,7 @@ object CommandProcessor {
                     val validatedResult = validateCommandResult(result, contextText.length)
                     Result.success(validatedResult)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse chat response: $bodyString", e)
+                    Log.e(TAG, "Failed to parse chat response.", e)
                     Result.failure(Exception("Failed to parse command response"))
                 }
             }

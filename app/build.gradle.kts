@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.kapt)
 }
 
 val localProperties = Properties().apply {
@@ -54,6 +55,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug.ui"
+            versionNameSuffix = "-ui-polish"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -98,9 +103,14 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.material.icons.extended)
     
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)
+    implementation("androidx.compose.ui:ui-text-google-fonts")
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    kapt(libs.androidx.room.compiler)
     
     // Offline speech-to-text engine (SenseVoice-Small via sherpa-onnx)
     implementation(files("libs/sherpa-onnx-1.13.2.aar"))

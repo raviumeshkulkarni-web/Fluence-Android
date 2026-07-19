@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32" fill="none">
+  <defs>
+    <linearGradient id="fluence-brand" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8B45D8"/>
+      <stop offset="50%" stop-color="#8B45D8"/>
+      <stop offset="100%" stop-color="#0BD6E3"/>
+    </linearGradient>
+  </defs>
+  <text x="0" y="24" font-family="Sora, 'Hanken Grotesk', system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.5">
+    <tspan fill="#8B45D8">flu</tspan><tspan fill="#0BD6E3">ence</tspan>
+  </text>
+</svg>

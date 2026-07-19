@@ -25,10 +25,8 @@ run_detail.json
 release.json
 jobs.json
 
-# JVM crash / replay logs
+# Crash / replay / screenshot artifacts
 hs_err_pid*.log
 replay_pid*.log
-
-# Agent artifacts
+screenshot_*.png
 .sisyphus/
-screenshot_home.png
