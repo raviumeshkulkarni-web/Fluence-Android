@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -36,17 +35,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.Image
-import androidx.compose.ui.composed
 import androidx.compose.ui.res.painterResource
-import com.groq.voicetyper.theme.BrandAmethyst
+import androidx.compose.ui.composed
 import kotlin.math.sin
 
 @Composable
 fun FloatingBubbleUI(
     onDrag: (dx: Float, dy: Float) -> Unit,
     onDragReleased: () -> Unit,
-    onWidthUpdated: (Float) -> Unit,
-    isAnchoredRight: Boolean = false
+    onWidthUpdated: (Float) -> Unit
 ) {
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
@@ -62,22 +59,9 @@ fun FloatingBubbleUI(
         label = "width"
     )
 
-    // Compensate for the one-frame lag between ComposeView size change and WindowManager position update.
-    // When expanding on the right side, the WindowManager repositions asynchronously, causing the
-    // right edge to overshoot by the per-frame width delta. We shift the content LEFT by that delta
-    // to keep the right edge visually fixed.
-    val densityValue = LocalDensity.current.density
-    val currentWidthPx = (width.value * densityValue).toInt()
-    var prevWidthPx by remember { mutableIntStateOf(currentWidthPx) }
-    val lagOffsetDp = if (isExpanded && isAnchoredRight && prevWidthPx != currentWidthPx) {
-        ((prevWidthPx - currentWidthPx) / densityValue).coerceIn(-240f, 240f)
-    } else 0f
-
     SideEffect {
         onWidthUpdated(width.value)
-        prevWidthPx = currentWidthPx
     }
-
     val height by animateDpAsState(
         targetValue = if (isExpanded) 64.dp else 56.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
@@ -97,7 +81,6 @@ fun FloatingBubbleUI(
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
-                .offset(x = lagOffsetDp.dp)
                 .amethystObsidianGlow(isExpanded = isExpanded, shape = shape)
                 // Gesture handling for Collapsed state (drag, instant tap, hold for agent mode)
                 .run {
@@ -240,7 +223,7 @@ fun FloatingBubbleUI(
 
                     // 3. Confirm Button (Right)
                     val isAgentMode by BubbleController.isAgentMode.collectAsState()
-                    val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+                    val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
                     val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else Color.White
                     IconButton(
                         onClick = { BubbleController.stopRecording(context) },
@@ -278,8 +261,8 @@ fun Modifier.amethystObsidianGlow(
     shape: RoundedCornerShape
 ): Modifier = this.composed {
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
-    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
-    val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.35f else 0.20f)
+    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
+    val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.65f else 0.45f)
 
     this.drawBehind {
         val shapeRadiusPx = shape.topStart.toPx(size, this)
@@ -310,13 +293,13 @@ fun Modifier.amethystObsidianGlow(
         brush = Brush.linearGradient(
             colors = if (isAgentMode) {
                 listOf(
-                    Color(0xFF00F5D4).copy(alpha = 0.6f),
-                    Color(0xFF00BBF9).copy(alpha = 0.25f)
+                    Color(0xFF00F5D4),
+                    Color(0xFF00BBF9).copy(alpha = 0.5f)
                 )
             } else {
                 listOf(
-                    BrandAmethyst.copy(alpha = 0.6f),
-                    Color(0xFF6366F1).copy(alpha = 0.25f)
+                    Color(0xFFA855F7), // Amethyst Glow
+                    Color(0xFF6366F1).copy(alpha = 0.5f) // Deep Indigo accent
                 )
             }
         ),
@@ -349,7 +332,7 @@ fun SiriWaveform() {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
 
-    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
     val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else Color(0xFFF3E8FF)
 
     // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling

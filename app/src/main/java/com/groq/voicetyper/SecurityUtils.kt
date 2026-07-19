@@ -59,7 +59,7 @@ object SecurityUtils {
     fun getSttModel(context: Context, preset: String): String {
         val defaultModel = when (preset.lowercase()) {
             "groq" -> "whisper-large-v3"
-            "mistral" -> "mistral-whisper"
+            "mistral" -> "voxtral-mini-latest"
             else -> "whisper-1"
         }
         return getSharedPrefs(context).getString("stt_model_$preset", defaultModel) ?: defaultModel
