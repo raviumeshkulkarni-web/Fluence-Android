@@ -24,3 +24,9 @@ runs.json
 run_detail.json
 release.json
 jobs.json
+
+# Crash / replay / screenshot artifacts
+hs_err_pid*.log
+replay_pid*.log
+screenshot_*.png
+.sisyphus/
