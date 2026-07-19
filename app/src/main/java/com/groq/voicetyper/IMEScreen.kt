@@ -193,7 +193,7 @@ fun IMEScreen(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(bottom = 16.dp),
+            .padding(top = 12.dp, bottom = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Floating Status Text
