@@ -1,0 +1,370 @@
+package com.groq.voicetyper.ui
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.groq.voicetyper.FluenceAccessibilityService
+import com.groq.voicetyper.isAccessibilityServiceEnabled
+import com.groq.voicetyper.pressScale
+import com.groq.voicetyper.theme.*
+
+@Composable
+private fun PermissionRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    isGranted: Boolean,
+    onRequest: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressScale(interactionSource)
+            .clickable(onClick = onRequest)
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = TextSecondary,
+            modifier = Modifier.size(22.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(
+                    color = if (isGranted) Success else Error,
+                    shape = MaterialTheme.shapes.extraSmall
+                )
+        )
+    }
+}
+
+@Composable
+private fun SectionDivider() {
+    HorizontalDivider(
+        color = OutlineSubtle,
+        thickness = 1.dp,
+        modifier = Modifier.padding(horizontal = 20.dp)
+    )
+}
+
+@Composable
+fun PermissionsScreen(
+    onNavigateBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var micGranted by remember { mutableStateOf(false) }
+    var overlayGranted by remember { mutableStateOf(false) }
+    var accessibilityEnabled by remember { mutableStateOf(false) }
+    var batteryUnrestricted by remember { mutableStateOf(false) }
+    var bubbleEnabled by remember { mutableStateOf(false) }
+
+    val prefs = remember { context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE) }
+
+    fun refreshStatuses() {
+        micGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        overlayGranted = Settings.canDrawOverlays(context)
+        accessibilityEnabled = isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java)
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        batteryUnrestricted = pm.isIgnoringBatteryOptimizations(context.packageName)
+        bubbleEnabled = prefs.getBoolean("floating_bubble_enabled", false)
+    }
+
+    LaunchedEffect(Unit) {
+        refreshStatuses()
+    }
+
+    LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_RESUME) {
+            refreshStatuses()
+        }
+    }.let { observer ->
+        DisposableEffect(lifecycleOwner) {
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+    }
+
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        micGranted = isGranted
+        if (!isGranted) {
+            Toast.makeText(context, "Microphone permission is required for voice typing", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val overlayLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        overlayGranted = Settings.canDrawOverlays(context)
+    }
+
+    val batteryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        batteryUnrestricted = pm.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Canvas)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .pressScale(remember { MutableInteractionSource() })
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Text(
+                    text = "Permissions & Services",
+                    color = TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            PermissionRow(
+                icon = Icons.Default.Mic,
+                title = "Microphone",
+                description = if (micGranted) "Granted" else "Required for voice typing",
+                isGranted = micGranted,
+                onRequest = {
+                    if (micGranted) {
+                        Toast.makeText(context, "Microphone permission already granted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            )
+
+            SectionDivider()
+
+            PermissionRow(
+                icon = Icons.Default.PictureInPicture,
+                title = "Display Over Other Apps",
+                description = if (overlayGranted) "Granted" else "Required for floating bubble",
+                isGranted = overlayGranted,
+                onRequest = {
+                    if (overlayGranted) {
+                        Toast.makeText(context, "Overlay permission already granted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        overlayLauncher.launch(intent)
+                    }
+                }
+            )
+
+            SectionDivider()
+
+            PermissionRow(
+                icon = Icons.Default.Accessibility,
+                title = "Accessibility Service",
+                description = if (accessibilityEnabled) "Enabled" else "Required for orb and auto-mode",
+                isGranted = accessibilityEnabled,
+                onRequest = {
+                    if (accessibilityEnabled) {
+                        Toast.makeText(context, "Accessibility service already enabled", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Find \"Fluence Transcribe\" and enable it", Toast.LENGTH_LONG).show()
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        context.startActivity(intent)
+                    }
+                }
+            )
+
+            SectionDivider()
+
+            PermissionRow(
+                icon = Icons.Default.BatteryAlert,
+                title = "Battery Optimization",
+                description = if (batteryUnrestricted) "Unrestricted" else "May kill background service",
+                isGranted = batteryUnrestricted,
+                onRequest = {
+                    if (batteryUnrestricted) {
+                        Toast.makeText(context, "Already unrestricted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        batteryLauncher.launch(intent)
+                    }
+                }
+            )
+
+            SectionDivider()
+
+            val interactionSource = remember { MutableInteractionSource() }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressScale(interactionSource)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = {
+                            if (!accessibilityEnabled) {
+                                Toast.makeText(context, "Enable accessibility service first", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val newValue = !bubbleEnabled
+                                prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
+                                bubbleEnabled = newValue
+                                if (!newValue) {
+                                    Toast.makeText(context, "Floating bubble disabled", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    )
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BubbleChart,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Floating Bubble",
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = when {
+                            !accessibilityEnabled -> "Enable accessibility first"
+                            bubbleEnabled -> "Active — orb will appear in text fields"
+                            else -> "Tap to enable"
+                        },
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Switch(
+                    checked = bubbleEnabled,
+                    onCheckedChange = { newValue ->
+                        if (!accessibilityEnabled) {
+                            Toast.makeText(context, "Enable accessibility service first", Toast.LENGTH_SHORT).show()
+                        } else {
+                            prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
+                            bubbleEnabled = newValue
+                            if (!newValue) {
+                                Toast.makeText(context, "Floating bubble disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Panel,
+                        checkedTrackColor = TextPrimary,
+                        uncheckedThumbColor = TextPrimary,
+                        uncheckedTrackColor = Panel
+                    ),
+                    modifier = Modifier.semantics {
+                        role = Role.Switch
+                        stateDescription = if (bubbleEnabled) "On" else "Off"
+                        contentDescription = "Floating Bubble"
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}

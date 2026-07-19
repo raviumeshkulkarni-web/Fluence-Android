@@ -6,23 +6,17 @@ import android.content.Context
 import android.provider.Settings
 import android.widget.Toast
 import android.view.inputmethod.InputMethodManager
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -32,6 +26,11 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ShortText
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -41,16 +40,17 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,7 +69,15 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+enum class SortOption(val displayName: String) {
+    NEWEST("Newest first"),
+    OLDEST("Oldest first"),
+    DURATION_DESC("Longest first"),
+    DURATION_ASC("Shortest first")
+}
+
 private const val AVG_WPM = 40.0
+private const val PREVIEW_COUNT = 5
 
 private fun computeStats(entries: List<TranscriptionEntry>): Triple<String, String, String> {
     val totalChars = entries.sumOf { it.text.length }
@@ -80,38 +88,56 @@ private fun computeStats(entries: List<TranscriptionEntry>): Triple<String, Stri
     val totalH = totalMinutes.toInt() / 60
     val totalM = totalMinutes.toInt() % 60
     val dictText = if (totalH > 0) "${totalH}h ${totalM}m" else "${totalM}m"
-    val charsText = if (totalChars >= 1_000_000) String.format(Locale.US, "%.1fM", totalChars / 1_000_000.0)
-    else if (totalChars >= 1_000) String.format(Locale.US, "%.1fK", totalChars / 1_000.0)
-    else totalChars.toString()
-    return Triple(savedText, ideasCount.toString(), dictText).let { (s, i, d) -> Triple(s, i, d) }
+    return Triple(savedText, ideasCount.toString(), dictText)
 }
 
-private fun groupEntries(entries: List<TranscriptionEntry>): List<Pair<String, List<TranscriptionEntry>>> {
+private fun formatTimestamp(timestampMs: Long): String {
     val now = System.currentTimeMillis()
-    val startOfToday = { java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
-    val todayStart = startOfToday()
+    val diff = now - timestampMs
+    return when {
+        diff < 60_000L -> "Just now"
+        diff < 3_600_000L -> "${diff / 60_000L}m ago"
+        diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
+        diff < 172_800_000L -> "Yesterday"
+        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestampMs))
+    }
+}
+
+private fun groupEntries(entries: List<TranscriptionEntry>, sortOption: SortOption): List<Pair<String, List<TranscriptionEntry>>> {
+    val cal = java.util.Calendar.getInstance()
+    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    cal.set(java.util.Calendar.MINUTE, 0)
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    val todayStart = cal.timeInMillis
     val yesterdayStart = todayStart - TimeUnit.DAYS.toMillis(1)
     val thisWeekStart = todayStart - TimeUnit.DAYS.toMillis(
         (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - java.util.Calendar.MONDAY).coerceAtLeast(0).toLong()
     )
     val lastWeekStart = thisWeekStart - TimeUnit.DAYS.toMillis(7)
-
     val groups = mutableListOf<Pair<String, List<TranscriptionEntry>>>()
     val today = entries.filter { it.timestamp >= todayStart }
     val yesterday = entries.filter { it.timestamp in yesterdayStart until todayStart }
     val thisWeek = entries.filter { it.timestamp in thisWeekStart until yesterdayStart }
     val lastWeek = entries.filter { it.timestamp in lastWeekStart until thisWeekStart }
     val older = entries.filter { it.timestamp < lastWeekStart }
-
-    if (today.isNotEmpty()) groups.add("TODAY" to today)
-    if (yesterday.isNotEmpty()) groups.add("YESTERDAY" to yesterday)
-    if (thisWeek.isNotEmpty()) groups.add("THIS WEEK" to thisWeek)
-    if (lastWeek.isNotEmpty()) groups.add("LAST WEEK" to lastWeek)
-    if (older.isNotEmpty()) groups.add("EARLIER" to older)
+    
+    if (sortOption == SortOption.OLDEST) {
+        if (older.isNotEmpty()) groups.add("EARLIER" to older)
+        if (lastWeek.isNotEmpty()) groups.add("LAST WEEK" to lastWeek)
+        if (thisWeek.isNotEmpty()) groups.add("THIS WEEK" to thisWeek)
+        if (yesterday.isNotEmpty()) groups.add("YESTERDAY" to yesterday)
+        if (today.isNotEmpty()) groups.add("TODAY" to today)
+    } else {
+        if (today.isNotEmpty()) groups.add("TODAY" to today)
+        if (yesterday.isNotEmpty()) groups.add("YESTERDAY" to yesterday)
+        if (thisWeek.isNotEmpty()) groups.add("THIS WEEK" to thisWeek)
+        if (lastWeek.isNotEmpty()) groups.add("LAST WEEK" to lastWeek)
+        if (older.isNotEmpty()) groups.add("EARLIER" to older)
+    }
     return groups
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onNavigateToSettings: () -> Unit,
@@ -122,22 +148,19 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-
     var isKeyboardActive by remember { mutableStateOf(false) }
     var sttProvider by remember { mutableStateOf("groq") }
     var sttModel by remember { mutableStateOf("whisper-large-v3") }
-
     var allEntries by remember { mutableStateOf<List<TranscriptionEntry>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
-    var isSearchFocused by remember { mutableStateOf(false) }
-    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     val isMultiSelect = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-
+    var expandedGroups by remember { mutableStateOf(setOf<String>()) }
+    var currentSortOption by remember { mutableStateOf(SortOption.NEWEST) }
+    var showSortSheet by remember { mutableStateOf(false) }
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
 
     LaunchedEffect(Unit) {
@@ -151,25 +174,48 @@ fun HomeScreen(
             kotlinx.coroutines.delay(2000)
         }
     }
-
     LaunchedEffect(Unit) {
         repository.getAll().collect { allEntries = it }
     }
 
-    val displayedEntries = if (searchQuery.isBlank()) allEntries
-    else allEntries.filter { it.text.contains(searchQuery, ignoreCase = true) }
-
-    val groupedEntries = remember(displayedEntries) { groupEntries(displayedEntries) }
-
+    val displayedEntries = remember(allEntries, searchQuery, currentSortOption) {
+        val filtered = if (searchQuery.isBlank()) allEntries
+        else allEntries.filter { it.text.contains(searchQuery, ignoreCase = true) }
+        
+        when (currentSortOption) {
+            SortOption.NEWEST -> filtered.sortedByDescending { it.timestamp }
+            SortOption.OLDEST -> filtered.sortedBy { it.timestamp }
+            SortOption.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
+            SortOption.DURATION_ASC -> filtered.sortedBy { it.durationMs }
+        }
+    }
+    
+    val groupedEntries = remember(displayedEntries, currentSortOption) {
+        if (currentSortOption == SortOption.DURATION_DESC || currentSortOption == SortOption.DURATION_ASC) {
+            listOf("ALL TRANSCRIPTIONS" to displayedEntries)
+        } else {
+            groupEntries(displayedEntries, currentSortOption)
+        }
+    }
+    
     val (savedTime, ideasCount, dictTime) = remember(allEntries) { computeStats(allEntries) }
-    val totalChars = remember(allEntries) { allEntries.sumOf { it.text.length } }
-    val charsText = if (totalChars >= 1_000_000) String.format(Locale.US, "%.1fM", totalChars / 1_000_000.0)
-    else if (totalChars >= 1_000) String.format(Locale.US, "%.1fK", totalChars / 1_000.0)
-    else totalChars.toString()
-
-    fun deleteSelected() {
-        coroutineScope.launch { repository.deleteByIds(selectedIds.toList()) }
-        selectedIds = emptySet()
+    val totalWords = remember(allEntries) {
+        allEntries.sumOf { entry ->
+            entry.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        }
+    }
+    val wordsText = remember(totalWords) {
+        java.text.NumberFormat.getNumberInstance(Locale.US).format(totalWords)
+    }
+    val thisMonthCount = remember(allEntries) {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val startOfMonth = cal.timeInMillis
+        allEntries.count { it.timestamp >= startOfMonth }.toString()
     }
 
     Box(
@@ -177,364 +223,177 @@ fun HomeScreen(
             .fillMaxSize()
             .background(Canvas)
             .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ── Header ──────────────────────────────────────────────────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isMultiSelect) {
-                    IconButton(
-                        onClick = { selectedIds = emptySet() },
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Exit selection",
-                            tint = TextPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "${selectedIds.size} selected",
-                        color = TextPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = SoraFont
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(
-                        onClick = {
-                            pendingDeleteIds = selectedIds.toList()
-                            showDeleteDialog = true
-                        },
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete selected",
-                            tint = Error,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "fluence",
-                            color = TextPrimary,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = SoraFont
-                        )
-                        Text(
-                            text = "transcribe",
-                            color = TextTertiary,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Normal,
-                            fontFamily = SoraFont
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .pressScale(remember { MutableInteractionSource() })
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ── Status Card ─────────────────────────────────────────────────
-            val statusColor = if (isKeyboardActive) Success else Error
-            val statusText = if (isKeyboardActive) "Keyboard Active" else "Keyboard Inactive"
-
-            Row(
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Panel, FluenceShapes.Large)
-                    .border(1.dp, OutlineSubtle, FluenceShapes.Large)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
-                    .padding(20.dp),
-                verticalAlignment = Alignment.Top
+                    .padding(horizontal = FluenceSpacing.Base)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(statusColor)
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                HomeHeader(
+                    isMultiSelect = isMultiSelect,
+                    selectedCount = selectedIds.size,
+                    onCancelSelect = { selectedIds = emptySet() },
+                    onDeleteSelect = {
+                        pendingDeleteIds = selectedIds.toList()
+                        showDeleteDialog = true
+                    },
+                    onSettings = onNavigateToSettings
                 )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = statusText,
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = HankenGroteskFont
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "$sttProvider \u00b7 $sttModel",
-                        color = TextSecondary,
-                        fontSize = 13.sp,
-                        fontFamily = HankenGroteskFont
-                    )
-                }
+                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                HomeStatusBanner(
+                    isKeyboardActive = isKeyboardActive,
+                    sttProvider = sttProvider,
+                    sttModel = sttModel,
+                    context = context
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                HomeStatisticsSection(
+                    savedTime = savedTime,
+                    wordsText = wordsText,
+                    ideasCount = ideasCount,
+                    dictTime = dictTime,
+                    thisMonthCount = thisMonthCount
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                HomeSearchBar(
+                    searchQuery = searchQuery,
+                    onSearchChange = { searchQuery = it },
+                    onSortClick = { showSortSheet = true }
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // ── Statistics ──────────────────────────────────────────────────
-            Text(
-                text = "YOU SAVED",
-                color = TextTertiary,
-                fontSize = 11.sp,
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Medium,
-                fontFamily = GeistMonoFont
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = savedTime,
-                color = BrandAmethyst,
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = SoraFont,
-                lineHeight = 52.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Estimated typing time saved",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                fontFamily = HankenGroteskFont
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize(),
+                state = rememberLazyListState()
             ) {
-                StatCard(
-                    modifier = Modifier.weight(1f),
-                    label = "Ideas Captured",
-                    value = ideasCount,
-                    suffix = "This Month"
-                )
-                StatCard(
-                    modifier = Modifier.weight(1f),
-                    label = "Dictation Time",
-                    value = dictTime,
-                    suffix = null
-                )
-                StatCard(
-                    modifier = Modifier.weight(1f),
-                    label = "Characters",
-                    value = charsText,
-                    suffix = null
-                )
-            }
+                if (groupedEntries.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Xxl),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(Icons.Default.Mic, null, tint = TextSecondary.copy(alpha = 0.15f), modifier = Modifier.size(40.dp))
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                            Text(
+                                if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
+                                color = TextSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        }
+                    }
+                } else {
+                    groupedEntries.forEachIndexed { index, (label, entries) ->
+                        val isExpanded = label in expandedGroups
+                        val previewEntries = if (isExpanded) entries else entries.take(PREVIEW_COUNT)
+                        val hiddenCount = entries.size - PREVIEW_COUNT
+                        val showExpandButton = !isExpanded && hiddenCount > 0
 
-            Spacer(modifier = Modifier.height(36.dp))
-
-            // ── Search Bar + Sort ───────────────────────────────────────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            text = "Search transcriptions...",
-                            color = TextTertiary,
-                            fontSize = 14.sp,
-                            fontFamily = HankenGroteskFont
-                        )
-                    },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    trailingIcon = if (searchQuery.isNotEmpty()) {
-                        {
-                            IconButton(
-                                onClick = { searchQuery = "" },
-                                modifier = Modifier.size(44.dp)
+                        item(key = "header_$label") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = FluenceSpacing.Base)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear",
-                                    tint = TextTertiary,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                if (index == 0) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = FluenceSpacing.Md, bottom = FluenceSpacing.Xs),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = TextTertiary,
+                                            style = FluenceTypography.labelSmall
+                                        )
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        if (!isMultiSelect) {
+                                            TextButton(
+                                                onClick = { showClearAllDialog = true },
+                                                contentPadding = PaddingValues(0.dp),
+                                                modifier = Modifier.height(16.dp)
+                                            ) {
+                                                Text("Clear All", color = TextTertiary, style = FluenceTypography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = label,
+                                        color = TextTertiary,
+                                        style = FluenceTypography.labelSmall,
+                                        modifier = Modifier.padding(top = FluenceSpacing.Md, bottom = FluenceSpacing.Xs)
+                                    )
+                                }
+                                HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
                             }
                         }
-                    } else null,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = BrandAmethyst,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = PanelElevated,
-                        unfocusedContainerColor = PanelElevated,
-                        cursorColor = TextPrimary
-                    ),
-                    shape = FluenceShapes.Small,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { isSearchFocused = it.isFocused }
-                )
 
-                Spacer(modifier = Modifier.width(8.dp))
+                        items(previewEntries, key = { "${label}_${it.id}" }) { entry ->
+                            TranscriptRow(
+                                entry = entry,
+                                isSelected = entry.id in selectedIds,
+                                isMultiSelect = isMultiSelect,
+                                onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
+                                onCopy = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
+                                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                },
+                                onDelete = {
+                                    pendingDeleteIds = listOf(entry.id)
+                                    showDeleteDialog = true
+                                }
+                            )
+                        }
 
-                IconButton(
-                    onClick = { /* TODO: sort options */ },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(FluenceShapes.Small)
-                        .background(PanelElevated)
-                        .border(1.dp, OutlineSubtle, FluenceShapes.Small)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Sort,
-                        contentDescription = "Sort",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // ── Transcript Library ──────────────────────────────────────────
-            if (displayedEntries.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 48.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = null,
-                        tint = TextSecondary.copy(alpha = 0.15f),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
-                        color = TextSecondary,
-                        fontSize = 14.sp,
-                        fontFamily = HankenGroteskFont
-                    )
-                }
-            } else {
-                groupedEntries.forEach { (label, entries) ->
-                    Text(
-                        text = label,
-                        color = TextTertiary,
-                        fontSize = 11.sp,
-                        letterSpacing = 2.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = GeistMonoFont,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                    )
-                    HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
-                    entries.forEach { entry ->
-                        TranscriptRow(
-                            entry = entry,
-                            isSelected = entry.id in selectedIds,
-                            onToggleSelect = {
-                                selectedIds = if (entry.id in selectedIds) selectedIds - entry.id
-                                else selectedIds + entry.id
-                            },
-                            onCopy = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
-                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                            },
-                            onDelete = {
-                                pendingDeleteIds = listOf(entry.id)
-                                showDeleteDialog = true
+                        if (showExpandButton) {
+                            item(key = "expand_$label") {
+                                TextButton(
+                                    onClick = { expandedGroups = expandedGroups + label },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
+                                    contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
+                                ) {
+                                    Text(
+                                        "Show $hiddenCount more",
+                                        color = TextTertiary,
+                                        style = FluenceTypography.labelMedium
+                                    )
+                                }
                             }
-                        )
+                        }
+
+                        if (isExpanded && entries.size > PREVIEW_COUNT) {
+                            item(key = "collapse_$label") {
+                                TextButton(
+                                    onClick = { expandedGroups = expandedGroups - label },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
+                                    contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
+                                ) {
+                                    Text(
+                                        "Show less",
+                                        color = TextTertiary,
+                                        style = FluenceTypography.labelMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item(key = "bottom_spacer") {
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxl))
+                        Spacer(modifier = Modifier.navigationBarsPadding())
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(80.dp))
-            Spacer(modifier = Modifier.navigationBarsPadding())
         }
 
-        // ── Recording FAB ────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible = !isMultiSelect,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp),
-            enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
-                    scaleIn(initialScale = 0.4f, animationSpec = tween(300, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(220, easing = FastOutSlowInEasing)) +
-                   scaleOut(targetScale = 0.4f, animationSpec = tween(220, easing = FastOutSlowInEasing))
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = PanelElevated,
-                contentColor = TextPrimary,
-                tonalElevation = 2.dp,
-                modifier = Modifier
-                    .size(56.dp)
-                    .border(1.dp, OutlineSubtle, CircleShape)
-                    .pressScale(remember { MutableInteractionSource() })
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { Toast.makeText(context, "Start recording...", Toast.LENGTH_SHORT).show() }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Start recording",
-                        tint = BrandAmethyst,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
-        }
-
-        // ── Delete Confirmation Dialog ────────────────────────────────────
         if (showDeleteDialog) {
             val count = pendingDeleteIds.size
             AlertDialog(
@@ -551,19 +410,13 @@ fun HomeScreen(
                             selectedIds = selectedIds - pendingDeleteIds.toSet()
                         }
                         showDeleteDialog = false
-                    }) {
-                        Text("Delete", color = Error)
-                    }
+                    }) { Text("Delete", color = Error) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = false }) {
-                        Text("Cancel", color = TextSecondary)
-                    }
+                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = TextSecondary) }
                 }
             )
         }
-
-        // ── Clear All Confirmation Dialog ─────────────────────────────────
         if (showClearAllDialog) {
             AlertDialog(
                 onDismissRequest = { showClearAllDialog = false },
@@ -576,154 +429,364 @@ fun HomeScreen(
                     TextButton(onClick = {
                         coroutineScope.launch { repository.clearAll() }
                         showClearAllDialog = false
-                    }) {
-                        Text("Clear All", color = Error)
-                    }
+                    }) { Text("Clear All", color = Error) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearAllDialog = false }) {
-                        Text("Cancel", color = TextSecondary)
-                    }
+                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = TextSecondary) }
                 }
+            )
+        }
+        
+        if (showSortSheet) {
+            SortBottomSheet(
+                selectedOption = currentSortOption,
+                onOptionSelected = { currentSortOption = it },
+                onDismiss = { showSortSheet = false }
             )
         }
     }
 }
 
 @Composable
-private fun StatCard(
-    label: String,
-    value: String,
-    suffix: String?,
-    modifier: Modifier = Modifier
+private fun HomeHeader(
+    isMultiSelect: Boolean,
+    selectedCount: Int,
+    onCancelSelect: () -> Unit,
+    onDeleteSelect: () -> Unit,
+    onSettings: () -> Unit
 ) {
-    Column(
-        modifier = modifier
-            .background(Panel, FluenceShapes.Small)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Small)
-            .padding(horizontal = 12.dp, vertical = 14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = label,
-            color = TextTertiary,
-            fontSize = 11.sp,
-            fontFamily = HankenGroteskFont,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = value,
-            color = TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = SoraFont
-        )
-        if (suffix != null) {
-            Spacer(modifier = Modifier.height(2.dp))
+        if (isMultiSelect) {
+            IconButton(onClick = onCancelSelect, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Close, "Exit selection", tint = TextPrimary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Text(
-                text = suffix,
-                color = TextTertiary,
-                fontSize = 11.sp,
-                fontFamily = HankenGroteskFont
+                text = "$selectedCount selected",
+                color = TextPrimary,
+                style = FluenceTypography.titleMedium
             )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onDeleteSelect, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Delete, "Delete selected", tint = Error, modifier = Modifier.size(18.dp))
+            }
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("fluence", color = TextPrimary, style = FluenceTypography.headlineMedium.copy(fontFamily = SoraFont, fontWeight = FontWeight.SemiBold))
+                Text("transcribe", color = TextTertiary, style = FluenceTypography.headlineMedium.copy(fontFamily = SoraFont, fontWeight = FontWeight.Normal))
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier.size(44.dp).pressScale(remember { MutableInteractionSource() })
+            ) {
+                Icon(Icons.Default.Settings, "Settings", tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeStatusBanner(
+    isKeyboardActive: Boolean,
+    sttProvider: String,
+    sttModel: String,
+    context: Context
+) {
+    val statusColor = if (isKeyboardActive) Success else Error
+    val statusText = if (isKeyboardActive) "Ready" else "Inactive"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, FluenceShapes.Medium)
+            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
+            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(statusColor)
+        )
+        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+        Text(statusText, color = TextPrimary, style = FluenceTypography.bodySmall.copy(fontWeight = FontWeight.Medium))
+        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+        Text("\u00b7", color = TextTertiary, style = FluenceTypography.bodySmall)
+        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+        Text(
+            "$sttProvider \u00b7 $sttModel",
+            color = TextSecondary,
+            style = FluenceTypography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun HomeStatisticsSection(
+    savedTime: String,
+    wordsText: String,
+    ideasCount: String,
+    dictTime: String,
+    thisMonthCount: String
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, FluenceShapes.Medium)
+            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left Hero section
+            Column(
+                modifier = Modifier
+                    .weight(1.2f)
+                    .fillMaxHeight()
+                    .padding(FluenceSpacing.Base),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "YOU SAVED",
+                            color = TextTertiary,
+                            style = FluenceTypography.labelSmall.copy(letterSpacing = 1.5.sp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+                    Text(
+                        text = savedTime,
+                        color = TextPrimary,
+                        style = FluenceTypography.displaySmall.copy(
+                            fontFamily = SoraFont,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
+                }
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                Text(
+                    text = "Estimated typing time saved this month",
+                    color = TextSecondary,
+                    style = FluenceTypography.labelSmall.copy(lineHeight = 14.sp)
+                )
+            }
+
+            // Divider between Left and Right
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(1.dp)
+                    .background(OutlineSubtle)
+            )
+
+            // Right side grid of 2x2 supporting statistics
+            Column(
+                modifier = Modifier
+                    .weight(1.8f)
+                    .fillMaxHeight()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatisticGridCell(
+                        title = "Words",
+                        value = wordsText,
+                        icon = Icons.AutoMirrored.Filled.ShortText,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(1.dp)
+                            .background(OutlineSubtle)
+                    )
+                    StatisticGridCell(
+                        title = "Ideas",
+                        value = ideasCount,
+                        icon = Icons.Default.Lightbulb,
+                        subtitle = "Total",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                
+                HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
+                
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatisticGridCell(
+                        title = "Dictation",
+                        value = dictTime,
+                        icon = Icons.Default.AccessTime,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(1.dp)
+                            .background(OutlineSubtle)
+                    )
+                    StatisticGridCell(
+                        title = "This Month",
+                        value = thisMonthCount,
+                        icon = Icons.Default.CalendarToday,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSearchBar(
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onSortClick: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    OutlinedTextField(
+        value = searchQuery,
+        onValueChange = onSearchChange,
+        placeholder = {
+            Text("Search transcriptions...", color = TextTertiary, style = FluenceTypography.bodySmall)
+        },
+        singleLine = true,
+        leadingIcon = {
+            Icon(Icons.Default.Search, "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
+        },
+        trailingIcon = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(end = 4.dp)
+            ) {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, "Clear", tint = TextTertiary, modifier = Modifier.size(14.dp))
+                    }
+                }
+                IconButton(
+                    onClick = onSortClick,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = "Sort",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = TextPrimary,
+            unfocusedTextColor = TextPrimary,
+            focusedBorderColor = OutlineSubtle,
+            unfocusedBorderColor = OutlineSubtle,
+            focusedContainerColor = PanelElevated,
+            unfocusedContainerColor = PanelElevated,
+            cursorColor = TextPrimary
+        ),
+        shape = FluenceShapes.Small,
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .focusRequester(focusRequester),
+        textStyle = FluenceTypography.bodySmall
+    )
+}
+
 @Composable
 private fun TranscriptRow(
     entry: TranscriptionEntry,
     isSelected: Boolean,
+    isMultiSelect: Boolean,
     onToggleSelect: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val bgColor by remember(isSelected) {
-        mutableStateOf(if (isSelected) BrandAmethyst.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent)
-    }
-
+    val bgColor = if (isSelected) TextPrimary.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {
-                        if (isSelected) onToggleSelect()
-                        else onCopy()
-                    },
-                    onLongClick = { onToggleSelect() }
-                )
+                .pointerInput(isSelected, isMultiSelect) {
+                    detectTapGestures(
+                        onLongPress = { onToggleSelect() },
+                        onTap = {
+                            if (isMultiSelect || isSelected) onToggleSelect() else onCopy()
+                        }
+                    )
+                }
                 .background(bgColor)
-                .padding(vertical = 14.dp),
+                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (isSelected) {
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
+                        .size(18.dp)
                         .clip(CircleShape)
-                        .background(BrandAmethyst),
+                        .background(TextPrimary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        tint = TextPrimary,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Icon(Icons.Default.Check, null, tint = Canvas, modifier = Modifier.size(12.dp))
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(FluenceSpacing.Md))
             }
-
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = entry.text,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = HankenGroteskFont
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = formatTimestamp(entry.timestamp),
-                    color = TextTertiary,
-                    fontSize = 12.sp,
-                    fontFamily = GeistMonoFont
-                )
+                Text(entry.text, color = TextPrimary, style = FluenceTypography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(formatTimestamp(entry.timestamp), color = TextTertiary, style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont))
             }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
+            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Box {
-                IconButton(
-                    onClick = { showMenu = true },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
-                        tint = TextTertiary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.MoreVert, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
                 }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("Copy", color = TextPrimary) },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = TextSecondary, modifier = Modifier.size(18.dp)) },
+                        text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodySmall) },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
                         onClick = { onCopy(); showMenu = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete", color = Error) },
-                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Error, modifier = Modifier.size(18.dp)) },
+                        text = { Text("Delete", color = Error, style = FluenceTypography.bodySmall) },
+                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Error, modifier = Modifier.size(16.dp)) },
                         onClick = { onDelete(); showMenu = false }
                     )
                 }
@@ -732,14 +795,126 @@ private fun TranscriptRow(
     }
 }
 
-private fun formatTimestamp(timestampMs: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestampMs
-    return when {
-        diff < 60_000L -> "Just now"
-        diff < 3_600_000L -> "${diff / 60_000L}m ago"
-        diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
-        diff < 172_800_000L -> "Yesterday"
-        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestampMs))
+@Composable
+private fun StatisticGridCell(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = TextTertiary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            color = TextPrimary,
+            style = FluenceTypography.titleLarge.copy(
+                fontFamily = SoraFont,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp
+            )
+        )
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SortBottomSheet(
+    selectedOption: SortOption,
+    onOptionSelected: (SortOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = PanelElevated,
+        contentColor = TextPrimary,
+        shape = FluenceShapes.Large,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(32.dp)
+                    .height(4.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                    .background(TextPrimary.copy(alpha = 0.18f))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+        ) {
+            Text(
+                text = "Sort by",
+                color = TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = SoraFont,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
+            )
+            
+            SortOption.values().forEach { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onOptionSelected(option)
+                            onDismiss()
+                        }
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = option.displayName,
+                        color = if (option == selectedOption) TextPrimary else TextSecondary,
+                        style = FluenceTypography.bodyLarge.copy(
+                            fontWeight = if (option == selectedOption) FontWeight.SemiBold else FontWeight.Normal
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (option == selectedOption) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }

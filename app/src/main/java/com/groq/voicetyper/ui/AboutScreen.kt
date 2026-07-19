@@ -140,10 +140,7 @@ fun AboutScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
+                    .clickable {
                         try {
                             val intent = Intent(
                                 Intent.ACTION_VIEW,
@@ -164,7 +161,7 @@ fun AboutScreen(
                 )
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
+                    contentDescription = "Open source licenses",
                     tint = TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )

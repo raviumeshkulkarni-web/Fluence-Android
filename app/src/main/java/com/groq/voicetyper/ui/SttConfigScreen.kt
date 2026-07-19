@@ -321,10 +321,7 @@ fun SttConfigScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { showLanguageDropdown = true }
+                        .clickable { showLanguageDropdown = true }
                         .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
                         .background(InputBg, FluenceShapes.Medium)
                         .padding(horizontal = 16.dp, vertical = 14.dp),

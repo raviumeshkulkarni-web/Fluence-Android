@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,11 +45,7 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .pressScale(interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
+            .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -214,6 +211,16 @@ fun SettingsScreen(
                     else -> "Model not installed"
                 },
                 onClick = { onNavigateTo(Screen.OfflineConfig) }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Permissions & Services
+            SettingsRow(
+                icon = Icons.Default.Security,
+                title = "Permissions & Services",
+                summary = "Microphone, overlay, accessibility, battery",
+                onClick = { onNavigateTo(Screen.Permissions) }
             )
 
             Spacer(modifier = Modifier.height(16.dp))

@@ -190,9 +190,9 @@ fun OfflineConfigScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = Error,
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete model",
+                                tint = Error,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
