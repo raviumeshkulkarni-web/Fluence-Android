@@ -86,7 +86,7 @@ object GroqClient {
                 val bodyString = response.body?.string()
                 if (!response.isSuccessful) {
                     val errorMessage = parseErrorMessage(bodyString) ?: "HTTP Error ${response.code}"
-                    Log.e(TAG, "Transcription failed: $errorMessage (HTTP ${response.code})")
+                    Log.e(TAG, "Transcription failed (HTTP ${response.code}).")
                     return@withContext Result.failure(Exception(errorMessage))
                 }
 
@@ -99,7 +99,7 @@ object GroqClient {
                     val text = jsonObject.getString("text")
                     Result.success(text)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse JSON response: $bodyString", e)
+                    Log.e(TAG, "Failed to parse JSON response.", e)
                     Result.failure(Exception("Failed to parse transcription response"))
                 }
             }
@@ -143,7 +143,7 @@ object GroqClient {
                 val bodyString = response.body?.string()
                 if (!response.isSuccessful) {
                     val errorMessage = parseErrorMessage(bodyString) ?: "HTTP Error ${response.code}"
-                    Log.e(TAG, "Fetch models failed: $errorMessage (HTTP ${response.code})")
+                    Log.e(TAG, "Fetch models failed (HTTP ${response.code}).")
                     return@withContext Result.failure(Exception(errorMessage))
                 }
 
@@ -161,7 +161,7 @@ object GroqClient {
                     }
                     Result.success(models.sorted())
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse models JSON response: $bodyString", e)
+                    Log.e(TAG, "Failed to parse models JSON response.", e)
                     Result.failure(Exception("Failed to parse models response"))
                 }
             }

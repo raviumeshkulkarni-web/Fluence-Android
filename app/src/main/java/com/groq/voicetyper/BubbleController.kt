@@ -252,7 +252,7 @@ object BubbleController {
             // Only schedule delayed restore when paste succeeded —
             // gives the target app time to process the paste IPC before we swap the clipboard back.
             scope.launch(Dispatchers.Main) {
-                kotlinx.coroutines.delay(200)
+                kotlinx.coroutines.delay(50)
                 restoreClipboard(clipboard, primaryClip)
             }
         } catch (e: Exception) {

@@ -2,8 +2,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="groq_voice_typer_secure_prefs.xml"/>
+        <exclude domain="database" path="fluence_database"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="groq_voice_typer_secure_prefs.xml"/>
+        <exclude domain="database" path="fluence_database"/>
     </device-transfer>
 </data-extraction-rules>

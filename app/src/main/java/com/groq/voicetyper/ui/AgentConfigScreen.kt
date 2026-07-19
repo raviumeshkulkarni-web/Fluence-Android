@@ -396,6 +396,10 @@ fun AgentConfigScreen(
             ) {
                 Button(
                     onClick = {
+                        if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                            Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
                         SecurityUtils.saveProviderApiKey(context, "llm", selectedProvider, apiKey)
                         SecurityUtils.saveLlmPreset(context, selectedProvider)
                         SecurityUtils.saveLlmModel(context, selectedProvider, model)
@@ -415,6 +419,10 @@ fun AgentConfigScreen(
                     onClick = {
                         if (apiKey.isBlank()) {
                             Toast.makeText(context, "Please enter an API key.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                            Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         isTesting = true

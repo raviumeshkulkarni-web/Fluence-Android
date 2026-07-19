@@ -336,7 +336,7 @@ object TranscriptionSessionManager {
         _errorMessage.value = message
         _recordingState.value = RecordingState.ERROR
         currentListener?.onError(message)
-        Log.e(TAG, "Error: $message")
+        Log.e(TAG, "Operation failed.")
 
         // Auto-clear error state back to IDLE after 4 seconds
         handler.removeCallbacksAndMessages(null)

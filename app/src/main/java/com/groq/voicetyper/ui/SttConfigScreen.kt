@@ -528,6 +528,10 @@ fun SttConfigScreen(
                 ) {
                     Button(
                         onClick = {
+                            if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
                             SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
                             SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
                             SecurityUtils.saveSttModel(context, "custom", customModel)
@@ -544,6 +548,10 @@ fun SttConfigScreen(
                         onClick = {
                             if (customApiKey.isBlank() || customBaseUrl.isBlank()) {
                                 Toast.makeText(context, "Please enter API Key and Base URL.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             isTesting = true
