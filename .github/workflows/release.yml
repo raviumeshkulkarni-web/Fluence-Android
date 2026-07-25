@@ -47,7 +47,13 @@ jobs:
 
     - name: Sign Release APK
       run: |
-        keytool -genkeypair -v -keystore release.keystore -alias release-key -keyalg RSA -keysize 2048 -validity 10000 -storepass password123 -keypass password123 -dname "CN=GroqVoiceTyper, O=OpenSource, C=US"
+        if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+          echo "Decoding release keystore from repository secrets..."
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+        else
+          echo "WARNING: RELEASE_KEYSTORE_BASE64 secret not found. Generating temporary fallback keystore."
+          keytool -genkeypair -v -keystore release.keystore -alias release-key -keyalg RSA -keysize 2048 -validity 10000 -storepass password123 -keypass password123 -dname "CN=GroqVoiceTyper, O=OpenSource, C=US"
+        fi
         APKSIGNER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk} -name "apksigner" -type f | grep -v "\.jar" | head -n 1)
         if [ -z "$APKSIGNER" ]; then
           echo "ERROR: apksigner not found!"
