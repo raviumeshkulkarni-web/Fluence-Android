@@ -201,12 +201,51 @@ fun SttConfigScreen(
     var customApiKey by remember { mutableStateOf("") }
     var customBaseUrl by remember { mutableStateOf("") }
     var customModel by remember { mutableStateOf("") }
+    var selectedModel by remember { mutableStateOf(SecurityUtils.getSttModel(context, selectedProvider)) }
+    var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isFetchingModels by remember { mutableStateOf(false) }
     var selectedLanguage by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var showPassword by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    fun fetchModelsForProvider() {
+        val currentKey = when (selectedProvider) {
+            "groq" -> apiKey
+            "mistral" -> mistralApiKey
+            "custom" -> customApiKey
+            else -> ""
+        }
+        val currentBaseUrl = when (selectedProvider) {
+            "groq" -> "https://api.groq.com/openai"
+            "mistral" -> "https://api.mistral.ai"
+            "custom" -> customBaseUrl
+            else -> ""
+        }
+        if (currentKey.isBlank() || selectedProvider == "custom") {
+            fetchedModels = emptyList()
+            return
+        }
+        isFetchingModels = true
+        coroutineScope.launch {
+            val result = GroqClient.fetchModels(baseUrl = currentBaseUrl, apiKey = currentKey)
+            result.fold(
+                onSuccess = { models ->
+                    fetchedModels = models
+                    if (models.isNotEmpty() && selectedModel !in models) {
+                        selectedModel = models.first()
+                        SecurityUtils.saveSttModel(context, selectedProvider, selectedModel)
+                    }
+                },
+                onFailure = {
+                    fetchedModels = emptyList()
+                }
+            )
+            isFetchingModels = false
+        }
+    }
+
+    LaunchedEffect(selectedProvider) {
         withContext(Dispatchers.IO) {
             selectedProvider = SecurityUtils.getSttPreset(context)
             apiKey = SecurityUtils.getProviderApiKey(context, "stt", "groq") ?: ""
@@ -214,8 +253,11 @@ fun SttConfigScreen(
             customApiKey = SecurityUtils.getProviderApiKey(context, "stt", "custom") ?: ""
             customBaseUrl = SecurityUtils.getSttBaseUrl(context, "custom")
             customModel = SecurityUtils.getSttModel(context, "custom")
+            selectedModel = SecurityUtils.getSttModel(context, selectedProvider)
             selectedLanguage = null
         }
+        testResult = null
+        fetchModelsForProvider()
     }
 
     val languages = listOf(
@@ -369,6 +411,96 @@ fun SttConfigScreen(
                                     }
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Transcription Model
+            Text(
+                text = "Transcription Model",
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Select speech recognition model for this provider.",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isFetchingModels) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Fetching models...", color = TextSecondary, fontSize = 13.sp)
+                }
+            } else {
+                var showModelDropdown by remember { mutableStateOf(false) }
+                val availableModels = remember(fetchedModels, selectedProvider, selectedModel) {
+                    if (fetchedModels.isNotEmpty()) fetchedModels
+                    else if (selectedModel.isNotBlank()) listOf(selectedModel)
+                    else listOf(SecurityUtils.getSttModel(context, selectedProvider))
+                }
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showModelDropdown = true }
+                            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                            .background(InputBg, FluenceShapes.Medium)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
+                            color = TextPrimary,
+                            fontSize = 16.sp
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select model",
+                            tint = TextSecondary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showModelDropdown,
+                        onDismissRequest = { showModelDropdown = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        availableModels.forEach { m ->
+                            val isSelected = m == selectedModel
+                            DropdownMenuItem(
+                                text = { Text(text = m, color = TextPrimary) },
+                                colors = MenuDefaults.itemColors(
+                                    textColor = TextPrimary,
+                                    leadingIconColor = TextSecondary,
+                                    trailingIconColor = TextSecondary
+                                ),
+                                modifier = if (isSelected) Modifier
+                                    .background(TextPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                else Modifier,
+                                onClick = {
+                                    selectedModel = m
+                                    SecurityUtils.saveSttModel(context, selectedProvider, m)
+                                    showModelDropdown = false
+                                }
+                            )
                         }
                     }
                 }

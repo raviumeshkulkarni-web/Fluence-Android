@@ -59,6 +59,7 @@ object TranscriptionSessionManager {
     private var engineStateCollectJob: Job? = null
     private var preWarmJob: Job? = null
     private var activeOffline = false
+    private var recordingStartTimestampMs = 0L
     private val offlineTextAccumulator = StringBuilder()
 
     @Synchronized
@@ -104,6 +105,7 @@ object TranscriptionSessionManager {
         currentListener = listener
         _errorMessage.value = null
         _isAgentMode.value = agentMode
+        recordingStartTimestampMs = System.currentTimeMillis()
 
         val useOffline = isOffline && !agentMode && ModelAssetManager.isModelReadySync(context)
         activeOffline = useOffline
@@ -171,6 +173,11 @@ object TranscriptionSessionManager {
         if (_recordingState.value != RecordingState.RECORDING) return
         _recordingState.value = RecordingState.TRANSCRIBING
 
+        val durationMs = if (recordingStartTimestampMs > 0L) {
+            (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
+        } else 0L
+        recordingStartTimestampMs = 0L
+
         amplitudeCollectJob?.cancel()
         amplitudeCollectJob = null
 
@@ -191,7 +198,7 @@ object TranscriptionSessionManager {
                     if (finalTranscription.isNotEmpty()) {
                         val lang = getKeyboardLanguageCode(context)
                         CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(finalTranscription, "offline", "sensevoice-small", lang, 0L, false)
+                            HistoryRepository.save(finalTranscription, "offline", "sensevoice-small", lang, durationMs, false)
                         }
                         withContext(Dispatchers.Main) {
                             currentListener?.onTranscription(finalTranscription)
@@ -209,7 +216,7 @@ object TranscriptionSessionManager {
         } else {
             val file = audioRecorder?.stopRecording()
             if (file != null) {
-                transcribeAudioOnline(context, file)
+                transcribeAudioOnline(context, file, durationMs)
             } else {
                 _recordingState.value = RecordingState.IDLE
                 _isAgentMode.value = false
@@ -219,6 +226,7 @@ object TranscriptionSessionManager {
     }
 
     fun cancelRecording(context: Context) {
+        recordingStartTimestampMs = 0L
         _recordingState.value = RecordingState.IDLE
         amplitudeCollectJob?.cancel()
         amplitudeCollectJob = null
@@ -246,7 +254,7 @@ object TranscriptionSessionManager {
         }
     }
 
-    private fun transcribeAudioOnline(context: Context, file: File) {
+    private fun transcribeAudioOnline(context: Context, file: File, durationMs: Long) {
         val sttPreset = SecurityUtils.getSttPreset(context)
         val sttKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
         if (sttKey.isNullOrBlank()) {
@@ -274,7 +282,7 @@ object TranscriptionSessionManager {
                     if (text.isNotBlank()) {
                         val isAgent = _isAgentMode.value
                         CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(text, sttPreset, sttModel, languageCode, 0L, isAgent)
+                            HistoryRepository.save(text, sttPreset, sttModel, languageCode, durationMs, isAgent)
                         }
                         if (isAgent) {
                             val contextText = currentListener?.getContextText() ?: ""

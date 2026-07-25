@@ -79,9 +79,16 @@ enum class SortOption(val displayName: String) {
 private const val AVG_WPM = 40.0
 private const val PREVIEW_COUNT = 5
 
+private fun getEffectiveDurationMs(entry: TranscriptionEntry): Long {
+    if (entry.durationMs > 0L) return entry.durationMs
+    val wordCount = entry.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+    if (wordCount == 0) return 0L
+    return ((wordCount / 140.0) * 60_000.0).toLong().coerceAtLeast(1_000L)
+}
+
 private fun computeStats(entries: List<TranscriptionEntry>): Triple<String, String, String> {
     val totalChars = entries.sumOf { it.text.length }
-    val totalMinutes = entries.sumOf { it.durationMs } / 60_000.0
+    val totalMinutes = entries.sumOf { getEffectiveDurationMs(it) } / 60_000.0
     val hoursSaved = (totalChars / 5.0) / AVG_WPM / 60.0
     val savedText = if (hoursSaved < 1.0) "${(hoursSaved * 60).toInt()}m" else String.format(Locale.US, "%.1fh", hoursSaved)
     val ideasCount = entries.size
@@ -185,8 +192,8 @@ fun HomeScreen(
         when (currentSortOption) {
             SortOption.NEWEST -> filtered.sortedByDescending { it.timestamp }
             SortOption.OLDEST -> filtered.sortedBy { it.timestamp }
-            SortOption.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
-            SortOption.DURATION_ASC -> filtered.sortedBy { it.durationMs }
+            SortOption.DURATION_DESC -> filtered.sortedByDescending { getEffectiveDurationMs(it) }
+            SortOption.DURATION_ASC -> filtered.sortedBy { getEffectiveDurationMs(it) }
         }
     }
     
