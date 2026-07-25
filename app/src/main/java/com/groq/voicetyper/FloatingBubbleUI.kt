@@ -1,5 +1,6 @@
 package com.groq.voicetyper
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -41,6 +43,7 @@ import kotlin.math.sin
 
 @Composable
 fun FloatingBubbleUI(
+    isAnchoredRight: Boolean,
     onDrag: (dx: Float, dy: Float) -> Unit,
     onDragReleased: () -> Unit,
     onWidthUpdated: (Float) -> Unit
@@ -52,19 +55,27 @@ fun FloatingBubbleUI(
     val errorMessage by BubbleController.errorMessage.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Size animations for morphing transition (NoBouncy to prevent layout window oscillation)
+    // Size animations for morphing transition.
+    // tween(250ms) provides ~15 frames of smooth, perceivable animation.
+    // FastOutSlowInEasing is Material Design's standard "elements moving into place" curve.
+    val animSpec = tween<Dp>(durationMillis = 250, easing = FastOutSlowInEasing)
     val width by animateDpAsState(
         targetValue = if (isExpanded) 240.dp else 56.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        animationSpec = animSpec,
         label = "width"
     )
 
-    SideEffect {
-        onWidthUpdated(width.value)
+    // Only notify the Service when width actually changes.
+    // SideEffect fires on EVERY recomposition (including 60fps waveform frames)
+    // which hammered updateViewLayout unnecessarily, causing right-side stutter.
+    LaunchedEffect(Unit) {
+        snapshotFlow { width.value }
+            .distinctUntilChanged()
+            .collect { widthDp -> onWidthUpdated(widthDp) }
     }
     val height by animateDpAsState(
         targetValue = if (isExpanded) 64.dp else 56.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        animationSpec = animSpec,
         label = "height"
     )
     val cornerRadius by animateDpAsState(
@@ -82,6 +93,7 @@ fun FloatingBubbleUI(
             modifier = Modifier
                 .size(width = width, height = height)
                 .amethystObsidianGlow(isExpanded = isExpanded, shape = shape)
+                .clip(shape)
                 // Gesture handling for Collapsed state (drag, instant tap, hold for agent mode)
                 .run {
                     if (!isExpanded) {
@@ -147,103 +159,113 @@ fun FloatingBubbleUI(
                 },
             contentAlignment = Alignment.Center
         ) {
-            if (!isExpanded) {
-                FluenceLogoIcon()
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // 1. Cancel Button (Left)
-                    IconButton(
-                        onClick = { BubbleController.cancelRecording() },
+            // Crossfade provides a smooth alpha-blended transition between the
+            // collapsed logo and the expanded pill content. Without this, the
+            // content swaps in a single frame while the width is still mid-
+            // animation, creating a visual "jump" on both left and right sides.
+            Crossfade(
+                targetState = isExpanded,
+                animationSpec = tween(durationMillis = 200),
+                label = "bubbleContent"
+            ) { targetExpanded ->
+                if (!targetExpanded) {
+                    FluenceLogoIcon()
+                } else {
+                    Row(
                         modifier = Modifier
-                            .size(44.dp)
-                            .background(Color(0x1AFFFFFF), CircleShape)
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Canvas(modifier = Modifier.size(14.dp)) {
-                            val w = size.width
-                            val h = size.height
-                            drawLine(
-                                color = Color.White,
-                                start = Offset(0f, 0f),
-                                end = Offset(w, h),
-                                strokeWidth = 2.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                            drawLine(
-                                color = Color.White,
-                                start = Offset(w, 0f),
-                                end = Offset(0f, h),
-                                strokeWidth = 2.dp.toPx(),
-                                cap = StrokeCap.Round
-                            )
-                        }
-                    }
-
-                    // 2. Siri Waveform Pill (Center)
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .padding(horizontal = 8.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color(0x0CFFFFFF))
-                            .border(1.dp, Color(0x0DFFFFFF), RoundedCornerShape(24.dp))
-                            .clickable {
-                                if (recordingState == RecordingState.RECORDING) {
-                                    BubbleController.stopRecording(context)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (recordingState == RecordingState.TRANSCRIBING) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else if (recordingState == RecordingState.ERROR) {
-                            Text(
-                                text = errorMessage ?: "Error",
-                                color = Color(0xFFFF5252),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        } else {
-                            SiriWaveform()
-                        }
-                    }
-
-                    // 3. Confirm Button (Right)
-                    val isAgentMode by BubbleController.isAgentMode.collectAsState()
-                    val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-                    val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else Color.White
-                    IconButton(
-                        onClick = { BubbleController.stopRecording(context) },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(confirmBgColor, CircleShape)
-                    ) {
-                        Canvas(modifier = Modifier.size(16.dp)) {
-                            val w = size.width
-                            val h = size.height
-                            val path = Path().apply {
-                                moveTo(w * 0.2f, h * 0.5f)
-                                lineTo(w * 0.45f, h * 0.75f)
-                                lineTo(w * 0.85f, h * 0.25f)
+                        // 1. Cancel Button (Left)
+                        IconButton(
+                            onClick = { BubbleController.cancelRecording() },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color(0x1AFFFFFF), CircleShape)
+                        ) {
+                            Canvas(modifier = Modifier.size(14.dp)) {
+                                val w = size.width
+                                val h = size.height
+                                drawLine(
+                                    color = Color.White,
+                                    start = Offset(0f, 0f),
+                                    end = Offset(w, h),
+                                    strokeWidth = 2.dp.toPx(),
+                                    cap = StrokeCap.Round
+                                )
+                                drawLine(
+                                    color = Color.White,
+                                    start = Offset(w, 0f),
+                                    end = Offset(0f, h),
+                                    strokeWidth = 2.dp.toPx(),
+                                    cap = StrokeCap.Round
+                                )
                             }
-                            drawPath(
-                                path = path,
-                                color = confirmIconColor,
-                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-                            )
+                        }
+
+                        // 2. Siri Waveform Pill (Center)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .padding(horizontal = 8.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0x0CFFFFFF))
+                                .border(1.dp, Color(0x0DFFFFFF), RoundedCornerShape(24.dp))
+                                .clickable {
+                                    if (recordingState == RecordingState.RECORDING) {
+                                        BubbleController.stopRecording(context)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (recordingState == RecordingState.TRANSCRIBING) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else if (recordingState == RecordingState.ERROR) {
+                                Text(
+                                    text = errorMessage ?: "Error",
+                                    color = Color(0xFFFF5252),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            } else {
+                                SiriWaveform()
+                            }
+                        }
+
+                        // 3. Confirm Button (Right)
+                        val isAgentMode by BubbleController.isAgentMode.collectAsState()
+                        val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
+                        val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else Color.White
+                        IconButton(
+                            onClick = { BubbleController.stopRecording(context) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(confirmBgColor, CircleShape)
+                        ) {
+                            Canvas(modifier = Modifier.size(16.dp)) {
+                                val w = size.width
+                                val h = size.height
+                                val path = Path().apply {
+                                    moveTo(w * 0.2f, h * 0.5f)
+                                    lineTo(w * 0.45f, h * 0.75f)
+                                    lineTo(w * 0.85f, h * 0.25f)
+                                }
+                                drawPath(
+                                    path = path,
+                                    color = confirmIconColor,
+                                    style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                            }
                         }
                     }
                 }
