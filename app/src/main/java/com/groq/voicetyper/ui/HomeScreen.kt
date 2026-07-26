@@ -12,11 +12,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -86,16 +91,91 @@ private fun getEffectiveDurationMs(entry: TranscriptionEntry): Long {
     return ((wordCount / 140.0) * 60_000.0).toLong().coerceAtLeast(1_000L)
 }
 
-private fun computeStats(entries: List<TranscriptionEntry>): Triple<String, String, String> {
-    val totalChars = entries.sumOf { it.text.length }
-    val totalMinutes = entries.sumOf { getEffectiveDurationMs(it) } / 60_000.0
-    val hoursSaved = (totalChars / 5.0) / AVG_WPM / 60.0
-    val savedText = if (hoursSaved < 1.0) "${(hoursSaved * 60).toInt()}m" else String.format(Locale.US, "%.1fh", hoursSaved)
-    val ideasCount = entries.size
-    val totalH = totalMinutes.toInt() / 60
-    val totalM = totalMinutes.toInt() % 60
-    val dictText = if (totalH > 0) "${totalH}h ${totalM}m" else "${totalM}m"
-    return Triple(savedText, ideasCount.toString(), dictText)
+private data class DashboardStats(
+    val totalWords: String,
+    val timeSaved: String,
+    val dictationTime: String,
+    val monthlySaved: String,
+    val weeklyWords: String,
+    val weeklySavedHours: Double,
+    val weeklySpokenHours: Double,
+    val dayWordCounts: List<Int>,
+    val dayLabels: List<String>
+)
+
+private fun computeDashboardStats(entries: List<TranscriptionEntry>): DashboardStats {
+    val totalWords = entries.sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+
+    val totalSavedHours = totalWords / AVG_WPM / 60.0
+    val timeSaved = if (totalSavedHours < 1.0) "${(totalSavedHours * 60).toInt()}m"
+        else String.format(Locale.US, "%.1fh", totalSavedHours)
+
+    val totalDictMs = entries.sumOf { getEffectiveDurationMs(it) }
+    val totalDictMinutes = totalDictMs / 60_000.0
+    val dictH = totalDictMinutes.toInt() / 60
+    val dictM = totalDictMinutes.toInt() % 60
+    val dictationTime = if (dictH > 0) "${dictH}h ${dictM}m" else "${dictM}m"
+
+    fun abbreviate(n: Int): String = when {
+        n >= 1_000_000 -> String.format(Locale.US, "%.1fM", n / 1_000_000.0)
+        n >= 1_000 -> String.format(Locale.US, "%.1fK", n / 1_000.0)
+        else -> n.toString()
+    }
+
+    val cal = java.util.Calendar.getInstance()
+    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    cal.set(java.util.Calendar.MINUTE, 0)
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    val todayStart = cal.timeInMillis
+
+    val monthStart = todayStart - TimeUnit.DAYS.toMillis(30)
+    val monthWords = entries.filter { it.timestamp >= monthStart }
+        .sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+    val monthSavedHours = monthWords / AVG_WPM / 60.0
+    val monthlySaved = if (monthSavedHours < 1.0) "${(monthSavedHours * 60).toInt()}m"
+        else String.format(Locale.US, "%.1fh", monthSavedHours)
+
+    val weekStart = todayStart - TimeUnit.DAYS.toMillis(6)
+    val weekEntries = entries.filter { it.timestamp >= weekStart }
+    val weekWords = weekEntries.sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+    val weekSavedHours = weekWords / AVG_WPM / 60.0
+    val weekDictMs = weekEntries.sumOf { getEffectiveDurationMs(it) }
+    val weekSpokenHours = weekDictMs / 3_600_000.0
+
+    val dayWordCounts = (6 downTo 0).map { i ->
+        val dayStart = todayStart - TimeUnit.DAYS.toMillis(i.toLong())
+        val dayEnd = dayStart + TimeUnit.DAYS.toMillis(1)
+        entries.filter { it.timestamp in dayStart until dayEnd }
+            .sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+    }
+
+    val dayLabels = (6 downTo 0).map { i ->
+        val dayCal = java.util.Calendar.getInstance()
+        dayCal.add(java.util.Calendar.DAY_OF_YEAR, -i)
+        when (dayCal.get(java.util.Calendar.DAY_OF_WEEK)) {
+            java.util.Calendar.MONDAY -> "Mon"
+            java.util.Calendar.TUESDAY -> "Tue"
+            java.util.Calendar.WEDNESDAY -> "Wed"
+            java.util.Calendar.THURSDAY -> "Thu"
+            java.util.Calendar.FRIDAY -> "Fri"
+            java.util.Calendar.SATURDAY -> "Sat"
+            java.util.Calendar.SUNDAY -> "Sun"
+            else -> ""
+        }
+    }
+
+    return DashboardStats(
+        totalWords = abbreviate(totalWords),
+        timeSaved = timeSaved,
+        dictationTime = dictationTime,
+        monthlySaved = monthlySaved,
+        weeklyWords = abbreviate(weekWords),
+        weeklySavedHours = weekSavedHours,
+        weeklySpokenHours = weekSpokenHours,
+        dayWordCounts = dayWordCounts,
+        dayLabels = dayLabels
+    )
 }
 
 private fun formatTimestamp(timestampMs: Long): String {
@@ -205,25 +285,7 @@ fun HomeScreen(
         }
     }
     
-    val (savedTime, ideasCount, dictTime) = remember(allEntries) { computeStats(allEntries) }
-    val totalWords = remember(allEntries) {
-        allEntries.sumOf { entry ->
-            entry.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-        }
-    }
-    val wordsText = remember(totalWords) {
-        java.text.NumberFormat.getNumberInstance(Locale.US).format(totalWords)
-    }
-    val thisMonthCount = remember(allEntries) {
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        val startOfMonth = cal.timeInMillis
-        allEntries.count { it.timestamp >= startOfMonth }.toString()
-    }
+    val dashboardStats = remember(allEntries) { computeDashboardStats(allEntries) }
 
     Box(
         modifier = modifier
@@ -257,20 +319,6 @@ fun HomeScreen(
                     context = context
                 )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                HomeStatisticsSection(
-                    savedTime = savedTime,
-                    wordsText = wordsText,
-                    ideasCount = ideasCount,
-                    dictTime = dictTime,
-                    thisMonthCount = thisMonthCount
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                HomeSearchBar(
-                    searchQuery = searchQuery,
-                    onSearchChange = { searchQuery = it },
-                    onSortClick = { showSortSheet = true }
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             }
 
             LazyColumn(
@@ -278,6 +326,67 @@ fun HomeScreen(
                     .fillMaxSize(),
                 state = rememberLazyListState()
             ) {
+                item(key = "dashboard_stats") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = FluenceSpacing.Base)
+                    ) {
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                        DashboardHeroStats(
+                            totalWords = dashboardStats.totalWords,
+                            timeSaved = dashboardStats.timeSaved,
+                            dictationTime = dashboardStats.dictationTime,
+                            monthlySaved = dashboardStats.monthlySaved
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                        if (allEntries.isEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Panel, FluenceShapes.Medium)
+                                    .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                                    .padding(FluenceSpacing.Xl),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.Mic,
+                                    contentDescription = null,
+                                    tint = BrandAmethyst.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                                Text(
+                                    "Your dashboard will come alive here",
+                                    color = TextSecondary,
+                                    style = FluenceTypography.bodySmall
+                                )
+                                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+                                Text(
+                                    "Start dictating to see your weekly activity",
+                                    color = TextTertiary,
+                                    style = FluenceTypography.labelSmall
+                                )
+                            }
+                        } else {
+                            WeeklyActivityChart(
+                                weeklyWords = dashboardStats.weeklyWords,
+                                weeklySavedHours = dashboardStats.weeklySavedHours,
+                                weeklySpokenHours = dashboardStats.weeklySpokenHours,
+                                dayWordCounts = dashboardStats.dayWordCounts,
+                                dayLabels = dashboardStats.dayLabels
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                        HomeSearchBar(
+                            searchQuery = searchQuery,
+                            onSearchChange = { searchQuery = it },
+                            onSortClick = { showSortSheet = true }
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                    }
+                }
+
                 if (groupedEntries.isEmpty()) {
                     item {
                         Column(
@@ -540,12 +649,11 @@ private fun HomeStatusBanner(
 }
 
 @Composable
-private fun HomeStatisticsSection(
-    savedTime: String,
-    wordsText: String,
-    ideasCount: String,
-    dictTime: String,
-    thisMonthCount: String
+private fun DashboardHeroStats(
+    totalWords: String,
+    timeSaved: String,
+    dictationTime: String,
+    monthlySaved: String
 ) {
     Box(
         modifier = Modifier
@@ -553,121 +661,200 @@ private fun HomeStatisticsSection(
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
     ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DashboardStatCell(
+                    title = "Words Brought to Life",
+                    value = totalWords,
+                    subtitle = "till today",
+                    icon = Icons.AutoMirrored.Filled.ShortText,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(OutlineSubtle)
+                )
+                DashboardStatCell(
+                    title = "Typing Time Saved",
+                    value = timeSaved,
+                    subtitle = "till today",
+                    icon = Icons.Default.Speed,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DashboardStatCell(
+                    title = "Dictation Time",
+                    value = dictationTime,
+                    subtitle = "till today",
+                    icon = Icons.Default.AccessTime,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(OutlineSubtle)
+                )
+                DashboardStatCell(
+                    title = "Typing Time Saved",
+                    value = monthlySaved,
+                    subtitle = "in last 30 days",
+                    icon = Icons.Default.CalendarToday,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardStatCell(
+    title: String,
+    value: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Base),
+        verticalArrangement = Arrangement.Center
+    ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = TextTertiary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = title,
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall.copy(letterSpacing = 0.5.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+        Text(
+            text = value,
+            color = TextPrimary,
+            style = FluenceTypography.headlineLarge.copy(
+                fontFamily = SoraFont,
+                fontWeight = FontWeight.SemiBold
+            )
+        )
+        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+        Text(
+            text = subtitle,
+            color = TextDisabled,
+            style = FluenceTypography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun WeeklyActivityChart(
+    weeklyWords: String,
+    weeklySavedHours: Double,
+    weeklySpokenHours: Double,
+    dayWordCounts: List<Int>,
+    dayLabels: List<String>
+) {
+    val maxCount = dayWordCounts.max().coerceAtLeast(1)
+    val barGradient = Brush.verticalGradient(
+        colors = listOf(BrandAmethyst, BrandAmethyst.copy(alpha = 0.35f))
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, FluenceShapes.Medium)
+            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .padding(FluenceSpacing.Md)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left Hero section
-            Column(
-                modifier = Modifier
-                    .weight(1.2f)
-                    .fillMaxHeight()
-                    .padding(FluenceSpacing.Base),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
+            Text(
+                text = "Weekly Activity",
+                color = TextPrimary,
+                style = FluenceTypography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+            )
+            val savedText = if (weeklySavedHours < 1.0) "${(weeklySavedHours * 60).toInt()}m"
+                else String.format(Locale.US, "%.1fh", weeklySavedHours)
+            val spokenText = if (weeklySpokenHours < 1.0) "${(weeklySpokenHours * 60).toInt()}m"
+                else String.format(Locale.US, "%.1fh", weeklySpokenHours)
+            Text(
+                text = "$weeklyWords words \u00b7 ${savedText} saved \u00b7 ${spokenText} spoken",
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall
+            )
+        }
+
+        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Sm)
+        ) {
+            dayWordCounts.forEachIndexed { index, count ->
+                val targetFraction = count.toFloat() / maxCount
+                val animatedFraction by animateFloatAsState(
+                    targetValue = targetFraction,
+                    animationSpec = tween(durationMillis = 600, delayMillis = index * 80),
+                    label = "bar_$index"
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (count > 0) count.toString() else "",
+                        color = TextTertiary,
+                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp),
+                        modifier = Modifier.height(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        contentAlignment = Alignment.BottomCenter
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = null,
-                            tint = TextTertiary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "YOU SAVED",
-                            color = TextTertiary,
-                            style = FluenceTypography.labelSmall.copy(letterSpacing = 1.5.sp)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(animatedFraction.coerceAtLeast(0.02f))
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .background(barGradient)
                         )
                     }
                     Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
                     Text(
-                        text = savedTime,
-                        color = TextPrimary,
-                        style = FluenceTypography.displaySmall.copy(
-                            fontFamily = SoraFont,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    )
-                }
-                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                Text(
-                    text = "Estimated typing time saved this month",
-                    color = TextSecondary,
-                    style = FluenceTypography.labelSmall.copy(lineHeight = 14.sp)
-                )
-            }
-
-            // Divider between Left and Right
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(1.dp)
-                    .background(OutlineSubtle)
-            )
-
-            // Right side grid of 2x2 supporting statistics
-            Column(
-                modifier = Modifier
-                    .weight(1.8f)
-                    .fillMaxHeight()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatisticGridCell(
-                        title = "Words",
-                        value = wordsText,
-                        icon = Icons.AutoMirrored.Filled.ShortText,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(1.dp)
-                            .background(OutlineSubtle)
-                    )
-                    StatisticGridCell(
-                        title = "Ideas",
-                        value = ideasCount,
-                        icon = Icons.Default.Lightbulb,
-                        subtitle = "Total",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                
-                HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
-                
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatisticGridCell(
-                        title = "Dictation",
-                        value = dictTime,
-                        icon = Icons.Default.AccessTime,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(1.dp)
-                            .background(OutlineSubtle)
-                    )
-                    StatisticGridCell(
-                        title = "This Month",
-                        value = thisMonthCount,
-                        icon = Icons.Default.CalendarToday,
-                        modifier = Modifier.weight(1f)
+                        text = dayLabels[index],
+                        color = TextDisabled,
+                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp)
                     )
                 }
             }
@@ -795,57 +982,6 @@ private fun TranscriptRow(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun StatisticGridCell(
-    title: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    subtitle: String? = null,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = TextTertiary,
-                modifier = Modifier.size(14.dp)
-            )
-            Text(
-                text = title,
-                color = TextTertiary,
-                style = FluenceTypography.labelSmall
-            )
-        }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            color = TextPrimary,
-            style = FluenceTypography.titleLarge.copy(
-                fontFamily = SoraFont,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp
-            )
-        )
-        if (subtitle != null) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                color = TextTertiary,
-                style = FluenceTypography.labelSmall
-            )
         }
     }
 }
