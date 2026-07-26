@@ -55,21 +55,7 @@ jobs:
 
         if [ -n "$KEYSTORE_B64" ]; then
           echo "Decoding release keystore from repository secrets..."
-          python3 -c "
-import base64, os, re
-raw = os.environ.get('KEYSTORE_B64', '')
-clean = re.sub(r'[^a-zA-Z0-9+/=]', '', raw)
-if clean:
-    missing_padding = len(clean) % 4
-    if missing_padding:
-        clean += '=' * (4 - missing_padding)
-    try:
-        data = base64.b64decode(clean)
-        with open('release.keystore', 'wb') as f:
-            f.write(data)
-    except Exception as e:
-        print(f'Error decoding base64: {e}')
-"
+          python3 -c "import base64, os, re; raw = os.environ.get('KEYSTORE_B64', ''); clean = re.sub(r'[^a-zA-Z0-9+/=]', '', raw); data = base64.b64decode(clean + '=' * ((4 - len(clean) % 4) % 4)) if clean else b''; open('release.keystore', 'wb').write(data)"
           if [ -s release.keystore ] && keytool -list -keystore release.keystore -storepass "$KS_PASS" -alias "$KS_ALIAS" >/dev/null 2>&1; then
             echo "Successfully verified secret release keystore!"
             VALID_KEYSTORE=true
