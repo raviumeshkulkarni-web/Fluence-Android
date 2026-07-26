@@ -51,7 +51,7 @@ jobs:
       run: |
         if [ -n "$KEYSTORE_B64" ]; then
           echo "Decoding release keystore from repository secrets..."
-          python3 -c "import base64, os; open('release.keystore', 'wb').write(base64.b64decode(os.environ['KEYSTORE_B64']))"
+          python3 -c "import base64, os; open('release.keystore', 'wb').write(base64.b64decode(os.environ['KEYSTORE_B64'].strip()))"
           KS_ALIAS="androiddebugkey"
           KS_PASS="android"
         else
