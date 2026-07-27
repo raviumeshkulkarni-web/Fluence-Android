@@ -108,6 +108,18 @@ class OfflineTranscriber(
 
     companion object {
         private const val TAG = "OfflineTranscriber"
+
+        /**
+         * Factory method to create an OfflineTranscriber with the specified engine type.
+         * Defaults to SenseVoice (SherpaRecognizerEngine) for backward compatibility.
+         */
+        fun create(engineType: OfflineEngineType = OfflineEngineType.SENSEVOICE): OfflineTranscriber {
+            val engine: RecognizerEngine = when (engineType) {
+                OfflineEngineType.SENSEVOICE -> SherpaRecognizerEngine()
+                OfflineEngineType.MOONSHINE_BASE -> MoonshineRecognizerEngine()
+            }
+            return OfflineTranscriber(engine)
+        }
     }
 
     /**

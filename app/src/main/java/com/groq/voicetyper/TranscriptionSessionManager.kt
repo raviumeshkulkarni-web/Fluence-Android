@@ -4,7 +4,9 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
+import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePipelineProvider
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.offline.OfflineTranscriber
@@ -59,8 +61,30 @@ object TranscriptionSessionManager {
     private var engineStateCollectJob: Job? = null
     private var preWarmJob: Job? = null
     private var activeOffline = false
+    private var activeEngineType: OfflineEngineType? = null
     private var recordingStartTimestampMs = 0L
     private val offlineTextAccumulator = StringBuilder()
+
+    private fun isEngineModelReady(context: Context, engineType: OfflineEngineType): Boolean {
+        return when (engineType) {
+            OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
+            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.isModelReadySync(context)
+        }
+    }
+
+    private fun getModelDir(context: Context, engineType: OfflineEngineType): File {
+        return when (engineType) {
+            OfflineEngineType.SENSEVOICE -> ModelAssetManager.getModelDir(context)
+            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.getModelDir(context)
+        }
+    }
+
+    private fun getModelName(engineType: OfflineEngineType): String {
+        return when (engineType) {
+            OfflineEngineType.SENSEVOICE -> "sensevoice-small"
+            OfflineEngineType.MOONSHINE_BASE -> "moonshine-base-v1"
+        }
+    }
 
     @Synchronized
     private fun initRecorder(context: Context) {
@@ -71,14 +95,15 @@ object TranscriptionSessionManager {
 
     fun preWarmOfflinePipeline(context: Context) {
         val isOfflineMode = OfflinePreferences.isOfflineModeEnabled(context)
-        if (isOfflineMode && ModelAssetManager.isModelReadySync(context)) {
+        val engineType = OfflinePreferences.getEngineType(context)
+        if (isOfflineMode && isEngineModelReady(context, engineType)) {
             preWarmJob?.cancel()
             preWarmJob = scope.launch {
                 delay(600) // Let entry animations finish
                 withContext(Dispatchers.IO) {
                     try {
-                        val modelDir = ModelAssetManager.getModelDir(context).absolutePath
-                        val pipeline = OfflinePipelineProvider.getInstance(context)
+                        val modelDir = getModelDir(context, engineType).absolutePath
+                        val pipeline = OfflinePipelineProvider.getInstance(context, engineType)
                         pipeline.initialize(modelDir)
                     } catch (e: Exception) {
                         Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
@@ -107,13 +132,15 @@ object TranscriptionSessionManager {
         _isAgentMode.value = agentMode
         recordingStartTimestampMs = System.currentTimeMillis()
 
-        val useOffline = isOffline && !agentMode && ModelAssetManager.isModelReadySync(context)
+        val engineType = OfflinePreferences.getEngineType(context)
+        val useOffline = isOffline && !agentMode && isEngineModelReady(context, engineType)
         activeOffline = useOffline
+        activeEngineType = if (useOffline) engineType else null
 
         if (useOffline) {
             scope.launch {
                 try {
-                    val pipeline = OfflinePipelineProvider.getInstance(context)
+                    val pipeline = OfflinePipelineProvider.getInstance(context, engineType)
                     offlineTextAccumulator.setLength(0)
                     pipeline.onTextTranscribed = { text ->
                         val cleanText = text.trim()
@@ -122,7 +149,7 @@ object TranscriptionSessionManager {
                         }
                     }
 
-                    val modelDir = ModelAssetManager.getModelDir(context).absolutePath
+                    val modelDir = getModelDir(context, engineType).absolutePath
 
                     // Collect amplitude and engineState from the offline pipeline
                     amplitudeCollectJob?.cancel()
@@ -188,7 +215,7 @@ object TranscriptionSessionManager {
 
             scope.launch {
                 try {
-                    val pipeline = OfflinePipelineProvider.getInstance(context)
+                    val pipeline = OfflinePipelineProvider.getInstance(context, activeEngineType ?: OfflineEngineType.SENSEVOICE)
                     if (pipeline.isRunning.value) {
                         pipeline.stop()
                     } else {
@@ -197,19 +224,22 @@ object TranscriptionSessionManager {
                     val finalTranscription = offlineTextAccumulator.toString().trim()
                     if (finalTranscription.isNotEmpty()) {
                         val lang = getKeyboardLanguageCode(context)
+                        val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
                         CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(finalTranscription, "offline", "sensevoice-small", lang, durationMs, false)
+                            HistoryRepository.save(finalTranscription, "offline", engineModelName, lang, durationMs, false)
                         }
                         withContext(Dispatchers.Main) {
                             currentListener?.onTranscription(finalTranscription)
                         }
                     }
                     offlineTextAccumulator.setLength(0)
+                    activeEngineType = null
                     _recordingState.value = RecordingState.IDLE
                     _isAgentMode.value = false
                     currentListener = null
                 } catch (e: Exception) {
                     showError("Offline transcription failed: ${e.localizedMessage}")
+                    activeEngineType = null
                     _isAgentMode.value = false
                 }
             }
@@ -239,12 +269,13 @@ object TranscriptionSessionManager {
 
             scope.launch {
                 try {
-                    val pipeline = OfflinePipelineProvider.getInstance(context)
+                    val pipeline = OfflinePipelineProvider.getInstance(context, activeEngineType ?: OfflineEngineType.SENSEVOICE)
                     pipeline.forceRelease()
                 } catch (e: Exception) {
                     Log.w(TAG, "Error force releasing offline pipeline on cancel", e)
                 } finally {
                     offlineTextAccumulator.setLength(0)
+                    activeEngineType = null
                     currentListener = null
                 }
             }
@@ -386,6 +417,7 @@ object TranscriptionSessionManager {
         _offlineEngineState.value = OfflineEngineState.UNLOADED
         _amplitude.value = 0f
         activeOffline = false
+        activeEngineType = null
         offlineTextAccumulator.setLength(0)
 
         // Release the offline pipeline synchronously on a background thread.

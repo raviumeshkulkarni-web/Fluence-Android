@@ -17,7 +17,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
+import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -69,10 +71,18 @@ fun OfflineConfigScreen(
     var modelSize by remember { mutableStateOf(0L) }
     val downloadProgress by ModelAssetManager.progress.collectAsState()
 
+    var selectedEngineType by remember { mutableStateOf(OfflineEngineType.SENSEVOICE) }
+    var moonshineReady by remember { mutableStateOf(false) }
+    var moonshineSize by remember { mutableStateOf(0L) }
+    val moonshineDownloadProgress by MoonshineModelManager.progress.collectAsState()
+
     LaunchedEffect(Unit) {
         offlineEnabled = OfflinePreferences.isOfflineModeEnabled(context)
         modelReady = ModelAssetManager.isModelReadySync(context)
         modelSize = ModelAssetManager.getModelSizeOnDisk(context)
+        selectedEngineType = OfflinePreferences.getEngineType(context)
+        moonshineReady = MoonshineModelManager.isModelReadySync(context)
+        moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
     }
 
     LaunchedEffect(downloadProgress.state) {
@@ -82,6 +92,16 @@ fun OfflineConfigScreen(
         } else if (downloadProgress.state == ModelAssetManager.DownloadState.IDLE) {
             modelReady = ModelAssetManager.isModelReadySync(context)
             modelSize = ModelAssetManager.getModelSizeOnDisk(context)
+        }
+    }
+
+    LaunchedEffect(moonshineDownloadProgress.state) {
+        if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.COMPLETED) {
+            moonshineReady = true
+            moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
+        } else if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.IDLE) {
+            moonshineReady = MoonshineModelManager.isModelReadySync(context)
+            moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
         }
     }
 
@@ -127,8 +147,12 @@ fun OfflineConfigScreen(
                 Switch(
                     checked = offlineEnabled,
                     onCheckedChange = { checked ->
-                        if (checked && !modelReady) {
-                            Toast.makeText(context, "Download the offline model first.", Toast.LENGTH_SHORT).show()
+                        val selectedModelReady = when (selectedEngineType) {
+                            OfflineEngineType.SENSEVOICE -> modelReady
+                            OfflineEngineType.MOONSHINE_BASE -> moonshineReady
+                        }
+                        if (checked && !selectedModelReady) {
+                            Toast.makeText(context, "Download the selected model first.", Toast.LENGTH_SHORT).show()
                         } else {
                             offlineEnabled = checked
                             OfflinePreferences.setOfflineModeEnabled(context, checked)
@@ -145,9 +169,88 @@ fun OfflineConfigScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Model Status
+            // Engine Selector
             Text(
-                text = "Model",
+                text = "Transcription Engine",
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressScale(remember { MutableInteractionSource() }),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedEngineType == OfflineEngineType.SENSEVOICE,
+                        onClick = {
+                            selectedEngineType = OfflineEngineType.SENSEVOICE
+                            OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = TextPrimary,
+                            unselectedColor = TextSecondary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = "SenseVoice (Default)",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Multilingual, ~239 MB",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressScale(remember { MutableInteractionSource() }),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedEngineType == OfflineEngineType.MOONSHINE_BASE,
+                        onClick = {
+                            selectedEngineType = OfflineEngineType.MOONSHINE_BASE
+                            OfflinePreferences.setEngineType(context, OfflineEngineType.MOONSHINE_BASE)
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = TextPrimary,
+                            unselectedColor = TextSecondary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = "Moonshine Base (Experimental)",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "English only, ~287 MB",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Model Status (SenseVoice)
+            Text(
+                text = "SenseVoice Model",
                 color = TextPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
@@ -286,6 +389,156 @@ fun OfflineConfigScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Download SenseVoice Model (~239 MB)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Moonshine Model Status
+            Text(
+                text = "Moonshine Base Model (Experimental)",
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (moonshineReady) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Moonshine Model: Ready",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Storage: ${(moonshineSize / (1024 * 1024))} MB",
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                MoonshineModelManager.deleteModel(context)
+                                moonshineReady = false
+                                moonshineSize = 0
+                                if (selectedEngineType == OfflineEngineType.MOONSHINE_BASE) {
+                                    offlineEnabled = false
+                                    OfflinePreferences.setOfflineModeEnabled(context, false)
+                                }
+                                Toast.makeText(context, "Moonshine model deleted.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
+                        shape = FluenceShapes.Medium,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Moonshine model",
+                                tint = Error,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Delete", color = Error, fontSize = 13.sp)
+                    }
+                }
+            } else {
+                when (moonshineDownloadProgress.state) {
+                    MoonshineModelManager.DownloadState.DOWNLOADING,
+                    MoonshineModelManager.DownloadState.VERIFYING -> {
+                        val progressPercentage = if (moonshineDownloadProgress.totalBytes > 0) {
+                            moonshineDownloadProgress.bytesDownloaded.toFloat() / moonshineDownloadProgress.totalBytes.toFloat()
+                        } else 0f
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.VERIFYING) "Verifying..." else "Downloading...",
+                                color = TextPrimary,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "${(progressPercentage * 100).toInt()}%",
+                                color = TextSecondary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = { progressPercentage },
+                            color = TextPrimary,
+                            trackColor = TextPrimary.copy(alpha = 0.1f),
+                            modifier = Modifier.fillMaxWidth().height(6.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { MoonshineModelManager.cancelDownload() },
+                            colors = ButtonDefaults.buttonColors(containerColor = PanelElevated),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Cancel", color = TextPrimary)
+                        }
+                    }
+                    MoonshineModelManager.DownloadState.FAILED -> {
+                        Text(
+                            text = "Download failed: ${moonshineDownloadProgress.errorMessage ?: "Unknown error"}",
+                            color = Error,
+                            fontSize = 13.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    MoonshineModelManager.downloadModel(context)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth().pressScale(remember { MutableInteractionSource() })
+                        ) {
+                            Text("Retry Download (~287 MB)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    else -> {
+                        Text(
+                            text = "Moonshine model not installed.",
+                            color = TextSecondary,
+                            fontSize = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    MoonshineModelManager.downloadModel(context)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Download Moonshine Model (~287 MB)", color = TextPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

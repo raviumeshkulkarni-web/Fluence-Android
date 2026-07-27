@@ -22,6 +22,7 @@ enum class OfflineModeState {
 object OfflinePreferences {
     private const val PREFS_NAME = "fluence_prefs"
     private const val KEY_OFFLINE_ENABLED = "offline_mode_enabled"
+    private const val KEY_ENGINE_TYPE = "offline_engine_type"
 
     fun isOfflineModeEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -32,6 +33,27 @@ object OfflinePreferences {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_OFFLINE_ENABLED, enabled)
+            .apply()
+    }
+
+    /**
+     * Returns the selected offline engine type.
+     * Defaults to SENSEVOICE for backward compatibility with existing users.
+     */
+    fun getEngineType(context: Context): OfflineEngineType {
+        val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_ENGINE_TYPE, null)
+        return try {
+            OfflineEngineType.valueOf(saved ?: OfflineEngineType.SENSEVOICE.name)
+        } catch (_: Exception) {
+            OfflineEngineType.SENSEVOICE
+        }
+    }
+
+    fun setEngineType(context: Context, engineType: OfflineEngineType) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ENGINE_TYPE, engineType.name)
             .apply()
     }
 }

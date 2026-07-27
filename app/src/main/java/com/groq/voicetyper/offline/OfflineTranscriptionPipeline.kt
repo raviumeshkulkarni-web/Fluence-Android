@@ -13,20 +13,21 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Orchestrates the full offline transcription pipeline:
- *   Mic (OfflineAudioCapture) → Silero VAD → SenseVoice (OfflineTranscriber)
+ *   Mic (OfflineAudioCapture) → Silero VAD → OfflineTranscriber (SenseVoice or Moonshine)
  *
  * Implements VAD-driven rolling chunked inference:
  *   - Audio frames stream continuously from the microphone
  *   - Silero VAD detects speech segments and pauses
  *   - On speech-end (or 25-second max chunk), the accumulated audio is sent
- *     to SenseVoice for transcription
+ *     to the selected engine for transcription
  *   - Transcribed text is immediately committed via the callback
  *   - Audio buffer is flushed; recording continues seamlessly
  *
  * Thread safety: Guarded by state checks and structured coroutine scopes.
  */
 class OfflineTranscriptionPipeline(
-    private val context: Context
+    private val context: Context,
+    private val engineType: OfflineEngineType = OfflineEngineType.SENSEVOICE
 ) {
     companion object {
         private const val TAG = "OfflineTranscriptionPipeline"
@@ -37,7 +38,7 @@ class OfflineTranscriptionPipeline(
     }
 
     private val audioCapture = OfflineAudioCapture()
-    private val transcriber = OfflineTranscriber()
+    private val transcriber = OfflineTranscriber.create(engineType)
     private var vad: Vad? = null
 
     private val _isRunning = MutableStateFlow(false)
