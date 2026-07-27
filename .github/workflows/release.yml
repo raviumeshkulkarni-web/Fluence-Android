@@ -87,6 +87,16 @@ jobs:
         "$APKSIGNER" sign --ks release.keystore --ks-key-alias "$KS_ALIAS" --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" --out app-release.apk "$UNSIGNED_APK"
         echo "Successfully signed APK as app-release.apk"
 
+    - name: Extract tag annotation
+      id: tag_body
+      run: |
+        TAG_MSG=$(git tag -l --format='%(contents)' "$TAG_NAME" 2>/dev/null || echo "")
+        if [ -z "$TAG_MSG" ]; then
+          TAG_MSG="## Fluence $TAG_NAME"$'\n\n'"See the commit history for details."
+        fi
+        # Write to file to preserve newlines
+        echo "$TAG_MSG" > /tmp/tag_body.md
+
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v2
       with:
@@ -94,35 +104,7 @@ jobs:
         files: app-release.apk
         name: Release ${{ env.TAG_NAME }}
         draft: false
-        prerelease: ${{ contains(env.TAG_NAME, '-') }}
-        body: |
-          ## 🎙️ Fluence ${{ env.TAG_NAME }}
-
-          ### 🐛 Bug Fixes & UX Enhancements
-
-          **Smooth Window Expansion on Right Edge**
-          - Linked Compose width animation directly to WindowManager X-coordinate repositioning.
-          - This eliminates the layout "jumping/wobbling" effect when expanding the bubble on the right edge of the screen, ensuring a buttery-smooth transition.
-
-          **Enhanced Siri-Style Voice Waveform**
-          - Added dynamic, physics-based smoothing (using spring animation) to microphone amplitude signals, removing jerky transitions.
-          - Implemented frame-rate-independent continuous phase integration for seamless visual wave transitions.
-          - Added high-frequency voice vibration paths that trigger and scale dynamically when audio activity is detected.
-
-          **Unused Code Cleanup**
-          - Removed unused variables and cleaned up compiler warnings in the service logic.
-
-          ### ✅ Core Features Remain Intact
-          - Offline transcription (SenseVoice-Small, ~230MB, fully on-device)
-          - Floating bubble overlay with accessibility-based text injection
-          - AI Agent / command mode
-          - Pre-warm pipeline for instant offline recording start
-          - Glass pill UI with animations
-
-          ---
-
-          ### 📦 Installation
-          Download `app-release.apk` below and install directly on your Android device (API 26+).
-          > You may need to allow **"Install from Unknown Sources"** in your device settings.
+        prerelease: false
+        body_path: /tmp/tag_body.md
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
