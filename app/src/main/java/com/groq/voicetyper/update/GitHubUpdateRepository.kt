@@ -79,33 +79,45 @@ class GitHubUpdateRepository(
                     }
                 }
 
-                if (apkDownloadUrl == null) {
-                    return@withContext UpdateCheckResult.Error("No APK asset found in latest GitHub release")
-                }
-
-                val metadata: ReleaseMetadata = if (releaseJsonDownloadUrl != null) {
-                    downloadReleaseMetadata(releaseJsonDownloadUrl)
-                        ?: return@withContext UpdateCheckResult.Error("Failed to parse release.json metadata asset")
-                } else {
-                    // Fail gracefully if release.json asset is missing from GitHub release
-                    return@withContext UpdateCheckResult.Error("Missing release.json metadata asset in GitHub release")
-                }
+                val tagName = releaseJson.optString("tag_name", "").removePrefix("v").trim()
 
                 preferences.lastCheckedTimestamp = System.currentTimeMillis()
 
-                if (metadata.versionCode > localVersionCode) {
-                    UpdateCheckResult.UpdateAvailable(
-                        metadata = metadata,
-                        releaseNotes = releaseNotes,
-                        apkDownloadUrl = apkDownloadUrl,
-                        releaseUrl = releaseUrl
-                    )
+                if (releaseJsonDownloadUrl != null) {
+                    val metadata = downloadReleaseMetadata(releaseJsonDownloadUrl)
+                        ?: return@withContext UpdateCheckResult.Error("Failed to parse release.json metadata asset")
+
+                    val downloadUrl = apkDownloadUrl
+                        ?: return@withContext UpdateCheckResult.Error("No APK asset found in latest GitHub release")
+
+                    if (metadata.versionCode > localVersionCode) {
+                        UpdateCheckResult.UpdateAvailable(
+                            metadata = metadata,
+                            releaseNotes = releaseNotes,
+                            apkDownloadUrl = downloadUrl,
+                            releaseUrl = releaseUrl
+                        )
+                    } else {
+                        UpdateCheckResult.UpToDate
+                    }
                 } else {
-                    UpdateCheckResult.UpToDate
+                    // release.json asset is missing from this GitHub release
+                    val isNewerTag = tagName.isNotEmpty() && isVersionNewer(tagName, BuildConfig.VERSION_NAME)
+                    if (isNewerTag) {
+                        android.util.Log.w(
+                            "GitHubUpdateRepo",
+                            "Missing release.json metadata asset in GitHub release tag v$tagName"
+                        )
+                        UpdateCheckResult.Error("The latest update is incomplete and cannot be installed. Please try again later.")
+                    } else {
+                        // Current installed app is equal or newer than latest GitHub release tag
+                        UpdateCheckResult.UpToDate
+                    }
                 }
             }
         } catch (e: Exception) {
-            UpdateCheckResult.Error("Failed to check for updates: ${e.localizedMessage}", e)
+            android.util.Log.e("GitHubUpdateRepo", "Failed to check for updates", e)
+            UpdateCheckResult.Error("Unable to connect to update server. Please check your network and try again.", e)
         }
     }
 
@@ -147,6 +159,25 @@ class GitHubUpdateRepository(
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .build()
+        }
+
+        internal fun isVersionNewer(tagVersion: String, currentVersion: String): Boolean {
+            return try {
+                val cleanTag = tagVersion.removePrefix("v").trim()
+                val cleanCurrent = currentVersion.removePrefix("v").trim()
+                val tagParts = cleanTag.split(".").mapNotNull { it.takeWhile { c -> c.isDigit() }.toIntOrNull() }
+                val currentParts = cleanCurrent.split(".").mapNotNull { it.takeWhile { c -> c.isDigit() }.toIntOrNull() }
+                val maxLength = maxOf(tagParts.size, currentParts.size)
+                for (i in 0 until maxLength) {
+                    val tagPart = tagParts.getOrElse(i) { 0 }
+                    val currentPart = currentParts.getOrElse(i) { 0 }
+                    if (tagPart > currentPart) return true
+                    if (tagPart < currentPart) return false
+                }
+                false
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 }

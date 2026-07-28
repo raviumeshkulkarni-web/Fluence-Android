@@ -46,11 +46,25 @@ class ReleaseMetadataTest {
     }
 
     @Test
-    fun updateCheckResult_versionComparison() {
-        val localVersionCode = 14
-        val remoteVersionCode = 15
+    fun isVersionNewer_semanticComparisonEdgeCases() {
+        // 1.5.9 < 1.5.10 (Integer component vs string lexicographic)
+        assertTrue(GitHubUpdateRepository.isVersionNewer("1.5.10", "1.5.9"))
+        assertFalse(GitHubUpdateRepository.isVersionNewer("1.5.9", "1.5.10"))
 
-        assertTrue(remoteVersionCode > localVersionCode)
+        // 1.10.0 > 1.9.9
+        assertTrue(GitHubUpdateRepository.isVersionNewer("1.10.0", "1.9.9"))
+        assertFalse(GitHubUpdateRepository.isVersionNewer("1.9.9", "1.10.0"))
+
+        // v prefix handling: v1.5.0 vs 1.5.0
+        assertFalse(GitHubUpdateRepository.isVersionNewer("v1.5.0", "1.5.0"))
+        assertFalse(GitHubUpdateRepository.isVersionNewer("1.5.0", "v1.5.0"))
+
+        // Prerelease suffix handling: 1.6.0-beta > 1.5.0
+        assertTrue(GitHubUpdateRepository.isVersionNewer("1.6.0-beta", "1.5.0"))
+        assertFalse(GitHubUpdateRepository.isVersionNewer("1.5.0", "1.6.0-beta"))
+
+        // Same version
+        assertFalse(GitHubUpdateRepository.isVersionNewer("1.5.1", "1.5.1"))
     }
 }
 

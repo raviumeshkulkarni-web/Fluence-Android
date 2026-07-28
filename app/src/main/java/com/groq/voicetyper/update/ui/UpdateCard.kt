@@ -99,13 +99,13 @@ fun AboutAndUpdateCard(
                     is UpdateState.Checking -> "Checking..."
                     is UpdateState.UpdateAvailable -> {
                         val meta = (state as UpdateState.UpdateAvailable).metadata
-                        "${meta.versionName} (${meta.versionCode})"
+                        "v${meta.versionName} available"
                     }
                     is UpdateState.UpToDate -> "Up to date (${BuildConfig.VERSION_NAME})"
                     is UpdateState.Downloading -> "Downloading..."
                     is UpdateState.ReadyToInstall -> "Ready to install"
-                    is UpdateState.Error -> "Check failed"
-                    else -> "Unknown"
+                    is UpdateState.Error -> "Check failed — tap to retry"
+                    else -> "Up to date (${BuildConfig.VERSION_NAME})"
                 }
                 Text(
                     statusText,
