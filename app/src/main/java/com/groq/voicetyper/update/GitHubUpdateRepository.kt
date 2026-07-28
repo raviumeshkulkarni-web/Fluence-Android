@@ -143,7 +143,8 @@ class GitHubUpdateRepository(
                     mandatory = json.optBoolean("mandatory", false)
                 )
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("GitHubUpdateRepo", "Failed to parse release.json metadata", e)
             null
         }
     }

@@ -51,26 +51,19 @@ jobs:
       run: |
         KS_ALIAS="androiddebugkey"
         KS_PASS="android"
-        VALID_KEYSTORE=false
 
-        if [ -n "$KEYSTORE_B64" ]; then
-          echo "Decoding release keystore from repository secrets..."
-          python3 -c "import base64, os, re; raw = os.environ.get('KEYSTORE_B64', ''); clean = re.sub(r'[^a-zA-Z0-9+/=]', '', raw); data = base64.b64decode(clean + '=' * ((4 - len(clean) % 4) % 4)) if clean else b''; open('release.keystore', 'wb').write(data)"
-          if [ -s release.keystore ] && keytool -list -keystore release.keystore -storepass "$KS_PASS" -alias "$KS_ALIAS" >/dev/null 2>&1; then
-            echo "Successfully verified secret release keystore!"
-            VALID_KEYSTORE=true
-          else
-            echo "WARNING: Secret RELEASE_KEYSTORE_BASE64 in GitHub Secrets is invalid or incomplete."
-          fi
+        if [ -z "$KEYSTORE_B64" ]; then
+          echo "ERROR: RELEASE_KEYSTORE_BASE64 secret is not set. Cannot sign release APK."
+          exit 1
         fi
 
-        if [ "$VALID_KEYSTORE" = "false" ]; then
-          echo "Generating fallback release keystore..."
-          KS_ALIAS="release-key"
-          KS_PASS="password123"
-          rm -f release.keystore
-          keytool -genkeypair -v -keystore release.keystore -alias "$KS_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$KS_PASS" -dname "CN=GroqVoiceTyper, O=OpenSource, C=US"
+        echo "Decoding release keystore from repository secrets..."
+        python3 -c "import base64, os, re; raw = os.environ.get('KEYSTORE_B64', ''); clean = re.sub(r'[^a-zA-Z0-9+/=]', '', raw); data = base64.b64decode(clean + '=' * ((4 - len(clean) % 4) % 4)) if clean else b''; open('release.keystore', 'wb').write(data)"
+        if [ ! -s release.keystore ] || ! keytool -list -keystore release.keystore -storepass "$KS_PASS" -alias "$KS_ALIAS" >/dev/null 2>&1; then
+          echo "ERROR: RELEASE_KEYSTORE_BASE64 in GitHub Secrets is invalid or incomplete."
+          exit 1
         fi
+        echo "Successfully verified release keystore!"
 
         APKSIGNER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk} -name "apksigner" -type f | grep -v "\.jar" | head -n 1)
         if [ -z "$APKSIGNER" ]; then

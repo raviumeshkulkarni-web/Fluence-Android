@@ -11,6 +11,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 class ApkDownloadWorker(
     private val context: Context,
@@ -34,91 +35,98 @@ class ApkDownloadWorker(
         if (tempFile.exists()) tempFile.delete()
         if (finalApkFile.exists()) finalApkFile.delete()
 
-        val client = OkHttpClient.Builder().build()
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .build()
         val request = Request.Builder()
             .url(downloadUrl)
             .addHeader("User-Agent", "Fluence-Transcribe-Android")
             .build()
 
         try {
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    workDataOf(KEY_ERROR to "HTTP error ${response.code} downloading update APK")
-                )
-            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        workDataOf(KEY_ERROR to "HTTP error ${response.code} downloading update APK")
+                    )
+                }
 
-            val body = response.body
-                ?: return@withContext Result.failure(workDataOf(KEY_ERROR to "Empty download body"))
+                val body = response.body
+                    ?: return@withContext Result.failure(workDataOf(KEY_ERROR to "Empty download body"))
 
-            val contentLength = if (expectedSize > 0) expectedSize else body.contentLength()
-            val digest = MessageDigest.getInstance("SHA-256")
+                val contentLength = if (expectedSize > 0) expectedSize else body.contentLength()
+                val digest = MessageDigest.getInstance("SHA-256")
 
-            body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalBytesRead = 0L
-                    var lastProgressUpdate = 0L
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalBytesRead = 0L
+                        var lastProgressUpdate = 0L
 
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        if (isStopped) {
-                            tempFile.delete()
-                            return@withContext Result.failure(workDataOf(KEY_ERROR to "Download cancelled"))
-                        }
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (isStopped) {
+                                tempFile.delete()
+                                return@withContext Result.failure(workDataOf(KEY_ERROR to "Download cancelled"))
+                            }
 
-                        output.write(buffer, 0, bytesRead)
-                        digest.update(buffer, 0, bytesRead)
-                        totalBytesRead += bytesRead
+                            output.write(buffer, 0, bytesRead)
+                            digest.update(buffer, 0, bytesRead)
+                            totalBytesRead += bytesRead
 
-                        val now = System.currentTimeMillis()
-                        if (now - lastProgressUpdate > 300 || totalBytesRead == contentLength) {
-                            lastProgressUpdate = now
-                            val percent = if (contentLength > 0) {
-                                ((totalBytesRead * 100) / contentLength).toInt()
-                            } else 0
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressUpdate > 300 || totalBytesRead == contentLength) {
+                                lastProgressUpdate = now
+                                val percent = if (contentLength > 0) {
+                                    ((totalBytesRead * 100) / contentLength).toInt()
+                                } else 0
 
-                            setProgress(
-                                workDataOf(
-                                    KEY_PROGRESS_BYTES to totalBytesRead,
-                                    KEY_TOTAL_BYTES to contentLength,
-                                    KEY_PROGRESS_PERCENT to percent
+                                setProgress(
+                                    workDataOf(
+                                        KEY_PROGRESS_BYTES to totalBytesRead,
+                                        KEY_TOTAL_BYTES to contentLength,
+                                        KEY_PROGRESS_PERCENT to percent
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
-            }
 
-            // 1. File Size Validation
-            if (expectedSize > 0 && tempFile.length() != expectedSize) {
-                tempFile.delete()
-                return@withContext Result.failure(
-                    workDataOf(
-                        KEY_ERROR to "File size mismatch. Expected $expectedSize bytes, got ${tempFile.length()} bytes."
-                    )
-                )
-            }
-
-            // 2. SHA-256 Integrity Check
-            if (expectedSha256.isNotBlank()) {
-                val computedHash = digest.digest().joinToString("") { "%02x".format(it) }
-                if (!computedHash.equals(expectedSha256, ignoreCase = true)) {
+                // 1. File Size Validation
+                if (expectedSize > 0 && tempFile.length() != expectedSize) {
                     tempFile.delete()
                     return@withContext Result.failure(
                         workDataOf(
-                            KEY_ERROR to "SHA-256 hash validation failed. Expected: $expectedSha256, Computed: $computedHash"
+                            KEY_ERROR to "File size mismatch. Expected $expectedSize bytes, got ${tempFile.length()} bytes."
                         )
                     )
                 }
-            }
 
-            // Rename temp file to final APK file
-            if (!tempFile.renameTo(finalApkFile)) {
-                return@withContext Result.failure(workDataOf(KEY_ERROR to "Failed to finalize downloaded APK file"))
-            }
+                // 2. SHA-256 Integrity Check
+                if (expectedSha256.isBlank()) {
+                    android.util.Log.w("ApkDownloadWorker", "No SHA-256 hash provided in metadata — skipping integrity check")
+                } else {
+                    val computedHash = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (!computedHash.equals(expectedSha256, ignoreCase = true)) {
+                        tempFile.delete()
+                        return@withContext Result.failure(
+                            workDataOf(
+                                KEY_ERROR to "SHA-256 hash validation failed. Expected: $expectedSha256, Computed: $computedHash"
+                            )
+                        )
+                    }
+                }
 
-            Result.success(workDataOf(KEY_APK_PATH to finalApkFile.absolutePath))
+                // Rename temp file to final APK file
+                if (!tempFile.renameTo(finalApkFile)) {
+                    return@withContext Result.failure(workDataOf(KEY_ERROR to "Failed to finalize downloaded APK file"))
+                }
+
+                Result.success(workDataOf(KEY_APK_PATH to finalApkFile.absolutePath))
+            }
         } catch (e: Exception) {
             if (tempFile.exists()) tempFile.delete()
             Result.failure(workDataOf(KEY_ERROR to "Download error: ${e.localizedMessage}"))

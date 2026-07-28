@@ -55,7 +55,8 @@ fun UpdateDialogHost(
                 state = updateState,
                 canInstallPackages = canInstallPackages,
                 onInstall = { onInstall(updateState) },
-                onRequestPermission = onRequestInstallPermission
+                onRequestPermission = onRequestInstallPermission,
+                onRemindMeLater = onRemindMeLater
             )
         }
         is UpdateState.Error -> {
@@ -249,9 +250,10 @@ private fun UpdateReadyToInstallDialog(
     state: UpdateState.ReadyToInstall,
     canInstallPackages: Boolean,
     onInstall: () -> Unit,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onRemindMeLater: () -> Unit
 ) {
-    Dialog(onDismissRequest = {}) {
+    Dialog(onDismissRequest = onRemindMeLater) {
         Card(
             colors = CardDefaults.cardColors(containerColor = DialogSurface),
             shape = RoundedCornerShape(20.dp),
@@ -328,6 +330,15 @@ private fun UpdateReadyToInstallDialog(
                     ) {
                         Text("Grant Permission", color = TextPrimary, fontWeight = FontWeight.Bold)
                     }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = onRemindMeLater,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Later", color = TextTertiary, fontSize = 13.sp)
                 }
             }
         }

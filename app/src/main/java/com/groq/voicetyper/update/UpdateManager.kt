@@ -99,8 +99,13 @@ class UpdateManager private constructor(context: Context) {
     }
 
     private var currentObserver: androidx.lifecycle.Observer<WorkInfo>? = null
+    private var currentLiveData: androidx.lifecycle.LiveData<WorkInfo>? = null
 
     fun startDownload(availableState: UpdateState.UpdateAvailable) {
+        currentLiveData?.removeObserver(currentObserver ?: return)
+        currentObserver = null
+        currentLiveData = null
+
         val inputData = Data.Builder()
             .putString(ApkDownloadWorker.KEY_DOWNLOAD_URL, availableState.apkDownloadUrl)
             .putLong(ApkDownloadWorker.KEY_EXPECTED_SIZE, availableState.metadata.apkSize)
@@ -129,7 +134,6 @@ class UpdateManager private constructor(context: Context) {
         )
 
         val liveData = workManager.getWorkInfoByIdLiveData(downloadWorkRequest.id)
-        currentObserver?.let { liveData.removeObserver(it) }
 
         val observer = object : androidx.lifecycle.Observer<WorkInfo> {
             override fun onChanged(workInfo: WorkInfo) {
@@ -149,6 +153,7 @@ class UpdateManager private constructor(context: Context) {
                     WorkInfo.State.SUCCEEDED -> {
                         liveData.removeObserver(this)
                         currentObserver = null
+                        currentLiveData = null
                         preferences.downloadedVersionCode = availableState.metadata.versionCode
                         val apkPath = workInfo.outputData.getString(ApkDownloadWorker.KEY_APK_PATH)
                         if (apkPath != null) {
@@ -165,12 +170,14 @@ class UpdateManager private constructor(context: Context) {
                     WorkInfo.State.FAILED -> {
                         liveData.removeObserver(this)
                         currentObserver = null
+                        currentLiveData = null
                         val error = workInfo.outputData.getString(ApkDownloadWorker.KEY_ERROR) ?: "Download failed"
                         _updateState.value = UpdateState.Error(error)
                     }
                     WorkInfo.State.CANCELLED -> {
                         liveData.removeObserver(this)
                         currentObserver = null
+                        currentLiveData = null
                         _updateState.value = UpdateState.Idle
                     }
                     else -> {}
@@ -179,6 +186,7 @@ class UpdateManager private constructor(context: Context) {
         }
 
         currentObserver = observer
+        currentLiveData = liveData
         liveData.observeForever(observer)
     }
 
@@ -217,7 +225,7 @@ class UpdateManager private constructor(context: Context) {
                 val apkFile = File(updatesDir, "app-update.apk")
                 if (apkFile.exists()) {
                     val downloadedVersion = preferences.downloadedVersionCode
-                    if (downloadedVersion > 0 && BuildConfig.VERSION_CODE >= downloadedVersion) {
+                    if (downloadedVersion < 0 || BuildConfig.VERSION_CODE >= downloadedVersion) {
                         apkFile.delete()
                         preferences.resetDownloadedVersion()
                     }
