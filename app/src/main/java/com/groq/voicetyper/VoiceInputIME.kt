@@ -33,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
+import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 import com.groq.voicetyper.offline.*
 
 class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
@@ -214,6 +215,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                         listener = object : SessionListener {
                             override fun onTranscription(text: String) {
                                 currentInputConnection?.commitText("$text ", 1)
+                                AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
                             }
 
                             override fun onCommand(command: CommandResult, contextText: String) {
@@ -295,14 +297,32 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         apiKey = SecurityUtils.getApiKey(this)
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
 
+        AutoLearnSessionManager.onStartInput(info, this)
         TranscriptionSessionManager.preWarmOfflinePipeline(this)
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
     }
 
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        val conn = currentInputConnection ?: return
+        val textBefore = conn.getTextBeforeCursor(1000, 0)?.toString() ?: ""
+        val textAfter = conn.getTextAfterCursor(1000, 0)?.toString() ?: ""
+        val surroundingText = textBefore + textAfter
+        AutoLearnSessionManager.onTextUpdated(surroundingText, this)
+    }
+
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        AutoLearnSessionManager.endSession()
         TranscriptionSessionManager.cancelPreWarm()
         
         if (recordingState == RecordingState.RECORDING) {

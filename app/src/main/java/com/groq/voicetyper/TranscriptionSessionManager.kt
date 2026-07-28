@@ -221,8 +221,9 @@ object TranscriptionSessionManager {
                     } else {
                         pipeline.forceRelease()
                     }
-                    val finalTranscription = offlineTextAccumulator.toString().trim()
-                    if (finalTranscription.isNotEmpty()) {
+                    val rawTranscription = offlineTextAccumulator.toString().trim()
+                    if (rawTranscription.isNotEmpty()) {
+                        val finalTranscription = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
                         val lang = getKeyboardLanguageCode(context)
                         val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
                         CoroutineScope(Dispatchers.IO).launch {
@@ -309,8 +310,9 @@ object TranscriptionSessionManager {
 
             val result = GroqClient.transcribe(sttBaseUrl, sttModel, sttKey, file, languageCode)
             result.fold(
-                onSuccess = { text ->
-                    if (text.isNotBlank()) {
+                onSuccess = { rawText ->
+                    if (rawText.isNotBlank()) {
+                        val text = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
                         val isAgent = _isAgentMode.value
                         CoroutineScope(Dispatchers.IO).launch {
                             HistoryRepository.save(text, sttPreset, sttModel, languageCode, durationMs, isAgent)

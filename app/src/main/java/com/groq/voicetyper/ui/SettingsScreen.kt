@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -211,6 +212,16 @@ fun SettingsScreen(
                     else -> "Model not installed"
                 },
                 onClick = { onNavigateTo(Screen.OfflineConfig) }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Custom Dictionary
+            SettingsRow(
+                icon = Icons.Default.Book,
+                title = "Custom Dictionary",
+                summary = if (com.groq.voicetyper.dictionary.DictionaryPreferences.isDictionaryEnabled(context)) "Active \u00b7 Manual replacements" else "Disabled",
+                onClick = { onNavigateTo(Screen.CustomDictionary) }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
