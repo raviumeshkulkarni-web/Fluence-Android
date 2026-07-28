@@ -1,5 +1,20 @@
 # Fluence Android — Engineering Guidance
 
+## Repository Documentation
+
+This repository contains canonical documentation under `/docs`.
+
+Agents must consult the relevant document before modifying a subsystem.
+
+Examples:
+
+- docs/RELEASE_PIPELINE.md
+- docs/ARCHITECTURE.md
+- docs/SYNC.md
+- docs/DESIGN_SYSTEM.md
+
+Do not duplicate documentation inside AGENTS.md.
+
 ## Release Pipeline
 
 The Android release pipeline is considered **frozen**.
