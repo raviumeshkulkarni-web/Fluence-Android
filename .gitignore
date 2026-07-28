@@ -32,3 +32,6 @@ screenshot_*.png
 .sisyphus/
 RELEASE_KEYSTORE_BASE64.txt
 *.keystore
+*.jks
+*.p12
+*.pfx
