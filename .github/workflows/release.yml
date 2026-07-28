@@ -15,6 +15,20 @@ permissions:
   contents: write
 
 jobs:
+  diagnostic:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Inspect keystore certificate
+      env:
+        KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      run: |
+        KS_ALIAS="androiddebugkey"
+        KS_PASS="android"
+        python3 -c "import base64, os, re; raw = os.environ.get('KEYSTORE_B64', ''); clean = re.sub(r'[^a-zA-Z0-9+/=]', '', raw); data = base64.b64decode(clean + '=' * ((4 - len(clean) % 4) % 4)) if clean else b''; open('diag.keystore', 'wb').write(data)"
+        echo "=== KEYSTORE CERTIFICATE INFO ==="
+        keytool -list -v -keystore diag.keystore -storepass "$KS_PASS" -alias "$KS_ALIAS" 2>&1 | head -40
+
   publish:
     runs-on: ubuntu-latest
 
