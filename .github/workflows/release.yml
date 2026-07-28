@@ -117,7 +117,6 @@ jobs:
           "apkName": "app-release.apk",
           "apkSize": ${FILE_SIZE},
           "sha256": "${SHA256}",
-          "minSupportedVersionCode": null,
           "mandatory": false
         }
         EOF

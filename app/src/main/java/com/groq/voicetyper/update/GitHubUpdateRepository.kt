@@ -139,7 +139,7 @@ class GitHubUpdateRepository(
                     apkName = json.optString("apkName", "app-release.apk"),
                     apkSize = json.optLong("apkSize", 0L),
                     sha256 = json.optString("sha256", ""),
-                    minSupportedVersionCode = if (json.has("minSupportedVersionCode")) json.getInt("minSupportedVersionCode") else null,
+                    minSupportedVersionCode = if (!json.isNull("minSupportedVersionCode")) json.getInt("minSupportedVersionCode") else null,
                     mandatory = json.optBoolean("mandatory", false)
                 )
             }
