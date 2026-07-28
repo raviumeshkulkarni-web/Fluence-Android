@@ -97,11 +97,34 @@ jobs:
         # Write to file to preserve newlines
         echo "$TAG_MSG" > /tmp/tag_body.md
 
-    - name: Create Release and Upload Asset
+    - name: Generate release.json Metadata Asset
+      run: |
+        SHA256=$(sha256sum app-release.apk | awk '{print $1}')
+        FILE_SIZE=$(stat -c%s app-release.apk)
+        VERSION_CODE=$(grep -m1 "versionCode" app/build.gradle.kts | awk '{print $3}' | tr -d '"')
+        VERSION_NAME="${TAG_NAME#v}"
+        
+        cat <<EOF > release.json
+        {
+          "versionCode": ${VERSION_CODE:-15},
+          "versionName": "${VERSION_NAME:-1.5.0}",
+          "apkName": "app-release.apk",
+          "apkSize": ${FILE_SIZE},
+          "sha256": "${SHA256}",
+          "minSupportedVersionCode": null,
+          "mandatory": false
+        }
+        EOF
+        echo "Generated release.json:"
+        cat release.json
+
+    - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ env.TAG_NAME }}
-        files: app-release.apk
+        files: |
+          app-release.apk
+          release.json
         name: Release ${{ env.TAG_NAME }}
         draft: false
         prerelease: false

@@ -8,6 +8,7 @@ composeBom = "2024.02.02"
 okhttp = "4.12.0"
 securityCrypto = "1.1.0-alpha06"
 room = "2.6.1"
+workRuntime = "2.9.0"
 junit = "4.13.2"
 mockk = "1.13.10"
 kotlinxCoroutinesTest = "1.8.0"
@@ -27,6 +28,7 @@ androidx-material-icons-extended = { group = "androidx.compose.material", name =
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -38,3 +40,4 @@ mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", versio
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+

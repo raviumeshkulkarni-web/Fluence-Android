@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.groq.voicetyper.navigation.FluenceNavHost
 import com.groq.voicetyper.theme.*
 
@@ -35,15 +37,39 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val updateManager = com.groq.voicetyper.update.UpdateManager.getInstance(this)
+        updateManager.onAppStart()
+
         setContent {
             FluenceTranscribeTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = AppBackground
                 ) {
+                    val updateViewModel: com.groq.voicetyper.update.UpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                    val updateState by updateViewModel.updateState.collectAsState()
+
                     FluenceNavHost(
                         onRequestPermission = {
                             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    )
+
+                    com.groq.voicetyper.update.ui.UpdateDialogHost(
+                        updateState = updateState,
+                        canInstallPackages = updateViewModel.canInstallPackages,
+                        onStartDownload = { availableState -> updateViewModel.startDownload(availableState) },
+                        onCancelDownload = { updateViewModel.cancelDownload() },
+                        onInstall = { readyState -> updateViewModel.installUpdate(readyState) },
+                        onSkipVersion = { versionCode -> updateViewModel.skipVersion(versionCode) },
+                        onRemindMeLater = { updateViewModel.remindMeLater() },
+                        onRetry = { updateViewModel.checkForUpdates(force = true) },
+                        onDismissError = { updateViewModel.resetState() },
+                        onRequestInstallPermission = {
+                            try {
+                                startActivity(updateManager.installManager.createInstallPermissionIntent())
+                            } catch (_: Exception) {}
                         }
                     )
                 }

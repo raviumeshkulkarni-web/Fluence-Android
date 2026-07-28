@@ -28,8 +28,8 @@ android {
         applicationId = "com.groq.voicetyper"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.5.0"
+        versionCode = 15
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -82,6 +82,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
@@ -96,6 +97,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation(libs.androidx.activity.compose)
     
     implementation(platform(libs.androidx.compose.bom))
@@ -110,6 +112,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-text-google-fonts")
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     kapt(libs.androidx.room.compiler)
     
     // Offline speech-to-text engine (SenseVoice-Small via sherpa-onnx)

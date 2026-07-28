@@ -19,9 +19,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.groq.voicetyper.BuildConfig
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import com.groq.voicetyper.theme.SoraFont
+import com.groq.voicetyper.update.UpdateViewModel
+import com.groq.voicetyper.update.ui.AboutAndUpdateCard
 
 @Composable
 private fun SettingsTopBar(title: String, onBack: () -> Unit) {
@@ -59,11 +63,12 @@ private fun SettingsTopBar(title: String, onBack: () -> Unit) {
 @Composable
 fun AboutScreen(
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    updateViewModel: UpdateViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val versionName = "1.0.0"
-    val versionCode = 1
+    val versionName = BuildConfig.VERSION_NAME
+    val versionCode = BuildConfig.VERSION_CODE
 
     Box(
         modifier = modifier
@@ -91,26 +96,10 @@ fun AboutScreen(
                 FluenceProductLockup(productName = "Transcribe", orbSize = 48.dp, wordmarkSize = 28.sp)
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Version
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Version",
-                    color = TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "$versionName ($versionCode)",
-                    color = TextSecondary,
-                    fontSize = 14.sp
-                )
-            }
+            // About and Update Card
+            AboutAndUpdateCard(viewModel = updateViewModel)
 
             Spacer(modifier = Modifier.height(24.dp))
 
