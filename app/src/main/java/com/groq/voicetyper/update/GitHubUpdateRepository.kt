@@ -87,15 +87,8 @@ class GitHubUpdateRepository(
                     downloadReleaseMetadata(releaseJsonDownloadUrl)
                         ?: return@withContext UpdateCheckResult.Error("Failed to parse release.json metadata asset")
                 } else {
-                    // Fallback metadata if release.json asset is missing
-                    val tagName = releaseJson.optString("tag_name", "v1.0.0").removePrefix("v")
-                    ReleaseMetadata(
-                        versionCode = localVersionCode + 1, // Assume newer if tag released without metadata
-                        versionName = tagName,
-                        apkName = "app-release.apk",
-                        apkSize = 0L,
-                        sha256 = ""
-                    )
+                    // Fail gracefully if release.json asset is missing from GitHub release
+                    return@withContext UpdateCheckResult.Error("Missing release.json metadata asset in GitHub release")
                 }
 
                 preferences.lastCheckedTimestamp = System.currentTimeMillis()
