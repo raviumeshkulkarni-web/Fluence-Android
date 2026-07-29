@@ -27,6 +27,13 @@ object BubbleController {
     private val _isBubbleExpanded = MutableStateFlow(false)
     val isBubbleExpanded: StateFlow<Boolean> = _isBubbleExpanded.asStateFlow()
 
+    private val _isAnchoredRight = MutableStateFlow(true)
+    val isAnchoredRight: StateFlow<Boolean> = _isAnchoredRight.asStateFlow()
+
+    fun updateAnchoredRight(anchoredRight: Boolean) {
+        _isAnchoredRight.value = anchoredRight
+    }
+
     // Delegate recording flows to the centralized TranscriptionSessionManager
     val recordingState: StateFlow<RecordingState> = TranscriptionSessionManager.recordingState
     val isAgentMode: StateFlow<Boolean> = TranscriptionSessionManager.isAgentMode

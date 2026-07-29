@@ -53,6 +53,8 @@ fun FloatingBubbleUI(
     val isExpanded by BubbleController.isBubbleExpanded.collectAsState()
     val recordingState by BubbleController.recordingState.collectAsState()
     val errorMessage by BubbleController.errorMessage.collectAsState()
+    val anchoredRight by BubbleController.isAnchoredRight.collectAsState()
+    val contentAlignment = if (anchoredRight) Alignment.TopEnd else Alignment.TopStart
     val coroutineScope = rememberCoroutineScope()
 
     // Size animations for morphing transition.
@@ -86,8 +88,11 @@ fun FloatingBubbleUI(
     val shape = RoundedCornerShape(cornerRadius)
 
     Box(
-        modifier = Modifier.padding(16.dp),
-        contentAlignment = Alignment.Center
+        modifier = Modifier
+            .widthIn(min = 272.dp)
+            .heightIn(min = 96.dp)
+            .padding(16.dp),
+        contentAlignment = contentAlignment
     ) {
         Box(
             modifier = Modifier

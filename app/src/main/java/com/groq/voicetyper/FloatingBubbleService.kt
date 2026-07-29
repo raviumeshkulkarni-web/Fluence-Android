@@ -141,6 +141,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
         }
         isAnchoredRight = lastIsAnchoredRight
+        BubbleController.updateAnchoredRight(lastIsAnchoredRight)
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(
@@ -161,10 +162,12 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         if (isAnchoredRight) {
                             // Drag coordinates are always measured from left. Convert right-gravity
                             // overlay to left-gravity before applying the first drag delta.
-                            val windowWidth = composeView?.width ?: (collapsedSize + padding * 2)
                             lp.gravity = Gravity.TOP or Gravity.START
-                            lp.x = screenWidth - windowWidth - lp.x
+                            // Visible content right edge must stay at screenWidth.
+                            // With START + Start-alignment: x = screenWidth - collapsedSize - padding
+                            lp.x = screenWidth - collapsedSize - padding
                             isAnchoredRight = false
+                            BubbleController.updateAnchoredRight(false)
                         }
                         lp.x = (lp.x + dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
                         lp.y = (lp.y + dy.toInt()).coerceIn(-padding, screenHeight - collapsedSize - padding)
@@ -241,10 +244,17 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                 if (!wasCancelled && anchorRight && isViewAdded && composeView?.isAttachedToWindow == true) {
                     // Switch to Gravity.END after snapping to right edge.
                     // Future width changes grow leftward with a fixed right edge without per-frame updateViewLayout.
+                    // Update Compose state FIRST so recomposition is scheduled before the window changes.
+                    BubbleController.updateAnchoredRight(true)
                     layoutParams.gravity = Gravity.TOP or Gravity.END
                     layoutParams.x = -(16 * resources.displayMetrics.density).toInt()
                     lastX = layoutParams.x
-                    windowManager.updateViewLayout(composeView, layoutParams)
+                    // Post to guarantee Compose recomposition processes before the surface transaction.
+                    composeView?.post {
+                        if (isViewAdded && composeView?.isAttachedToWindow == true) {
+                            windowManager.updateViewLayout(composeView, layoutParams)
+                        }
+                    }
                 }
             }
         })
