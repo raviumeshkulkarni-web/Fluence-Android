@@ -136,8 +136,9 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or if (lastIsAnchoredRight) Gravity.END else Gravity.START
-            x = if (lastIsAnchoredRight) -padding else (lastX ?: -padding)
+            gravity = Gravity.TOP or Gravity.START
+            val initialX = if (lastIsAnchoredRight) resources.displayMetrics.widthPixels - collapsedSize - padding else -padding
+            x = lastX ?: initialX
             y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
         }
         isAnchoredRight = lastIsAnchoredRight
@@ -159,16 +160,6 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         val screenWidth = resources.displayMetrics.widthPixels
                         val screenHeight = resources.displayMetrics.heightPixels
                         val lp = this@FloatingBubbleService.layoutParams
-                        if (isAnchoredRight) {
-                            // Drag coordinates are always measured from left. Convert right-gravity
-                            // overlay to left-gravity before applying the first drag delta.
-                            lp.gravity = Gravity.TOP or Gravity.START
-                            // Visible content right edge must stay at screenWidth.
-                            // With START + Start-alignment: x = screenWidth - collapsedSize - padding
-                            lp.x = screenWidth - collapsedSize - padding
-                            isAnchoredRight = false
-                            BubbleController.updateAnchoredRight(false)
-                        }
                         lp.x = (lp.x + dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
                         lp.y = (lp.y + dy.toInt()).coerceIn(-padding, screenHeight - collapsedSize - padding)
                         lastX = lp.x
@@ -183,12 +174,21 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         val isLeft = (lp.x + padding) + collapsedSize / 2 < screenWidth / 2
                         isAnchoredRight = !isLeft
                         lastIsAnchoredRight = isAnchoredRight
+                        BubbleController.updateAnchoredRight(isAnchoredRight)
                         val targetX = if (isLeft) -padding else screenWidth - collapsedSize - padding
-                        animateSnap(targetX, isAnchoredRight)
+                        animateSnap(targetX)
                     },
-                    onWidthUpdated = { _ ->
-                        // WindowManager native gravity (Gravity.START or Gravity.END) keeps the anchored
-                        // edge fixed automatically while Compose resizes. No per-frame updateViewLayout required!
+                    onWidthUpdated = { widthDp ->
+                        if (isAnchoredRight) {
+                            val screenWidth = resources.displayMetrics.widthPixels
+                            val lp = this@FloatingBubbleService.layoutParams
+                            val targetX = screenWidth - (widthDp * density).toInt() - padding
+                            lp.x = targetX
+                            lastX = targetX
+                            if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
+                                windowManager.updateViewLayout(composeView, lp)
+                            }
+                        }
                     }
                 )
             }
@@ -228,7 +228,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     private var snapAnimator: android.animation.ValueAnimator? = null
 
-    private fun animateSnap(targetX: Int, anchorRight: Boolean) {
+    private fun animateSnap(targetX: Int) {
         snapAnimator?.cancel()
         val startX = layoutParams.x
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
@@ -241,20 +241,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             }
 
             override fun onAnimationEnd(animation: Animator) {
-                if (!wasCancelled && anchorRight && isViewAdded && composeView?.isAttachedToWindow == true) {
-                    // Switch to Gravity.END after snapping to right edge.
-                    // Future width changes grow leftward with a fixed right edge without per-frame updateViewLayout.
-                    // Update Compose state FIRST so recomposition is scheduled before the window changes.
-                    BubbleController.updateAnchoredRight(true)
-                    layoutParams.gravity = Gravity.TOP or Gravity.END
-                    layoutParams.x = -(16 * resources.displayMetrics.density).toInt()
-                    lastX = layoutParams.x
-                    // Post to guarantee Compose recomposition processes before the surface transaction.
-                    composeView?.post {
-                        if (isViewAdded && composeView?.isAttachedToWindow == true) {
-                            windowManager.updateViewLayout(composeView, layoutParams)
-                        }
-                    }
+                if (!wasCancelled && isViewAdded && composeView?.isAttachedToWindow == true) {
+                    windowManager.updateViewLayout(composeView, layoutParams)
                 }
             }
         })
