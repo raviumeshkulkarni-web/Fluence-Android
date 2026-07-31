@@ -54,7 +54,7 @@ fun FloatingBubbleUI(
     val recordingState by BubbleController.recordingState.collectAsState()
     val errorMessage by BubbleController.errorMessage.collectAsState()
     val anchoredRight by BubbleController.isAnchoredRight.collectAsState()
-    val contentAlignment = Alignment.TopStart
+    val contentAlignment = if (anchoredRight) Alignment.TopEnd else Alignment.TopStart
     val coroutineScope = rememberCoroutineScope()
 
     // Size animations for morphing transition.

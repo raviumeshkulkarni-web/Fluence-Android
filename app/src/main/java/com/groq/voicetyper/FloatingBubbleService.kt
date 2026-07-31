@@ -136,9 +136,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or Gravity.START
-            val initialX = if (lastIsAnchoredRight) resources.displayMetrics.widthPixels - collapsedSize - padding else -padding
-            x = lastX ?: initialX
+            gravity = Gravity.TOP or if (lastIsAnchoredRight) Gravity.END else Gravity.START
+            x = if (lastIsAnchoredRight) -padding else (lastX ?: -padding)
             y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
         }
         isAnchoredRight = lastIsAnchoredRight
@@ -160,7 +159,16 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         val screenWidth = resources.displayMetrics.widthPixels
                         val screenHeight = resources.displayMetrics.heightPixels
                         val lp = this@FloatingBubbleService.layoutParams
-                        lp.x = (lp.x + dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
+                        // Direction C prototype: do NOT flip gravity/alignment mid-drag.
+                        // Keep the resting gravity for the entire drag so there is no
+                        // simultaneous window-move + alignment-flip under the finger (the flash).
+                        // Under Gravity.END, x is inset from the right edge, so a left-based
+                        // finger delta must be subtracted; under Gravity.START it is added.
+                        if (isAnchoredRight) {
+                            lp.x = (lp.x - dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
+                        } else {
+                            lp.x = (lp.x + dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
+                        }
                         lp.y = (lp.y + dy.toInt()).coerceIn(-padding, screenHeight - collapsedSize - padding)
                         lastX = lp.x
                         lastY = lp.y
@@ -171,24 +179,27 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     onDragReleased = {
                         val screenWidth = resources.displayMetrics.widthPixels
                         val lp = this@FloatingBubbleService.layoutParams
-                        val isLeft = (lp.x + padding) + collapsedSize / 2 < screenWidth / 2
-                        isAnchoredRight = !isLeft
-                        lastIsAnchoredRight = isAnchoredRight
-                        BubbleController.updateAnchoredRight(isAnchoredRight)
-                        val targetX = if (isLeft) -padding else screenWidth - collapsedSize - padding
-                        animateSnap(targetX)
-                    },
-                    onWidthUpdated = { widthDp ->
-                        if (isAnchoredRight) {
-                            val screenWidth = resources.displayMetrics.widthPixels
-                            val lp = this@FloatingBubbleService.layoutParams
-                            val targetX = screenWidth - (widthDp * density).toInt() - padding
-                            lp.x = targetX
-                            lastX = targetX
-                            if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
-                                windowManager.updateViewLayout(composeView, lp)
-                            }
+                        // No mid-drag flip anymore: the current gravity is END iff isAnchoredRight.
+                        val currentlyEnd = isAnchoredRight
+                        val bubbleLeft = if (currentlyEnd) {
+                            // END gravity: x is inset from the right; bubble sits `padding` from window-right.
+                            screenWidth - lp.x - padding - collapsedSize
+                        } else {
+                            lp.x + padding
                         }
+                        val isLeft = bubbleLeft + collapsedSize / 2 < screenWidth / 2
+                        val finalAnchorRight = !isLeft
+                        // Snap target expressed in the CURRENT gravity's coordinate space.
+                        val targetX = if (currentlyEnd) {
+                            if (finalAnchorRight) -padding else screenWidth - collapsedSize - padding
+                        } else {
+                            if (finalAnchorRight) screenWidth - collapsedSize - padding else -padding
+                        }
+                        animateSnap(targetX, finalAnchorRight, currentlyEnd)
+                    },
+                    onWidthUpdated = { _ ->
+                        // WindowManager native gravity (Gravity.START or Gravity.END) keeps the anchored
+                        // edge fixed automatically while Compose resizes. No per-frame updateViewLayout required!
                     }
                 )
             }
@@ -228,7 +239,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     private var snapAnimator: android.animation.ValueAnimator? = null
 
-    private fun animateSnap(targetX: Int) {
+    private fun animateSnap(targetX: Int, finalAnchorRight: Boolean, currentlyEnd: Boolean) {
         snapAnimator?.cancel()
         val startX = layoutParams.x
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
@@ -241,9 +252,51 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             }
 
             override fun onAnimationEnd(animation: Animator) {
-                if (!wasCancelled && isViewAdded && composeView?.isAttachedToWindow == true) {
-                    windowManager.updateViewLayout(composeView, layoutParams)
+                if (wasCancelled || !isViewAdded || composeView?.isAttachedToWindow != true) return
+                // Direction C prototype: the gravity/alignment transition happens ONLY here,
+                // at snap completion, and only when the final side differs from the gravity we
+                // dragged in. The bubble is already at rest on the target edge, so the
+                // simultaneous window-move + alignment-flip is geometrically continuous
+                // (proven: both representations place the bubble at the same screen edge).
+                if (finalAnchorRight != currentlyEnd) {
+                    val padding = (16 * resources.displayMetrics.density).toInt()
+                    val view = composeView
+                    if (view != null) {
+                        // S4 atomicity prototype. The flash is a race between two subsystems:
+                        // Compose applies the alignment flip (async recomposition) and WindowManager
+                        // applies the ~184dp origin move (separate transaction). If the window moves
+                        // first, the not-yet-realigned content shows the full offset ON-screen for one
+                        // frame (the flash); if the content re-aligns first, the transient offset lands
+                        // OFF-screen past the resting edge and is invisible.
+                        //
+                        // (1) Flip the Compose alignment now (schedules recomposition) and stage the
+                        //     new window geometry.
+                        BubbleController.updateAnchoredRight(finalAnchorRight)
+                        layoutParams.gravity = Gravity.TOP or if (finalAnchorRight) Gravity.END else Gravity.START
+                        layoutParams.x = -padding
+                        lastX = layoutParams.x
+                        // (2) Apply the origin move as one instantaneous transaction (no interpolated
+                        //     leash slide that would stretch the seam across frames).
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            layoutParams.setCanPlayMoveAnimation(false)
+                        }
+                        // (3) Defer the window move to the pre-draw of the RE-ALIGNED content so the
+                        //     ordering is deterministically content-first and the seam stays off-screen.
+                        view.viewTreeObserver.addOnPreDrawListener(
+                            object : android.view.ViewTreeObserver.OnPreDrawListener {
+                                override fun onPreDraw(): Boolean {
+                                    view.viewTreeObserver.removeOnPreDrawListener(this)
+                                    if (isViewAdded && view.isAttachedToWindow) {
+                                        windowManager.updateViewLayout(view, layoutParams)
+                                    }
+                                    return true
+                                }
+                            }
+                        )
+                    }
                 }
+                isAnchoredRight = finalAnchorRight
+                lastIsAnchoredRight = finalAnchorRight
             }
         })
         animator.addUpdateListener { animation ->
