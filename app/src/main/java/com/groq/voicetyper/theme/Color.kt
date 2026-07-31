@@ -24,12 +24,26 @@ val OutlineSubtle  = Color(0xFF2A2A2A)
 // ── Text Hierarchy ──────────────────────────────────────────────────────────
 val TextPrimary    = Color(0xFFE2E2E2)
 val TextSecondary  = Color(0xFFA0A0A0)
-val TextTertiary   = Color(0xFF808080)
+val TextTertiary   = Color(0xFF8E8E8E) // ≥4.5:1 on Canvas/Panel/PanelElevated (WCAG AA)
 val TextDisabled   = Color(0xFF4A4A4A)
 
 // ── Accent ──────────────────────────────────────────────────────────────────
 val BrandAmethyst  = Color(0xFF8B45D8)
 val BrandCyan      = Color(0xFF0BD6E3)
+
+// ── IME Accent (Agent Mode pill) ────────────────────────────────────────────
+// Promoted verbatim from IMEScreen hex literals — values must stay identical
+// to the frozen IME recording visuals.
+val AgentTeal      = Color(0xFF00F5D4)
+val AgentTealSoft  = Color(0xFF80FFE8)
+val AgentBlue      = Color(0xFF00BBF9)
+val IndigoAccent   = Color(0xFF6366F1)
+
+// ── IME Surfaces ────────────────────────────────────────────────────────────
+val ImeInkDark       = Color(0xFF0D0E12)
+val ImeStatusBg      = Color(0xCC0D0E12)
+val ImePillBg        = Color(0x80131319)
+val ImePillBgActive  = Color(0xB2131319)
 
 // ── Semantic ────────────────────────────────────────────────────────────────
 val Success        = Color(0xFF22C55E)

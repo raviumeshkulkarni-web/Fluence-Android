@@ -11,7 +11,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Brush
@@ -54,6 +61,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
@@ -225,6 +234,7 @@ private fun groupEntries(entries: List<TranscriptionEntry>, sortOption: SortOpti
     return groups
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onNavigateToSettings: () -> Unit,
@@ -389,20 +399,15 @@ fun HomeScreen(
 
                 if (groupedEntries.isEmpty()) {
                     item {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Xxl),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(Icons.Default.Mic, null, tint = TextSecondary.copy(alpha = 0.15f), modifier = Modifier.size(40.dp))
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                            Text(
-                                if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
-                                color = TextSecondary,
-                                style = FluenceTypography.bodySmall
-                            )
-                        }
+                        FluenceEmptyState(
+                            icon = if (searchQuery.isNotEmpty()) Icons.Default.Search else Icons.Default.Mic,
+                            title = if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
+                            description = if (searchQuery.isNotEmpty())
+                                "Try a different word, or clear the search to see everything."
+                            else
+                                "Tap the mic on the Fluence keyboard and start speaking — your transcriptions will appear here.",
+                            modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
+                        )
                     }
                 } else {
                     groupedEntries.forEachIndexed { index, (label, entries) ->
@@ -434,7 +439,7 @@ fun HomeScreen(
                                             TextButton(
                                                 onClick = { showClearAllDialog = true },
                                                 contentPadding = PaddingValues(0.dp),
-                                                modifier = Modifier.height(16.dp)
+                                                modifier = Modifier.heightIn(min = 32.dp)
                                             ) {
                                                 Text("Clear All", color = TextTertiary, style = FluenceTypography.labelSmall)
                                             }
@@ -455,6 +460,7 @@ fun HomeScreen(
                         items(previewEntries, key = { "${label}_${it.id}" }) { entry ->
                             TranscriptRow(
                                 entry = entry,
+                                modifier = Modifier.animateItemPlacement(),
                                 isSelected = entry.id in selectedIds,
                                 isMultiSelect = isMultiSelect,
                                 onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
@@ -619,10 +625,9 @@ private fun HomeStatusBanner(
             .fillMaxWidth()
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }
+            .clickable(onClickLabel = "Open keyboard settings") {
+                context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
             .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -658,6 +663,7 @@ private fun DashboardHeroStats(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(8.dp, FluenceShapes.Medium, clip = false)
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
     ) {
@@ -764,7 +770,7 @@ private fun DashboardStatCell(
         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
         Text(
             text = subtitle,
-            color = TextDisabled,
+            color = TextTertiary,
             style = FluenceTypography.labelSmall
         )
     }
@@ -786,6 +792,7 @@ private fun WeeklyActivityChart(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(6.dp, FluenceShapes.Medium, clip = false)
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
             .padding(FluenceSpacing.Md)
@@ -833,7 +840,7 @@ private fun WeeklyActivityChart(
                         text = if (count > 0) count.toString() else "",
                         color = TextTertiary,
                         style = FluenceTypography.labelSmall.copy(fontSize = 10.sp),
-                        modifier = Modifier.height(14.dp)
+                        modifier = Modifier.heightIn(min = 14.dp)
                     )
                     Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
                     Box(
@@ -842,18 +849,26 @@ private fun WeeklyActivityChart(
                             .height(100.dp),
                         contentAlignment = Alignment.BottomCenter
                     ) {
+                        // Baseline lane — gives every day a visible track so the
+                        // chart reads as a dashboard even on low-activity days.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(TextPrimary.copy(alpha = 0.04f))
+                        )
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .fillMaxHeight(animatedFraction.coerceAtLeast(0.02f))
-                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                                 .background(barGradient)
                         )
                     }
                     Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
                     Text(
                         text = dayLabels[index],
-                        color = TextDisabled,
+                        color = TextTertiary,
                         style = FluenceTypography.labelSmall.copy(fontSize = 10.sp)
                     )
                 }
@@ -885,13 +900,13 @@ private fun HomeSearchBar(
                 modifier = Modifier.padding(end = 4.dp)
             ) {
                 if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Default.Close, "Clear", tint = TextTertiary, modifier = Modifier.size(14.dp))
                     }
                 }
                 IconButton(
                     onClick = onSortClick,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Sort,
@@ -936,6 +951,19 @@ private fun TranscriptRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .semantics(mergeDescendants = true) {
+                    if (isSelected) stateDescription = "Selected"
+                    onClick(
+                        label = if (isMultiSelect || isSelected) "Toggle selection" else "Copy transcription"
+                    ) {
+                        if (isMultiSelect || isSelected) onToggleSelect() else onCopy()
+                        true
+                    }
+                    onLongClick(label = "Select") {
+                        onToggleSelect()
+                        true
+                    }
+                }
                 .pointerInput(isSelected, isMultiSelect) {
                     detectTapGestures(
                         onLongPress = { onToggleSelect() },
@@ -966,7 +994,7 @@ private fun TranscriptRow(
             }
             Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(44.dp)) {
                     Icon(Icons.Default.MoreVert, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -1021,9 +1049,7 @@ private fun SortBottomSheet(
             Text(
                 text = "Sort by",
                 color = TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = SoraFont,
+                style = FluenceTypography.headlineMedium,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
             )
             
@@ -1031,10 +1057,14 @@ private fun SortBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            onOptionSelected(option)
-                            onDismiss()
-                        }
+                        .selectable(
+                            selected = option == selectedOption,
+                            role = Role.RadioButton,
+                            onClick = {
+                                onOptionSelected(option)
+                                onDismiss()
+                            }
+                        )
                         .padding(horizontal = 24.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1049,7 +1079,7 @@ private fun SortBottomSheet(
                     if (option == selectedOption) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Selected",
+                            contentDescription = null, // selection announced by selectable() state
                             tint = TextPrimary,
                             modifier = Modifier.size(20.dp)
                         )

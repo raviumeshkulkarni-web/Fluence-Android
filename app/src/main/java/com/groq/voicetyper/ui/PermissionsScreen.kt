@@ -12,13 +12,13 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,13 +32,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.FluenceAccessibilityService
+import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.isAccessibilityServiceEnabled
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -56,6 +55,9 @@ private fun PermissionRow(
         modifier = Modifier
             .fillMaxWidth()
             .pressScale(interactionSource)
+            .semantics(mergeDescendants = true) {
+                stateDescription = if (isGranted) "Granted" else "Not granted"
+            }
             .clickable(onClick = onRequest)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -73,14 +75,13 @@ private fun PermissionRow(
             Text(
                 text = title,
                 color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                style = FluenceTypography.titleMedium
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
                 color = TextSecondary,
-                fontSize = 13.sp
+                style = FluenceTypography.bodySmall
             )
         }
 
@@ -180,35 +181,10 @@ fun PermissionsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .pressScale(remember { MutableInteractionSource() })
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Text(
-                    text = "Permissions & Services",
-                    color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            SettingsTopBar(
+                title = "Permissions & Services",
+                onBack = onNavigateBack
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -292,7 +268,7 @@ fun PermissionsScreen(
                     .pressScale(interactionSource)
                     .clickable(
                         interactionSource = interactionSource,
-                        indication = null,
+                        indication = LocalIndication.current,
                         onClick = {
                             if (!accessibilityEnabled) {
                                 Toast.makeText(context, "Enable accessibility service first", Toast.LENGTH_SHORT).show()
@@ -322,8 +298,7 @@ fun PermissionsScreen(
                     Text(
                         text = "Floating Bubble",
                         color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                        style = FluenceTypography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -333,7 +308,7 @@ fun PermissionsScreen(
                             else -> "Tap to enable"
                         },
                         color = TextSecondary,
-                        fontSize = 13.sp
+                        style = FluenceTypography.bodySmall
                     )
                 }
 

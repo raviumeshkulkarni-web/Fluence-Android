@@ -18,7 +18,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.autolearn.SuggestionRepository
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
 import com.groq.voicetyper.theme.*
@@ -53,8 +52,7 @@ fun PendingSuggestionsSection(
             Text(
                 text = "Auto Learn Suggestions (${pendingSuggestions.size})",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold)
             )
         }
 
@@ -90,6 +88,7 @@ private fun PendingSuggestionCard(
     Surface(
         color = PanelElevated,
         shape = RoundedCornerShape(12.dp),
+        shadowElevation = 3.dp,
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, OutlineSubtle, RoundedCornerShape(12.dp))
@@ -107,20 +106,17 @@ private fun PendingSuggestionCard(
                     Text(
                         text = suggestion.spokenText,
                         color = TextSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        style = FluenceTypography.labelLarge
                     )
                     Text(
                         text = " \u2192 ",
                         color = TextTertiary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
                         text = suggestion.correctedText,
                         color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }
                 if (suggestion.frequency > 1) {
@@ -128,7 +124,7 @@ private fun PendingSuggestionCard(
                     Text(
                         text = "Observed ${suggestion.frequency}x",
                         color = TextTertiary,
-                        fontSize = 11.sp
+                        style = FluenceTypography.labelSmall
                     )
                 }
             }
@@ -137,7 +133,7 @@ private fun PendingSuggestionCard(
 
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
@@ -151,7 +147,7 @@ private fun PendingSuggestionCard(
 
             IconButton(
                 onClick = onAccept,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,

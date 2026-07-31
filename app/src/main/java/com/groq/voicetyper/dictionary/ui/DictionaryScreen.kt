@@ -3,6 +3,7 @@ package com.groq.voicetyper.dictionary.ui
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -20,18 +21,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.autolearn.ui.PendingSuggestionsSection
 import com.groq.voicetyper.dictionary.DictionaryPreferences
 import com.groq.voicetyper.dictionary.DictionaryRepository
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
+import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DictionaryScreen(
     onNavigateBack: () -> Unit,
@@ -68,7 +72,7 @@ fun DictionaryScreen(
                 IconButton(
                     onClick = onNavigateBack,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .pressScale(remember { MutableInteractionSource() })
                 ) {
                     Icon(
@@ -84,8 +88,7 @@ fun DictionaryScreen(
                 Text(
                     text = "Custom Dictionary",
                     color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = FluenceTypography.headlineLarge,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -96,6 +99,7 @@ fun DictionaryScreen(
                         isEnabled = checked
                         DictionaryPreferences.setDictionaryEnabled(context, checked)
                     },
+                    modifier = Modifier.semantics { contentDescription = "Custom Dictionary" },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Panel,
                         checkedTrackColor = TextPrimary,
@@ -117,7 +121,7 @@ fun DictionaryScreen(
                     Text(
                         text = "Custom Dictionary is currently paused. Replacements will not apply during transcription.",
                         color = TextSecondary,
-                        fontSize = 13.sp,
+                        style = FluenceTypography.bodySmall,
                         modifier = Modifier.padding(12.dp)
                     )
                 }
@@ -142,14 +146,13 @@ fun DictionaryScreen(
                         Text(
                             text = "Auto Learn Corrections",
                             color = TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
+                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (isAutoLearnEnabled) "Observes edits after voice typing" else "Auto Learn paused",
                             color = TextSecondary,
-                            fontSize = 12.sp
+                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
                         )
                     }
                     Switch(
@@ -158,6 +161,7 @@ fun DictionaryScreen(
                             isAutoLearnEnabled = checked
                             AutoLearnPreferences.setAutoLearnEnabled(context, checked)
                         },
+                        modifier = Modifier.semantics { contentDescription = "Auto Learn Corrections" },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Panel,
                             checkedTrackColor = TextPrimary,
@@ -180,30 +184,16 @@ fun DictionaryScreen(
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Book,
-                            contentDescription = null,
-                            tint = TextTertiary,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No dictionary entries yet",
-                            color = TextPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Tap + to add custom words or phrases that STT should replace automatically.",
-                            color = TextSecondary,
-                            fontSize = 14.sp
-                        )
-                    }
+                    FluenceEmptyState(
+                        icon = Icons.Default.Book,
+                        title = "No dictionary entries yet",
+                        description = "Add custom words or phrases and Fluence will automatically replace them while you dictate.",
+                        actionLabel = "Add your first word",
+                        onAction = {
+                            entryToEdit = null
+                            showDialog = true
+                        }
+                    )
                 }
             } else {
                 LazyColumn(
@@ -219,6 +209,7 @@ fun DictionaryScreen(
                     ) { entry ->
                         DictionaryEntryCard(
                             entry = entry,
+                            modifier = Modifier.animateItemPlacement(),
                             onToggleEnabled = { enabled ->
                                 scope.launch {
                                     DictionaryRepository.toggleEntryEnabled(context, entry, enabled)
@@ -291,12 +282,14 @@ private fun DictionaryEntryCard(
     entry: CustomDictionaryEntry,
     onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         color = Panel,
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier
+        shadowElevation = 3.dp,
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .border(1.dp, OutlineSubtle, RoundedCornerShape(14.dp))
@@ -315,20 +308,17 @@ private fun DictionaryEntryCard(
                     Text(
                         text = entry.spokenText,
                         color = if (entry.isEnabled) TextPrimary else TextDisabled,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
                         text = " \u2192 ",
                         color = TextTertiary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
                         text = entry.replacementText,
                         color = if (entry.isEnabled) TextPrimary else TextDisabled,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
             }
@@ -339,6 +329,7 @@ private fun DictionaryEntryCard(
             Switch(
                 checked = entry.isEnabled,
                 onCheckedChange = onToggleEnabled,
+                modifier = Modifier.semantics { contentDescription = "Enable ${entry.spokenText}" },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Panel,
                     checkedTrackColor = TextPrimary,
@@ -349,7 +340,7 @@ private fun DictionaryEntryCard(
 
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
@@ -379,8 +370,7 @@ private fun AddEditDictionaryDialog(
             Text(
                 text = if (entryToEdit == null) "Add Dictionary Entry" else "Edit Dictionary Entry",
                 color = TextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                style = FluenceTypography.headlineSmall
             )
         },
         text = {
@@ -436,7 +426,7 @@ private fun AddEditDictionaryDialog(
                     Text(
                         text = errorMessage!!,
                         color = Error,
-                        fontSize = 12.sp
+                        style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
                     )
                 }
             }

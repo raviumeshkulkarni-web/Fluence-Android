@@ -59,6 +59,14 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -69,8 +77,16 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.groq.voicetyper.theme.AgentBlue
+import com.groq.voicetyper.theme.AgentTeal
+import com.groq.voicetyper.theme.AgentTealSoft
 import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.Error
+import com.groq.voicetyper.theme.ImeInkDark
+import com.groq.voicetyper.theme.ImePillBg
+import com.groq.voicetyper.theme.ImePillBgActive
+import com.groq.voicetyper.theme.ImeStatusBg
+import com.groq.voicetyper.theme.IndigoAccent
 import com.groq.voicetyper.theme.Panel
 import com.groq.voicetyper.theme.TextPrimary
 import com.groq.voicetyper.theme.TextDisabled
@@ -143,22 +159,22 @@ fun IMEScreen(
     )
 
     val micBgColor = when (recordingState) {
-        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+        RecordingState.RECORDING -> if (isAgentMode) AgentTeal else BrandAmethyst
         RecordingState.TRANSCRIBING -> Panel
         RecordingState.ERROR -> Error
         RecordingState.IDLE -> if (isEnabled) TextPrimary else TextDisabled
     }
 
     val micIconColor = when (recordingState) {
-        RecordingState.RECORDING -> Color(0xFF0D0E12)
+        RecordingState.RECORDING -> ImeInkDark
         RecordingState.TRANSCRIBING -> Color.White
         RecordingState.ERROR -> Color.White
         RecordingState.IDLE -> Panel
     }
 
     val statusTextColor = when (recordingState) {
-        RecordingState.RECORDING -> if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
-        RecordingState.TRANSCRIBING -> if (isAgentMode) Color(0xFF80FFE8) else BrandAmethyst.copy(alpha = 0.7f)
+        RecordingState.RECORDING -> if (isAgentMode) AgentTeal else BrandAmethyst
+        RecordingState.TRANSCRIBING -> if (isAgentMode) AgentTealSoft else BrandAmethyst.copy(alpha = 0.7f)
         RecordingState.ERROR -> Error
         RecordingState.IDLE -> TextPrimary
     }
@@ -181,7 +197,7 @@ fun IMEScreen(
     }
 
     // Glass Pill Dynamic Styling Colors
-    val pillBgColor = if (recordingState == RecordingState.RECORDING) Color(0xB2131319) else Color(0x80131319)
+    val pillBgColor = if (recordingState == RecordingState.RECORDING) ImePillBgActive else ImePillBg
 
     val localOnBackspace by rememberUpdatedState(onBackspace)
     val localOnBackspaceSelect by rememberUpdatedState(onBackspaceSelect)
@@ -204,7 +220,7 @@ fun IMEScreen(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .background(Color(0xCC0D0E12), RoundedCornerShape(12.dp))
+                    .background(ImeStatusBg, RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -216,7 +232,7 @@ fun IMEScreen(
                 .size(width = 240.dp, height = 64.dp)
                 .drawBehind {
                     val isListening = recordingState == RecordingState.RECORDING
-                    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst
+                    val baseGlowColor = if (isAgentMode) AgentTeal else BrandAmethyst
                     val glowColor = baseGlowColor.copy(alpha = if (isListening) 0.35f else 0.20f)
                     val shapeRadiusPx = 32.dp.toPx()
                     val maxOffset = 8.dp.toPx()
@@ -246,13 +262,13 @@ fun IMEScreen(
                     brush = Brush.linearGradient(
                         colors = if (isAgentMode) {
                             listOf(
-                                Color(0xFF00F5D4).copy(alpha = 0.6f),
-                                Color(0xFF00BBF9).copy(alpha = 0.25f)
+                                AgentTeal.copy(alpha = 0.6f),
+                                AgentBlue.copy(alpha = 0.25f)
                             )
                         } else {
                             listOf(
                                 BrandAmethyst.copy(alpha = 0.6f),
-                                Color(0xFF6366F1).copy(alpha = 0.25f)
+                                IndigoAccent.copy(alpha = 0.25f)
                             )
                         }
                     ),
@@ -265,7 +281,9 @@ fun IMEScreen(
             // 1. Keyboard Switcher Icon
             IconButton(
                 onClick = onSwitchKeyboard,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier
+                    .size(44.dp)
+                    .semantics { contentDescription = "Switch keyboard" }
             ) {
                 Canvas(modifier = Modifier.size(24.dp)) {
                     val w = size.width
@@ -314,7 +332,7 @@ fun IMEScreen(
                             }
                     ) {
                         drawCircle(
-                            color = (if (isAgentMode) Color(0xFF00F5D4) else BrandAmethyst).copy(alpha = pingAlpha),
+                            color = (if (isAgentMode) AgentTeal else BrandAmethyst).copy(alpha = pingAlpha),
                             radius = size.minDimension / 2,
                             style = Stroke(width = 1.5.dp.toPx())
                         )
@@ -334,6 +352,43 @@ fun IMEScreen(
                             .size(48.dp)
                             .clip(CircleShape)
                             .background(micBgColor)
+                            .semantics(mergeDescendants = true) {
+                                role = Role.Button
+                                contentDescription = "Microphone"
+                                stateDescription = when (recordingState) {
+                                    RecordingState.RECORDING -> "Recording"
+                                    RecordingState.TRANSCRIBING -> "Transcribing"
+                                    RecordingState.ERROR -> "Error"
+                                    RecordingState.IDLE -> if (isEnabled) "Ready" else "Unavailable"
+                                }
+                                if (!isEnabled) {
+                                    disabled()
+                                } else {
+                                    onClick(
+                                        label = if (recordingState == RecordingState.RECORDING) "Stop recording" else "Start dictation"
+                                    ) {
+                                        when (currentRecordingState) {
+                                            RecordingState.RECORDING -> {
+                                                currentOnStopRecording()
+                                                true
+                                            }
+                                            RecordingState.IDLE, RecordingState.ERROR -> {
+                                                currentOnStartRecording(false)
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    }
+                                    onLongClick(label = "Start AI command mode") {
+                                        if (currentRecordingState == RecordingState.IDLE || currentRecordingState == RecordingState.ERROR) {
+                                            currentOnStartRecording(true)
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                }
+                            }
                             .pointerInput(isEnabled) {
                                 if (!isEnabled) return@pointerInput
                                 awaitPointerEventScope {
@@ -436,6 +491,14 @@ fun IMEScreen(
             Box(
                 modifier = Modifier
                     .size(44.dp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Backspace"
+                        onClick(label = "Delete") {
+                            localOnBackspace()
+                            true
+                        }
+                    }
                     .pointerInput(Unit) {
                         coroutineScope {
                             var autoRepeatJob: Job? = null

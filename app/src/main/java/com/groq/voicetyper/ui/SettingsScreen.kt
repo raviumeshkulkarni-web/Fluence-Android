@@ -2,18 +2,22 @@ package com.groq.voicetyper.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -22,10 +26,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.navigation.Screen
@@ -42,44 +45,53 @@ private fun SettingsRow(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    Row(
+    Surface(
+        color = Panel,
+        shape = FluenceShapes.Medium,
+        shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = FluenceSpacing.Base)
             .pressScale(interactionSource)
+            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(22.dp)
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(22.dp)
             )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = summary,
-                color = TextSecondary,
-                fontSize = 13.sp
+
+            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    style = FluenceTypography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                Text(
+                    text = summary,
+                    color = TextSecondary,
+                    style = FluenceTypography.bodySmall
+                )
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
             )
         }
-
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
     }
 }
 
@@ -93,35 +105,14 @@ private fun SectionDivider() {
 }
 
 @Composable
-private fun SettingsTopBar(title: String, onBack: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
+    val state = remember { MutableTransitionState(false).apply { targetState = true } }
+    AnimatedVisibility(
+        visibleState = state,
+        enter = fadeIn(tween(durationMillis = 320, delayMillis = index * 55)) +
+            slideInVertically(tween(durationMillis = 320, delayMillis = index * 55)) { it / 8 }
     ) {
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier
-                .size(44.dp)
-                .pressScale(remember { MutableInteractionSource() })
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = TextPrimary,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Text(
-            text = title,
-            color = TextPrimary,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
+        content()
     }
 }
 
@@ -183,66 +174,78 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // AI Transcription
-            SettingsRow(
-                icon = Icons.Default.Mic,
-                title = "AI Transcription",
-                summary = "$providerLabel \u00b7 ${sttModel.value}",
-                onClick = { onNavigateTo(Screen.SttConfig) }
-            )
+            EntranceRow(0) {
+                SettingsRow(
+                    icon = Icons.Default.Mic,
+                    title = "AI Transcription",
+                    summary = "$providerLabel \u00b7 ${sttModel.value}",
+                    onClick = { onNavigateTo(Screen.SttConfig) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // AI Agent Mode
-            SettingsRow(
-                icon = Icons.Default.AutoAwesome,
-                title = "AI Agent Mode",
-                summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
-                onClick = { onNavigateTo(Screen.AgentConfig) }
-            )
+            EntranceRow(1) {
+                SettingsRow(
+                    icon = Icons.Default.AutoAwesome,
+                    title = "AI Agent Mode",
+                    summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
+                    onClick = { onNavigateTo(Screen.AgentConfig) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Offline Transcription
-            SettingsRow(
-                icon = Icons.Default.PhoneAndroid,
-                title = "Offline Transcription",
-                summary = when {
-                    offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
-                    modelReady.value -> "Model installed \u00b7 Disabled"
-                    else -> "Model not installed"
-                },
-                onClick = { onNavigateTo(Screen.OfflineConfig) }
-            )
+            EntranceRow(2) {
+                SettingsRow(
+                    icon = Icons.Default.PhoneAndroid,
+                    title = "Offline Transcription",
+                    summary = when {
+                        offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
+                        modelReady.value -> "Model installed \u00b7 Disabled"
+                        else -> "Model not installed"
+                    },
+                    onClick = { onNavigateTo(Screen.OfflineConfig) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Custom Dictionary
-            SettingsRow(
-                icon = Icons.Default.Book,
-                title = "Custom Dictionary",
-                summary = if (com.groq.voicetyper.dictionary.DictionaryPreferences.isDictionaryEnabled(context)) "Active \u00b7 Manual replacements" else "Disabled",
-                onClick = { onNavigateTo(Screen.CustomDictionary) }
-            )
+            EntranceRow(3) {
+                SettingsRow(
+                    icon = Icons.Default.Book,
+                    title = "Custom Dictionary",
+                    summary = if (com.groq.voicetyper.dictionary.DictionaryPreferences.isDictionaryEnabled(context)) "Active \u00b7 Manual replacements" else "Disabled",
+                    onClick = { onNavigateTo(Screen.CustomDictionary) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Permissions & Services
-            SettingsRow(
-                icon = Icons.Default.Security,
-                title = "Permissions & Services",
-                summary = "Microphone, overlay, accessibility, battery",
-                onClick = { onNavigateTo(Screen.Permissions) }
-            )
+            EntranceRow(4) {
+                SettingsRow(
+                    icon = Icons.Default.Security,
+                    title = "Permissions & Services",
+                    summary = "Microphone, overlay, accessibility, battery",
+                    onClick = { onNavigateTo(Screen.Permissions) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // About
-            SettingsRow(
-                icon = Icons.Default.Info,
-                title = "About",
-                summary = "Version \u00b7 Licenses",
-                onClick = { onNavigateTo(Screen.About) }
-            )
+            EntranceRow(5) {
+                SettingsRow(
+                    icon = Icons.Default.Info,
+                    title = "About",
+                    summary = "Version \u00b7 Licenses",
+                    onClick = { onNavigateTo(Screen.About) }
+                )
+            }
         }
     }
 }
