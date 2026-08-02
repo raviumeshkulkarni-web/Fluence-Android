@@ -11,6 +11,9 @@ interface TranscriptionHistoryDao {
     @Query("SELECT * FROM transcription_history ORDER BY timestamp DESC")
     fun getAll(): Flow<List<TranscriptionEntry>>
 
+    @Query("SELECT * FROM transcription_history WHERE id = :id")
+    fun getById(id: Long): Flow<TranscriptionEntry?>
+
     @Query("SELECT * FROM transcription_history WHERE text LIKE '%' || :query || '%' ORDER BY timestamp DESC")
     fun search(query: String): Flow<List<TranscriptionEntry>>
 
@@ -26,8 +29,8 @@ interface TranscriptionHistoryDao {
     @Query("DELETE FROM transcription_history WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
-    @Query("DELETE FROM transcription_history WHERE timestamp < :cutoff")
-    suspend fun deleteOlderThan(cutoff: Long)
+    @Query("DELETE FROM transcription_history WHERE id NOT IN (SELECT id FROM transcription_history ORDER BY timestamp DESC LIMIT :keep)")
+    suspend fun deleteAllExceptNewest(keep: Int)
 
     @Query("SELECT COUNT(*) FROM transcription_history")
     fun getCount(): Flow<Int>

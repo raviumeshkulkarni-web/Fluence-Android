@@ -44,9 +44,8 @@ fun TranscriptionDetailSheet(
 
     LaunchedEffect(entryId) {
         withContext(Dispatchers.IO) {
-            val all = repository.getAll()
-            all.collect { entries ->
-                entry = entries.find { it.id == entryId }
+            repository.getById(entryId).collect { item ->
+                entry = item
             }
         }
     }

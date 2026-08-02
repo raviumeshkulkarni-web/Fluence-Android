@@ -1,6 +1,7 @@
 package com.groq.voicetyper.history
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 
 object HistoryRepository {
@@ -12,10 +13,17 @@ object HistoryRepository {
 
     fun getAll(): Flow<List<TranscriptionEntry>> = dao!!.getAll()
 
+    fun getById(id: Long): Flow<TranscriptionEntry?> = dao!!.getById(id)
+
     fun search(query: String): Flow<List<TranscriptionEntry>> = dao!!.search(query)
 
     suspend fun save(text: String, provider: String, model: String, language: String, durationMs: Long, isAgentMode: Boolean) {
         dao!!.insert(TranscriptionEntry(text = text, provider = provider, model = model, language = language, durationMs = durationMs, isAgentMode = isAgentMode, timestamp = System.currentTimeMillis()))
+        try {
+            cleanupToNewest(30)
+        } catch (e: Exception) {
+            Log.e("HistoryRepository", "Failed to cap history to newest entries", e)
+        }
     }
 
     suspend fun delete(entry: TranscriptionEntry) = dao!!.delete(entry)
@@ -26,8 +34,7 @@ object HistoryRepository {
         dao!!.deleteAll()
     }
 
-    suspend fun cleanupOldEntries(olderThanDays: Int = 30) {
-        val cutoff = System.currentTimeMillis() - (olderThanDays * 24L * 60 * 60 * 1000)
-        dao!!.deleteOlderThan(cutoff)
+    suspend fun cleanupToNewest(keep: Int = 30) {
+        dao!!.deleteAllExceptNewest(keep)
     }
 }
