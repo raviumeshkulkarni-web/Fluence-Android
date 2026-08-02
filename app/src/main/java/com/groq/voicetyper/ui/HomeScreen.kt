@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.automirrored.filled.ShortText
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.AccessTime
@@ -238,6 +239,7 @@ private fun groupEntries(entries: List<TranscriptionEntry>, sortOption: SortOpti
 @Composable
 fun HomeScreen(
     onNavigateToSettings: () -> Unit,
+    onOpenDetail: (Long) -> Unit = {},
     onNavigateToSttConfig: () -> Unit = {},
     onNavigateToAgentConfig: () -> Unit = {},
     onNavigateToOfflineConfig: () -> Unit = {},
@@ -464,6 +466,7 @@ fun HomeScreen(
                                 isSelected = entry.id in selectedIds,
                                 isMultiSelect = isMultiSelect,
                                 onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
+                                onOpenDetail = { onOpenDetail(entry.id) },
                                 onCopy = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
@@ -941,6 +944,7 @@ private fun TranscriptRow(
     isSelected: Boolean,
     isMultiSelect: Boolean,
     onToggleSelect: () -> Unit,
+    onOpenDetail: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -998,6 +1002,11 @@ private fun TranscriptRow(
                     Icon(Icons.Default.MoreVert, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("View", color = TextPrimary, style = FluenceTypography.bodySmall) },
+                        leadingIcon = { Icon(Icons.Default.Visibility, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
+                        onClick = { onOpenDetail(); showMenu = false }
+                    )
                     DropdownMenuItem(
                         text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodySmall) },
                         leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },

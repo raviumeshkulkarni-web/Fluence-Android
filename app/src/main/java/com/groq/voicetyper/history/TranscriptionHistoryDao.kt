@@ -11,6 +11,9 @@ interface TranscriptionHistoryDao {
     @Query("SELECT * FROM transcription_history ORDER BY timestamp DESC")
     fun getAll(): Flow<List<TranscriptionEntry>>
 
+    @Query("SELECT * FROM transcription_history WHERE id = :id")
+    fun getById(id: Long): Flow<TranscriptionEntry?>
+
     @Query("SELECT * FROM transcription_history WHERE text LIKE '%' || :query || '%' ORDER BY timestamp DESC")
     fun search(query: String): Flow<List<TranscriptionEntry>>
 
