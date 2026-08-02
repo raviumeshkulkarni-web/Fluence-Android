@@ -5,6 +5,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,7 +105,10 @@ class OfflineTranscriber(
     val engineState: StateFlow<EngineState> = _engineState.asStateFlow()
 
     private val mutex = Mutex()
+    @Volatile
     private var activeJob: Job? = null
+    @Volatile
+    private var initializeDeferred: CompletableDeferred<Unit>? = null
 
     companion object {
         private const val TAG = "OfflineTranscriber"
@@ -133,16 +137,23 @@ class OfflineTranscriber(
             }
 
             _engineState.value = EngineState.LOADING
+            val pendingInit = CompletableDeferred<Unit>()
+            initializeDeferred = pendingInit
             Log.d(TAG, "Initializing engine from dir: $modelDir")
 
             try {
                 engine.initialize(modelDir, numThreads)
                 _engineState.value = EngineState.READY
                 Log.d(TAG, "Engine initialized successfully")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Failed to initialize engine", e)
-                _engineState.value = EngineState.UNLOADED
                 throw e
+            } finally {
+                if (_engineState.value == EngineState.LOADING) {
+                    _engineState.value = EngineState.UNLOADED
+                }
+                initializeDeferred = null
+                pendingInit.complete(Unit)
             }
         }
     }
@@ -152,9 +163,12 @@ class OfflineTranscriber(
      * Returns the transcribed text with native punctuation/capitalization.
      */
     suspend fun transcribe(samples: FloatArray, sampleRate: Int = 16000): String = withContext(Dispatchers.IO) {
+        // Wait for a pending initialize() to complete so the first utterance is not dropped
+        initializeDeferred?.await()
+
         // Store current Job so release() can cancel it if necessary
         val currentJob = coroutineContext[Job]
-        
+
         mutex.withLock {
             if (_engineState.value != EngineState.READY) {
                 Log.e(TAG, "Engine not ready. Current state: ${_engineState.value}")
@@ -181,11 +195,26 @@ class OfflineTranscriber(
     /**
      * Releases all native sherpa-onnx handles and frees RAM.
      *
-     * THREAD SAFETY: Acquires Mutex, cancels any active inference Job,
-     * waits for cancellation to propagate, THEN destroys native handles.
+     * THREAD SAFETY: Cancels any active inference Job before acquiring the
+     * Mutex (inference holds the Mutex while it runs), waits for cancellation
+     * to propagate, THEN acquires the Mutex and destroys native handles.
      * This prevents JNI segmentation faults from concurrent access.
      */
     suspend fun release() = withContext(Dispatchers.IO) {
+        // Cancel active job if there's one running, before acquiring the Mutex:
+        // transcribe() holds the Mutex for the whole inference, so a job running
+        // under the lock could never be observed or cancelled from inside it.
+        val inflightJob = activeJob
+        if (inflightJob != null && inflightJob.isActive) {
+            Log.d(TAG, "Canceling active inference job before release")
+            inflightJob.cancel()
+            try {
+                inflightJob.join()
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception waiting for inference job cancellation", e)
+            }
+        }
+
         mutex.withLock {
             if (_engineState.value == EngineState.UNLOADED || _engineState.value == EngineState.RELEASING) {
                 return@withLock
@@ -195,21 +224,10 @@ class OfflineTranscriber(
             Log.d(TAG, "Releasing engine")
 
             try {
-                // Cancel active job if there's one running
-                activeJob?.let { job ->
-                    Log.d(TAG, "Canceling active inference job before release")
-                    job.cancel()
-                    try {
-                        job.join()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Exception waiting for inference job cancellation", e)
-                    }
-                }
-                
                 engine.release()
                 _engineState.value = EngineState.UNLOADED
                 Log.d(TAG, "Engine released successfully")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error releasing engine", e)
                 _engineState.value = EngineState.UNLOADED
             }

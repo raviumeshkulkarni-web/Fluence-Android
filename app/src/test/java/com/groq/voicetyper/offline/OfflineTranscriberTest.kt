@@ -49,9 +49,90 @@ class OfflineTranscriberTest {
     }
 
     @Test
+    fun testInitialize_nativeError_resetsToUnloaded() = runTest {
+        val mockEngine = mockk<RecognizerEngine>()
+        coEvery { mockEngine.initialize(any(), any()) } throws UnsatisfiedLinkError("native lib missing")
+
+        val transcriber = OfflineTranscriber(mockEngine)
+
+        try {
+            transcriber.initialize("/dummy/dir", 2)
+            fail("Expected native error to propagate")
+        } catch (e: UnsatisfiedLinkError) {
+            // expected
+        }
+
+        assertEquals(OfflineTranscriber.EngineState.UNLOADED, transcriber.engineState.value)
+        assertFalse(transcriber.isReady())
+    }
+
+    @Test
     fun testTranscribe_whenNotReady_returnsEmptyString() = runTest {
         val mockEngine = mockk<RecognizerEngine>(relaxed = true)
         val transcriber = OfflineTranscriber(mockEngine)
+
+        val result = transcriber.transcribe(floatArrayOf(0.1f))
+        assertEquals("", result)
+        coVerify(exactly = 0) { mockEngine.transcribe(any(), any()) }
+    }
+
+    @Test
+    fun testTranscribe_waitsForPendingInitialization_beforeInference() = runTest {
+        val mockEngine = mockk<RecognizerEngine>(relaxed = true)
+        val initStarted = CompletableDeferred<Unit>()
+        val allowInitToFinish = CompletableDeferred<Unit>()
+        coEvery { mockEngine.initialize(any(), any()) } coAnswers {
+            initStarted.complete(Unit)
+            allowInitToFinish.await()
+        }
+        coEvery { mockEngine.transcribe(any(), any()) } returns "first utterance"
+
+        val transcriber = OfflineTranscriber(mockEngine)
+
+        val initJob = launch(Dispatchers.Default) {
+            transcriber.initialize("/dummy/dir", 2)
+        }
+        initStarted.await()
+
+        // Transcribe is invoked while initialize is still in flight: it must
+        // wait for initialization instead of returning "" immediately.
+        val transcribeDeferred = async(Dispatchers.Default) {
+            transcriber.transcribe(floatArrayOf(0.1f))
+        }
+        allowInitToFinish.complete(Unit)
+
+        initJob.join()
+        val result = transcribeDeferred.await()
+
+        assertEquals("first utterance", result)
+        coVerify(exactly = 1) { mockEngine.transcribe(any(), any()) }
+    }
+
+    @Test
+    fun testTranscribe_afterFailedInitialization_returnsEmpty() = runTest {
+        val mockEngine = mockk<RecognizerEngine>()
+        coEvery { mockEngine.initialize(any(), any()) } throws IOException("Init failed")
+
+        val transcriber = OfflineTranscriber(mockEngine)
+
+        try {
+            transcriber.initialize("/dummy/dir")
+        } catch (e: Exception) {
+            // expected
+        }
+
+        val result = transcriber.transcribe(floatArrayOf(0.1f))
+        assertEquals("", result)
+        coVerify(exactly = 0) { mockEngine.transcribe(any(), any()) }
+    }
+
+    @Test
+    fun testTranscribe_afterRelease_returnsEmpty() = runTest {
+        val mockEngine = mockk<RecognizerEngine>(relaxed = true)
+        val transcriber = OfflineTranscriber(mockEngine)
+
+        transcriber.initialize("/dummy/dir")
+        transcriber.release()
 
         val result = transcriber.transcribe(floatArrayOf(0.1f))
         assertEquals("", result)

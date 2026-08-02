@@ -6,6 +6,7 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,8 +98,26 @@ class OfflineTranscriptionPipeline(
      */
     suspend fun initialize(modelDir: String) = withContext(Dispatchers.IO) {
         cancelIdleRelease()
+        verifyModelIntegrity()
         transcriber.initialize(modelDir)
         scheduleIdleRelease()
+    }
+
+    /**
+     * Verifies the downloaded model files against their SHA-256 checksums before the
+     * native engine is loaded, so corrupt-but-large files never reach the JNI layer.
+     * Must be called from Dispatchers.IO.
+     */
+    private suspend fun verifyModelIntegrity() {
+        val verified = when (engineType) {
+            OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReady(context)
+            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.isModelReady(context)
+        }
+        if (!verified) {
+            throw IllegalStateException(
+                "Offline ${engineType.displayName} model files are missing or corrupted. Re-download the model."
+            )
+        }
     }
 
     /**
@@ -116,18 +135,20 @@ class OfflineTranscriptionPipeline(
 
         _isRunning.value = true
 
-        // Create a new FIFO queue channel for sequential processing
-        val channel = Channel<FloatArray>(Channel.UNLIMITED)
+        // Create a bounded FIFO queue; if transcription falls behind, drop the
+        // oldest queued segment instead of letting the queue grow without bound
+        val channel = Channel<FloatArray>(16, BufferOverflow.DROP_OLDEST)
         segmentChannel = channel
 
         // 2. Launch model initialization concurrently in the background if not ready.
-        // Sherpa's internal Mutex ensures transcriber.transcribe() blocks until initialize() finishes.
+        // transcriber.transcribe() awaits the pending initialization before running inference.
         pipelineScope.launch(Dispatchers.IO) {
             try {
                 if (!transcriber.isReady()) {
+                    verifyModelIntegrity()
                     transcriber.initialize(modelDir)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Background transcription engine initialization failed", e)
             }
         }

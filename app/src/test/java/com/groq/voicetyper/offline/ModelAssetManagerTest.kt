@@ -65,6 +65,26 @@ class ModelAssetManagerTest {
     }
 
     @Test
+    fun testIsModelReady_corruptButLargeFiles_syncTrueButAsyncFalse() = runBlocking {
+        val modelDir = File(testFilesDir, ModelAssetManager.MODEL_DIR_NAME)
+        modelDir.mkdirs()
+
+        val modelFile = File(modelDir, ModelAssetManager.MODEL_FILENAME)
+        val tokensFile = File(modelDir, ModelAssetManager.TOKENS_FILENAME)
+        modelFile.writeBytes(ByteArray(10_000_005) { 'x'.code.toByte() })
+        tokensFile.writeText("a".repeat(1500))
+
+        // Expected checksums correspond to different content, so hash verification fails
+        ModelAssetManager.fileChecksums = mapOf(
+            ModelAssetManager.TOKENS_FILENAME to calculateSHA256("zzz".toByteArray()),
+            ModelAssetManager.MODEL_FILENAME to calculateSHA256("yyy".toByteArray())
+        )
+
+        assertTrue(ModelAssetManager.isModelReadySync(mockContext))
+        assertFalse(ModelAssetManager.isModelReady(mockContext))
+    }
+
+    @Test
     fun testDeleteModel_cleansUpCorrectly() = runBlocking {
         val modelDir = File(testFilesDir, ModelAssetManager.MODEL_DIR_NAME)
         modelDir.mkdirs()
