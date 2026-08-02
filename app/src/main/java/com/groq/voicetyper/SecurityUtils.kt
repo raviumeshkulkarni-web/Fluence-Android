@@ -44,7 +44,7 @@ object SecurityUtils {
     }
 
     fun getSttLanguage(context: Context): String {
-        return getSharedPrefs(context).getString("stt_language", "en-US") ?: "en-US"
+        return getSharedPrefs(context).getString("stt_language", "") ?: ""
     }
 
     fun saveSttLanguage(context: Context, code: String) {
