@@ -43,14 +43,14 @@ class TranscriptionSessionManagerOwnerTest {
         every { ModelAssetManager.getModelDir(any()) } returns File(System.getProperty("java.io.tmpdir"))
 
         mockkObject(OfflinePipelineProvider)
-        coEvery { OfflinePipelineProvider.releaseInstance() } just Runs
+        coEvery { OfflinePipelineProvider.releaseInstance() } returns Unit
 
         val pipeline = mockk<OfflineTranscriptionPipeline>(relaxed = true)
         every { pipeline.amplitude } returns MutableStateFlow(0f)
         every { pipeline.engineState } returns MutableStateFlow(OfflineTranscriber.EngineState.READY)
         every { pipeline.onTextTranscribed = any() } just Runs
         every { pipeline.start(any()) } just Runs
-        coEvery { pipeline.forceRelease() } just Runs
+        coEvery { pipeline.forceRelease() } returns Unit
         coEvery { OfflinePipelineProvider.getInstance(any(), any()) } returns pipeline
 
         context = mockk(relaxed = true)
