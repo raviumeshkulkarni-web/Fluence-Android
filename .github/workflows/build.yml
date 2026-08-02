@@ -27,6 +27,16 @@ jobs:
     - name: Build Debug APK
       run: ./gradlew assembleDebug
 
+    - name: Run Unit Tests and Lint
+      run: ./gradlew testDebugUnitTest lintDebug
+
+    - name: Upload Lint Report
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lint-report
+        path: app/build/reports/lint-results-debug.html
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:

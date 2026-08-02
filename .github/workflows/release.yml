@@ -42,6 +42,9 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
 
+    - name: Run Unit Tests
+      run: ./gradlew testDebugUnitTest
+
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
@@ -92,6 +95,33 @@ jobs:
         echo "Found unsigned APK at: $UNSIGNED_APK"
         "$APKSIGNER" sign --ks release.keystore --ks-key-alias "$KS_ALIAS" --ks-pass "pass:$KS_PASS" --key-pass "pass:$KEY_PASS" --out app-release.apk "$UNSIGNED_APK"
         echo "Successfully signed APK as app-release.apk"
+
+    - name: Verify Release APK Certificate
+      run: |
+        EXPECTED_SHA256="8955bb6e81047ef452ac68763c47d16916b150a90a743a51ee92ea36b383ca3e"
+        if [ ! -f app-release.apk ]; then
+          echo "ERROR: app-release.apk not found!"
+          exit 1
+        fi
+        APKSIGNER=$(find ${ANDROID_HOME:-/usr/local/lib/android/sdk} -name "apksigner" -type f | grep -v "\.jar" | head -n 1)
+        if [ -z "$APKSIGNER" ]; then
+          echo "ERROR: apksigner not found!"
+          exit 1
+        fi
+        CERTS=$("$APKSIGNER" verify --print-certs app-release.apk)
+        echo "$CERTS"
+        SIGNER_SHA256=$(echo "$CERTS" | sed -n 's/.*certificate SHA-256 digest: \([0-9a-f]\{64\}\).*/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')
+        if [ -z "$SIGNER_SHA256" ]; then
+          echo "ERROR: Could not extract the signing certificate SHA-256 digest from apksigner output."
+          exit 1
+        fi
+        if [ "$SIGNER_SHA256" != "$EXPECTED_SHA256" ]; then
+          echo "ERROR: APK signing certificate does not match the documented production certificate."
+          echo "Expected SHA-256 fingerprint: $EXPECTED_SHA256"
+          echo "Actual SHA-256 fingerprint:   $SIGNER_SHA256"
+          exit 1
+        fi
+        echo "Successfully verified APK signing certificate fingerprint matches the production certificate."
 
     - name: Extract tag annotation
       id: tag_body
