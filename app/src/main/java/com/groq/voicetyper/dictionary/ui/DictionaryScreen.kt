@@ -262,15 +262,25 @@ fun DictionaryScreen(
             },
             onSave = { spoken, replacement ->
                 scope.launch {
-                    DictionaryRepository.saveEntry(
+                    val result = DictionaryRepository.saveEntry(
                         context = context,
                         spokenText = spoken,
                         replacementText = replacement,
                         isEnabled = entryToEdit?.isEnabled ?: true,
                         id = entryToEdit?.id ?: 0L
                     )
-                    showDialog = false
-                    entryToEdit = null
+                    if (result == DictionaryRepository.SaveResult.PRESERVED) {
+                        // Phrase already exists under another entry: keep the dialog
+                        // open so the user's edit is not silently lost.
+                        Toast.makeText(
+                            context,
+                            "An entry with this phrase already exists",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        showDialog = false
+                        entryToEdit = null
+                    }
                 }
             }
         )

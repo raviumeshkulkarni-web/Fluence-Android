@@ -21,7 +21,10 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE spokenText = :spokenText LIMIT 1")
     suspend fun getBySpokenText(spokenText: String): CustomDictionaryEntry?
 
-    @Insert
+    // IGNORE (not the default ABORT): a concurrent save of the same spokenText
+    // (e.g. double-tap Add/Save) no longer throws SQLiteConstraintException;
+    // the loser's insert is ignored and saveEntry re-queries the winning row.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entry: CustomDictionaryEntry): Long
 
     @Update

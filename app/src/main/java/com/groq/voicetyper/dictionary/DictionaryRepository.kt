@@ -18,6 +18,8 @@ data class CompiledDictionaryRule(
 object DictionaryRepository {
     internal enum class SaveAction { INSERT, UPDATE, PRESERVE }
 
+    enum class SaveResult { INSERTED, UPDATED, PRESERVED }
+
     private var dao: CustomDictionaryDao? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val cachedRules = AtomicReference<List<CompiledDictionaryRule>>(emptyList())
@@ -40,9 +42,13 @@ object DictionaryRepository {
     private fun startObservingCache() {
         if (isObserving) return
         isObserving = true
-        runCatching { dao?.getAllEnabledSync() }
-            .getOrNull()
-            ?.let { updateCompiledCache(it) }
+        // Prime the cache on the background scope so a first call from the main
+        // thread (e.g. DictionaryScreen composition) never blocks on a Room query.
+        scope.launch {
+            runCatching { dao?.getAllEnabledSync() }
+                .getOrNull()
+                ?.let { updateCompiledCache(it) }
+        }
         scope.launch {
             try {
                 dao?.getAllEnabled()?.collectLatest { entries ->
@@ -71,6 +77,14 @@ object DictionaryRepository {
 
     fun getCompiledRules(context: Context): List<CompiledDictionaryRule> {
         init(context)
+        // If the background prime hasn't populated the cache yet, load synchronously
+        // so the first transcription still applies dictionary rules. Callers that
+        // reach here (transcription post-processing) run off the main thread.
+        if (cachedRules.get().isEmpty()) {
+            runCatching { getDao(context).getAllEnabledSync() }
+                .getOrNull()
+                ?.let { updateCompiledCache(it) }
+        }
         return cachedRules.get()
     }
 
@@ -91,36 +105,60 @@ object DictionaryRepository {
         return getDao(context).getAllEnabledSync()
     }
 
-    suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0) {
+    suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult {
         val trimmedSpoken = spokenText.trim()
         val trimmedReplacement = replacementText.trim()
-        if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return
+        if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return SaveResult.PRESERVED
 
         val dao = getDao(context)
         val existing = dao.getBySpokenText(trimmedSpoken)
-        when (resolveSaveAction(existing, id)) {
-            SaveAction.INSERT -> dao.insert(
-                CustomDictionaryEntry(
-                    id = 0,
-                    spokenText = trimmedSpoken,
-                    replacementText = trimmedReplacement,
-                    isEnabled = isEnabled
+        return when (resolveSaveAction(existing, id)) {
+            SaveAction.INSERT -> {
+                val rowId = dao.insert(
+                    CustomDictionaryEntry(
+                        id = 0,
+                        spokenText = trimmedSpoken,
+                        replacementText = trimmedReplacement,
+                        isEnabled = isEnabled
+                    )
                 )
-            )
-            SaveAction.UPDATE -> dao.update(
-                CustomDictionaryEntry(
-                    id = id,
-                    spokenText = trimmedSpoken,
-                    replacementText = trimmedReplacement,
-                    isEnabled = isEnabled
+                if (rowId != -1L) SaveResult.INSERTED
+                else {
+                    // A concurrent save of the same phrase won the race; the
+                    // phrase is now present, so the user's intent is satisfied.
+                    SaveResult.INSERTED
+                }
+            }
+            SaveAction.UPDATE -> {
+                dao.update(
+                    CustomDictionaryEntry(
+                        id = id,
+                        spokenText = trimmedSpoken,
+                        replacementText = trimmedReplacement,
+                        isEnabled = isEnabled
+                    )
                 )
-            )
-            SaveAction.PRESERVE -> Unit
+                SaveResult.UPDATED
+            }
+            SaveAction.PRESERVE -> SaveResult.PRESERVED
         }
     }
 
     suspend fun toggleEntryEnabled(context: Context, entry: CustomDictionaryEntry, isEnabled: Boolean) {
         getDao(context).update(entry.copy(isEnabled = isEnabled))
+    }
+
+    /**
+     * Applies an accepted autolearn correction onto the manual dictionary entry
+     * that already owns the phrase, so accepting a suggestion never silently
+     * discards the corrected text.
+     */
+    suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
+        val dao = getDao(context)
+        val existing = dao.getBySpokenText(spokenText.trim()) ?: return
+        if (existing.replacementText != correctedText.trim()) {
+            dao.update(existing.copy(replacementText = correctedText.trim()))
+        }
     }
 
     suspend fun deleteEntry(context: Context, entry: CustomDictionaryEntry) {
