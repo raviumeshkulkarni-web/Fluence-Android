@@ -505,6 +505,7 @@ fun IMEScreen(
                             var startX = 0f
                             var isDragging = false
                             var currentWordsSelected = 0
+                            var autoRepeatFired = false
 
                             awaitPointerEventScope {
                                 while (true) {
@@ -512,11 +513,13 @@ fun IMEScreen(
                                     startX = downEvent.position.x
                                     isDragging = false
                                     currentWordsSelected = 0
+                                    autoRepeatFired = false
 
                                     // Start auto-repeat timer for holding (400ms delay, then deletes every 60ms)
                                     autoRepeatJob = launch {
                                         delay(400)
                                         while (isActive) {
+                                            autoRepeatFired = true
                                             localOnBackspace()
                                             delay(60)
                                         }
@@ -555,7 +558,7 @@ fun IMEScreen(
                                         } else {
                                             localOnBackspaceCancelSelect()
                                         }
-                                    } else {
+                                    } else if (!autoRepeatFired) {
                                         localOnBackspace()
                                     }
                                 }

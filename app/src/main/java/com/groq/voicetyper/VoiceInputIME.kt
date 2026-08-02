@@ -204,11 +204,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 isAgentMode = isAgentMode,
                 errorMessage = errorMessage,
                 onCancelRecording = {
-                    TranscriptionSessionManager.cancelRecording(this@VoiceInputIME)
+                    TranscriptionSessionManager.cancelImeRecording(this@VoiceInputIME)
                 },
                 onStartRecording = { agentMode ->
                     val isOffline = OfflinePreferences.isOfflineModeEnabled(this@VoiceInputIME)
-                    TranscriptionSessionManager.startRecording(
+                    TranscriptionSessionManager.startImeRecording(
                         context = this@VoiceInputIME,
                         isOffline = isOffline,
                         agentMode = agentMode,
@@ -325,8 +325,8 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         AutoLearnSessionManager.endSession()
         TranscriptionSessionManager.cancelPreWarm()
         
-        if (recordingState == RecordingState.RECORDING) {
-            TranscriptionSessionManager.cancelRecording(this)
+        if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
+            TranscriptionSessionManager.cancelImeRecording(this)
         }
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
@@ -342,7 +342,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // Cancel any active recording FIRST, before we destroy anything.
         // This ensures the SessionManager's state is clean before we reset it.
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
-            TranscriptionSessionManager.cancelRecording(this)
+            TranscriptionSessionManager.cancelImeRecording(this)
         }
 
         // Destroy the session manager state (resets all StateFlows, releases pipeline).
