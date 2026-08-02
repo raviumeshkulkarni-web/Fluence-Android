@@ -35,26 +35,39 @@ fun OfflineConfigScreen(
 
     var offlineEnabled by remember { mutableStateOf(false) }
     var modelReady by remember { mutableStateOf(false) }
+    var modelCorrupt by remember { mutableStateOf(false) }
+    var modelVerifying by remember { mutableStateOf(true) }
     var modelSize by remember { mutableStateOf(0L) }
     val downloadProgress by ModelAssetManager.progress.collectAsState()
 
     var selectedEngineType by remember { mutableStateOf(OfflineEngineType.SENSEVOICE) }
     var moonshineReady by remember { mutableStateOf(false) }
+    var moonshineCorrupt by remember { mutableStateOf(false) }
+    var moonshineVerifying by remember { mutableStateOf(true) }
     var moonshineSize by remember { mutableStateOf(0L) }
     val moonshineDownloadProgress by MoonshineModelManager.progress.collectAsState()
 
     LaunchedEffect(Unit) {
         offlineEnabled = OfflinePreferences.isOfflineModeEnabled(context)
-        modelReady = ModelAssetManager.isModelReadySync(context)
         modelSize = ModelAssetManager.getModelSizeOnDisk(context)
         selectedEngineType = OfflinePreferences.getEngineType(context)
-        moonshineReady = MoonshineModelManager.isModelReadySync(context)
         moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
+
+        modelVerifying = true
+        modelReady = ModelAssetManager.isModelReady(context)
+        modelCorrupt = !modelReady && ModelAssetManager.isModelReadySync(context)
+        modelVerifying = false
+
+        moonshineVerifying = true
+        moonshineReady = MoonshineModelManager.isModelReady(context)
+        moonshineCorrupt = !moonshineReady && MoonshineModelManager.isModelReadySync(context)
+        moonshineVerifying = false
     }
 
     LaunchedEffect(downloadProgress.state) {
         if (downloadProgress.state == ModelAssetManager.DownloadState.COMPLETED) {
             modelReady = true
+            modelCorrupt = false
             modelSize = ModelAssetManager.getModelSizeOnDisk(context)
         } else if (downloadProgress.state == ModelAssetManager.DownloadState.IDLE) {
             modelReady = ModelAssetManager.isModelReadySync(context)
@@ -65,6 +78,7 @@ fun OfflineConfigScreen(
     LaunchedEffect(moonshineDownloadProgress.state) {
         if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.COMPLETED) {
             moonshineReady = true
+            moonshineCorrupt = false
             moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
         } else if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.IDLE) {
             moonshineReady = MoonshineModelManager.isModelReadySync(context)
@@ -249,6 +263,7 @@ fun OfflineConfigScreen(
                             coroutineScope.launch {
                                 ModelAssetManager.deleteModel(context)
                                 modelReady = false
+                                modelCorrupt = false
                                 modelSize = 0
                                 offlineEnabled = false
                                 OfflinePreferences.setOfflineModeEnabled(context, false)
@@ -268,6 +283,33 @@ fun OfflineConfigScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Delete", color = Error, fontSize = 13.sp)
                     }
+                }
+            } else if (modelVerifying) {
+                Text(
+                    text = "Verifying model integrity...",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            } else if (modelCorrupt) {
+                Text(
+                    text = "SenseVoice model is corrupted. Re-download required.",
+                    color = Error,
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            ModelAssetManager.downloadModel(context)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    shape = FluenceShapes.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Re-download Model (~239 MB)", color = TextPrimary, fontWeight = FontWeight.Bold)
                 }
             } else {
                 when (downloadProgress.state) {
@@ -397,6 +439,7 @@ fun OfflineConfigScreen(
                             coroutineScope.launch {
                                 MoonshineModelManager.deleteModel(context)
                                 moonshineReady = false
+                                moonshineCorrupt = false
                                 moonshineSize = 0
                                 if (selectedEngineType == OfflineEngineType.MOONSHINE_BASE) {
                                     offlineEnabled = false
@@ -418,6 +461,33 @@ fun OfflineConfigScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Delete", color = Error, fontSize = 13.sp)
                     }
+                }
+            } else if (moonshineVerifying) {
+                Text(
+                    text = "Verifying model integrity...",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            } else if (moonshineCorrupt) {
+                Text(
+                    text = "Moonshine model is corrupted. Re-download required.",
+                    color = Error,
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            MoonshineModelManager.downloadModel(context)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    shape = FluenceShapes.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Re-download Model (~287 MB)", color = TextPrimary, fontWeight = FontWeight.Bold)
                 }
             } else {
                 when (moonshineDownloadProgress.state) {

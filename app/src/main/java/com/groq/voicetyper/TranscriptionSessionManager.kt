@@ -88,6 +88,7 @@ object TranscriptionSessionManager {
 
     private var amplitudeCollectJob: Job? = null
     private var engineStateCollectJob: Job? = null
+    private var modelErrorCollectJob: Job? = null
     private var preWarmJob: Job? = null
     private var activeOffline = false
     private var activeEngineType: OfflineEngineType? = null
@@ -219,6 +220,17 @@ object TranscriptionSessionManager {
                         }
                     }
 
+                    // Surface model-level corruption/init failures to IME/bubble UX
+                    // instead of silently dropping all offline transcription.
+                    modelErrorCollectJob?.cancel()
+                    modelErrorCollectJob = scope.launch {
+                        pipeline.modelError.collect { error ->
+                            if (!error.isNullOrBlank()) {
+                                showError("Offline transcription unavailable: $error")
+                            }
+                        }
+                    }
+
                     pipeline.start(modelDir)
                 } catch (e: Exception) {
                     showError("Offline recording start failed: ${e.localizedMessage}")
@@ -266,6 +278,8 @@ object TranscriptionSessionManager {
         if (activeOffline) {
             engineStateCollectJob?.cancel()
             engineStateCollectJob = null
+            modelErrorCollectJob?.cancel()
+            modelErrorCollectJob = null
             _offlineEngineState.value = OfflineEngineState.UNLOADED
 
             scope.launch {
@@ -331,6 +345,8 @@ object TranscriptionSessionManager {
         if (activeOffline) {
             engineStateCollectJob?.cancel()
             engineStateCollectJob = null
+            modelErrorCollectJob?.cancel()
+            modelErrorCollectJob = null
             _offlineEngineState.value = OfflineEngineState.UNLOADED
 
             scope.launch {
@@ -481,6 +497,8 @@ object TranscriptionSessionManager {
         amplitudeCollectJob = null
         engineStateCollectJob?.cancel()
         engineStateCollectJob = null
+        modelErrorCollectJob?.cancel()
+        modelErrorCollectJob = null
         currentListener = null
 
         audioRecorder?.cancelRecording()

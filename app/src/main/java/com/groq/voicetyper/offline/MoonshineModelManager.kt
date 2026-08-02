@@ -36,6 +36,11 @@ object MoonshineModelManager {
     const val CACHED_DECODER_FILENAME = "cached_decode.int8.onnx"
     const val TOKENS_FILENAME = "tokens.txt"
 
+    // Marker file recording the verified file sizes. Its presence means the files
+    // were previously fully SHA-256 verified and have not changed since, so a full
+    // re-hash (expensive: ~287 MB) can be skipped on subsequent readiness checks.
+    internal const val VERIFIED_MARKER = ".verified"
+
     // Minimum file sizes for fast sync check (no hashing)
     private const val MIN_PREPROCESSOR_SIZE = 10_000_000L   // 10 MB
     private const val MIN_ENCODER_SIZE = 40_000_000L        // 40 MB
@@ -102,6 +107,9 @@ object MoonshineModelManager {
 
     /**
      * Comprehensive asynchronous check including SHA256 validation.
+     *
+     * Full hashing (~287 MB) is only performed when the cached verified marker is
+     * missing or the file sizes changed since the last successful verification.
      */
     suspend fun isModelReady(context: Context): Boolean = withContext(Dispatchers.IO) {
         val currentState = _progress.value.state
@@ -122,6 +130,13 @@ object MoonshineModelManager {
         for (fileName in filesToCheck) {
             val file = File(dir, fileName)
             if (!file.exists()) return@withContext false
+        }
+
+        // Fast path: marker present and sizes unchanged -> previously verified.
+        if (isVerifiedByMarker(dir)) return@withContext true
+
+        for (fileName in filesToCheck) {
+            val file = File(dir, fileName)
 
             val expectedHash = fileChecksums[fileName]
             if (expectedHash.isNullOrEmpty()) continue // Skip verification if no hash available
@@ -130,7 +145,37 @@ object MoonshineModelManager {
             if (actualHash != expectedHash) return@withContext false
         }
 
+        writeVerifiedMarker(dir)
         return@withContext true
+    }
+
+    private fun writeVerifiedMarker(dir: File) {
+        try {
+            val marker = File(dir, VERIFIED_MARKER)
+            marker.writeText(markerContent(dir))
+        } catch (e: Exception) {
+            // Marker write failure is non-fatal: worst case we re-hash next time.
+        }
+    }
+
+    private fun isVerifiedByMarker(dir: File): Boolean {
+        return try {
+            val marker = File(dir, VERIFIED_MARKER)
+            if (!marker.exists()) return false
+            marker.readText() == markerContent(dir)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun markerContent(dir: File): String {
+        return buildString {
+            append("$PREPROCESSOR_FILENAME=${File(dir, PREPROCESSOR_FILENAME).length()}\n")
+            append("$ENCODER_FILENAME=${File(dir, ENCODER_FILENAME).length()}\n")
+            append("$UNCACHED_DECODER_FILENAME=${File(dir, UNCACHED_DECODER_FILENAME).length()}\n")
+            append("$CACHED_DECODER_FILENAME=${File(dir, CACHED_DECODER_FILENAME).length()}\n")
+            append("$TOKENS_FILENAME=${File(dir, TOKENS_FILENAME).length()}\n")
+        }
     }
 
     fun getModelDir(context: Context): File {
@@ -263,6 +308,7 @@ object MoonshineModelManager {
         }
 
         _progress.value = DownloadProgress(DownloadState.COMPLETED, totalDownloadSize, totalDownloadSize)
+        writeVerifiedMarker(dir)
         return@withContext Result.success(Unit)
     }
 

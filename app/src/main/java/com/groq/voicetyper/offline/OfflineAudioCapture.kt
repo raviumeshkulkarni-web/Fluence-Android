@@ -33,6 +33,7 @@ class OfflineAudioCapture {
     private val _isCapturing = MutableStateFlow(false)
     val isCapturing: StateFlow<Boolean> = _isCapturing.asStateFlow()
 
+    @Volatile
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     @Volatile
@@ -99,6 +100,7 @@ class OfflineAudioCapture {
             Log.e(TAG, "Failed to start recording state", e)
             isRunning = false
             _isCapturing.value = false
+            releaseRecord(record)
             return
         }
 
@@ -147,8 +149,22 @@ class OfflineAudioCapture {
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping AudioRecord", e)
         }
+        releaseRecord(record)
         _isCapturing.value = false
         Log.d(TAG, "Audio capture thread finished")
+    }
+
+    private fun releaseRecord(record: AudioRecord) {
+        // Only release the recorder we still own. If stopCapture() already took
+        // ownership (audioRecord === null) or a newer capture replaced it, this
+        // late-path must not release again.
+        if (audioRecord !== record) return
+        audioRecord = null
+        try {
+            record.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error releasing AudioRecord", e)
+        }
     }
 
     /**
@@ -159,6 +175,15 @@ class OfflineAudioCapture {
         if (!isRunning) return
         isRunning = false
 
+        // Wake the read thread out of a potentially blocked read() call so the
+        // loop exits and releases the recorder itself instead of racing release()
+        // against a still-running read.
+        try {
+            audioRecord?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioRecord not recording; nothing to stop", e)
+        }
+
         captureThread?.interrupt()
         try {
             captureThread?.join(1000)
@@ -167,8 +192,15 @@ class OfflineAudioCapture {
         }
         captureThread = null
 
-        audioRecord?.release()
+        val record = audioRecord
         audioRecord = null
+        if (record != null) {
+            try {
+                record.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error releasing AudioRecord", e)
+            }
+        }
         _amplitude.value = 0f
         _isCapturing.value = false
         Log.d(TAG, "Audio capture stopped")
