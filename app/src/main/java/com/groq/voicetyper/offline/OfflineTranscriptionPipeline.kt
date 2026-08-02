@@ -178,6 +178,9 @@ class OfflineTranscriptionPipeline(
                     verifyModelIntegrity()
                     transcriber.initialize(modelDir)
                 }
+            } catch (e: CancellationException) {
+                transcriber.failPendingInitialization(e)
+                throw e
             } catch (e: Throwable) {
                 Log.e(TAG, "Background transcription engine initialization failed", e)
                 transcriber.failPendingInitialization(e)
@@ -249,6 +252,8 @@ class OfflineTranscriptionPipeline(
         segmentChannel?.close()
         try {
             workerJob?.join()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error waiting for sequential worker completion", e)
         }
@@ -281,6 +286,8 @@ class OfflineTranscriptionPipeline(
         segmentChannel?.close()
         try {
             workerJob?.join()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Ignore
         }
@@ -289,12 +296,16 @@ class OfflineTranscriptionPipeline(
 
         try {
             audioCapture.stopCapture()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping audio capture during release", e)
         }
 
         try {
             vad?.release()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error releasing Vad JNI resources", e)
         } finally {
@@ -303,6 +314,8 @@ class OfflineTranscriptionPipeline(
 
         try {
             transcriber.release()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error releasing transcriber engine", e)
         }
@@ -313,6 +326,7 @@ class OfflineTranscriptionPipeline(
         idleReleaseJob = pipelineScope.launch {
             delay(IDLE_RELEASE_DELAY_MS)
             Log.d(TAG, "Pipeline idle for ${IDLE_RELEASE_DELAY_MS / 1000}s. Releasing resources to reclaim memory.")
+            idleReleaseJob = null
             forceRelease()
         }
     }

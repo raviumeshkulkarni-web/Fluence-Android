@@ -5,6 +5,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineSenseVoiceModelConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -248,6 +249,8 @@ class OfflineTranscriber(
             inflightJob.cancel()
             try {
                 inflightJob.join()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Exception waiting for inference job cancellation", e)
             }
@@ -265,6 +268,9 @@ class OfflineTranscriber(
                 engine.release()
                 _engineState.value = EngineState.UNLOADED
                 Log.d(TAG, "Engine released successfully")
+            } catch (e: CancellationException) {
+                _engineState.value = EngineState.UNLOADED
+                throw e
             } catch (e: Throwable) {
                 Log.e(TAG, "Error releasing engine", e)
                 _engineState.value = EngineState.UNLOADED
