@@ -9,6 +9,8 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
+import android.util.Log
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.view.Gravity
@@ -114,15 +116,27 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             .setOngoing(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground service", e)
+            BubbleController.hideBubble()
+            stopSelf()
         }
     }
 
     private fun addOverlayView() {
         if (isViewAdded) return
+
+        if (!Settings.canDrawOverlays(this)) {
+            Log.w(TAG, "Overlay permission missing — cannot show bubble")
+            BubbleController.hideBubble()
+            return
+        }
 
         val density = resources.displayMetrics.density
         val padding = (16 * density).toInt()
@@ -206,8 +220,14 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         }
 
         composeView = view
-        windowManager.addView(view, layoutParams)
-        isViewAdded = true
+        try {
+            windowManager.addView(view, layoutParams)
+            isViewAdded = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add overlay view", e)
+            composeView = null
+            BubbleController.hideBubble()
+        }
     }
 
     private fun removeOverlayView() {
@@ -331,6 +351,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     }
 
     companion object {
+        private const val TAG = "FloatingBubbleService"
         private const val NOTIFICATION_ID = 2026
         
         // Static variables to persist the bubble's coordinates and side anchoring across show/hide events

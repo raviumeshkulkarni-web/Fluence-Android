@@ -1,14 +1,17 @@
 package com.groq.voicetyper
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -66,6 +69,12 @@ object BubbleController {
         // Only start the foreground service if bubble wasn't already visible.
         // Avoids redundant startForegroundService calls which can crash on some OEMs.
         val wasVisible = _isBubbleVisible.value
+
+        if (!wasVisible && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "RECORD_AUDIO not granted — cannot start bubble foreground service")
+            return
+        }
+
         _isBubbleVisible.value = true
 
         if (!wasVisible) {
@@ -98,6 +107,16 @@ object BubbleController {
         synchronized(nodeLock) {
             activeNode?.recycle()
             activeNode = null
+        }
+        stopFloatingBubbleService()
+    }
+
+    private fun stopFloatingBubbleService() {
+        val ctx = applicationContext ?: return
+        try {
+            ctx.stopService(Intent(ctx, FloatingBubbleService::class.java))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop FloatingBubbleService", e)
         }
     }
 

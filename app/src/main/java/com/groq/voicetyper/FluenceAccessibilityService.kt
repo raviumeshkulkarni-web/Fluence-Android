@@ -17,6 +17,9 @@ class FluenceAccessibilityService : AccessibilityService() {
         /** Max recursion depth when walking the accessibility tree. */
         private const val MAX_TREE_DEPTH = 25
 
+        /** Max nodes examined by the recursive tree walk per evaluation pass. */
+        private const val MAX_TRAVERSAL_NODES = 150
+
         /**
          * Debounce interval (ms). Rapid-fire accessibility events (especially
          * TYPE_WINDOW_CONTENT_CHANGED) can flood the handler — we collapse them
@@ -155,23 +158,33 @@ class FluenceAccessibilityService : AccessibilityService() {
                     } else {
                         BubbleController.showBubble(this, focused)
                     }
+                    focused.recycle()
+                    root.recycle()
                     return
                 }
+                focused?.recycle()
+                root.recycle()
             }
 
             // Attempt 2: Recursive tree walk. Some WebView implementations
             // don't set FOCUS_INPUT but still report `isFocused()` on the node.
+            val budget = intArrayOf(MAX_TRAVERSAL_NODES)
             for (window in appWindows) {
                 val root = window.root ?: continue
-                val found = findFocusedEditableNode(root, 0)
+                val found = findFocusedEditableNode(root, 0, budget)
                 if (found != null) {
+                    if (found !== root) {
+                        root.recycle()
+                    }
                     if (isSecureField(found)) {
                         BubbleController.hideBubble()
                     } else {
                         BubbleController.showBubble(this, found)
                     }
+                    found.recycle()
                     return
                 }
+                root.recycle()
             }
 
             // Attempt 3: Legacy fallback with rootInActiveWindow.
@@ -184,8 +197,12 @@ class FluenceAccessibilityService : AccessibilityService() {
                     } else {
                         BubbleController.showBubble(this, focused)
                     }
+                    focused.recycle()
+                    legacyRoot.recycle()
                     return
                 }
+                focused?.recycle()
+                legacyRoot.recycle()
             }
 
             // No focused editable field found anywhere — hide the bubble.
@@ -208,18 +225,27 @@ class FluenceAccessibilityService : AccessibilityService() {
      */
     private fun findFocusedEditableNode(
         node: AccessibilityNodeInfo,
-        depth: Int
+        depth: Int,
+        budget: IntArray
     ): AccessibilityNodeInfo? {
-        if (depth > MAX_TREE_DEPTH) return null
+        if (depth > MAX_TREE_DEPTH || budget[0] <= 0) return null
+        budget[0]--
 
         if (node.isFocused && isEditableTextField(node)) {
             return node
         }
 
         for (i in 0 until node.childCount) {
+            if (budget[0] <= 0) break
             val child = node.getChild(i) ?: continue
-            val result = findFocusedEditableNode(child, depth + 1)
-            if (result != null) return result
+            val result = findFocusedEditableNode(child, depth + 1, budget)
+            if (result != null) {
+                if (result !== child) {
+                    child.recycle()
+                }
+                return result
+            }
+            child.recycle()
         }
 
         return null
