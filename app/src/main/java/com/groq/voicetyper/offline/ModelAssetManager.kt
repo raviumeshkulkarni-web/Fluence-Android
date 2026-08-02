@@ -20,6 +20,11 @@ object ModelAssetManager {
     const val MODEL_FILENAME = "model.int8.onnx"
     const val TOKENS_FILENAME = "tokens.txt"
 
+    // Marker file recording the verified file sizes. Its presence means the files
+    // were previously fully SHA-256 verified and have not changed since, so a full
+    // re-hash (expensive: ~239 MB) can be skipped on subsequent readiness checks.
+    internal const val VERIFIED_MARKER = ".verified"
+
     internal var baseUrl = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/"
 
     // SHA256 checksums (lowercased)
@@ -69,6 +74,9 @@ object ModelAssetManager {
 
     /**
      * Comprehensive asynchronous check including SHA256 validation.
+     *
+     * Full hashing (~239 MB) is only performed when the cached verified marker is
+     * missing or the file sizes changed since the last successful verification.
      */
     suspend fun isModelReady(context: Context): Boolean = withContext(Dispatchers.IO) {
         val currentState = _progress.value.state
@@ -83,12 +91,47 @@ object ModelAssetManager {
 
         if (!modelFile.exists() || !tokensFile.exists()) return@withContext false
 
-        // Validate checksums
+        // Fast path: marker present and sizes unchanged -> previously verified.
+        if (isVerifiedByMarker(dir)) return@withContext true
+
+        // Validate checksums (expensive; runs only when marker is absent/stale)
         val modelHash = calculateSHA256(modelFile)
         val tokensHash = calculateSHA256(tokensFile)
 
-        return@withContext modelHash == fileChecksums[MODEL_FILENAME] &&
+        val verified = modelHash == fileChecksums[MODEL_FILENAME] &&
                 tokensHash == fileChecksums[TOKENS_FILENAME]
+
+        if (verified) {
+            writeVerifiedMarker(dir)
+        }
+        return@withContext verified
+    }
+
+    private fun writeVerifiedMarker(dir: File) {
+        try {
+            val marker = File(dir, VERIFIED_MARKER)
+            val content = buildString {
+                append("$MODEL_FILENAME=${File(dir, MODEL_FILENAME).length()}\n")
+                append("$TOKENS_FILENAME=${File(dir, TOKENS_FILENAME).length()}\n")
+            }
+            marker.writeText(content)
+        } catch (e: Exception) {
+            // Marker write failure is non-fatal: worst case we re-hash next time.
+        }
+    }
+
+    private fun isVerifiedByMarker(dir: File): Boolean {
+        return try {
+            val marker = File(dir, VERIFIED_MARKER)
+            if (!marker.exists()) return false
+            val expected = buildString {
+                append("$MODEL_FILENAME=${File(dir, MODEL_FILENAME).length()}\n")
+                append("$TOKENS_FILENAME=${File(dir, TOKENS_FILENAME).length()}\n")
+            }
+            marker.readText() == expected
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun getModelDir(context: Context): File {
@@ -213,6 +256,7 @@ object ModelAssetManager {
         }
 
         _progress.value = DownloadProgress(DownloadState.COMPLETED, totalDownloadSize, totalDownloadSize)
+        writeVerifiedMarker(dir)
         return@withContext Result.success(Unit)
     }
 

@@ -155,9 +155,11 @@ class OfflineAudioCapture {
     }
 
     private fun releaseRecord(record: AudioRecord) {
-        if (audioRecord === record) {
-            audioRecord = null
-        }
+        // Only release the recorder we still own. If stopCapture() already took
+        // ownership (audioRecord === null) or a newer capture replaced it, this
+        // late-path must not release again.
+        if (audioRecord !== record) return
+        audioRecord = null
         try {
             record.release()
         } catch (e: Exception) {

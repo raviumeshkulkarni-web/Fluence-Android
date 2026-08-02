@@ -110,6 +110,33 @@ class OfflineTranscriber(
     @Volatile
     private var initializeDeferred: CompletableDeferred<Unit>? = null
 
+    /**
+     * Registers a pending-initialization latch so any concurrent [transcribe] call
+     * waits for the engine instead of returning "" (first-utterance loss on cold start).
+     * Must be called BEFORE the slow model-integrity verification that precedes
+     * [initialize]. Safe to call when the engine is already ready or loading.
+     */
+    fun markInitializationPending() {
+        if (_engineState.value == EngineState.READY) return
+        if (initializeDeferred == null) {
+            initializeDeferred = CompletableDeferred()
+        }
+    }
+
+    /**
+     * Completes a pending-initialization latch exceptionally when initialization
+     * fails before the engine is loaded, so awaiting [transcribe] calls unblock
+     * instead of hanging forever.
+     */
+    fun failPendingInitialization(e: Throwable) {
+        val pending = initializeDeferred
+        initializeDeferred = null
+        if (_engineState.value == EngineState.LOADING) {
+            _engineState.value = EngineState.UNLOADED
+        }
+        pending?.completeExceptionally(e)
+    }
+
     companion object {
         private const val TAG = "OfflineTranscriber"
 
@@ -132,13 +159,12 @@ class OfflineTranscriber(
      */
     suspend fun initialize(modelDir: String, numThreads: Int = 2) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            if (_engineState.value == EngineState.READY || _engineState.value == EngineState.LOADING) {
+            if (_engineState.value == EngineState.READY) {
                 return@withLock
             }
 
             _engineState.value = EngineState.LOADING
-            val pendingInit = CompletableDeferred<Unit>()
-            initializeDeferred = pendingInit
+            val pendingInit = initializeDeferred ?: CompletableDeferred<Unit>().also { initializeDeferred = it }
             Log.d(TAG, "Initializing engine from dir: $modelDir")
 
             try {
@@ -163,8 +189,16 @@ class OfflineTranscriber(
      * Returns the transcribed text with native punctuation/capitalization.
      */
     suspend fun transcribe(samples: FloatArray, sampleRate: Int = 16000): String = withContext(Dispatchers.IO) {
-        // Wait for a pending initialize() to complete so the first utterance is not dropped
-        initializeDeferred?.await()
+        // Wait for a pending initialize() to complete so the first utterance is not dropped.
+        // If initialization failed, the await throws; fall through to the state check and
+        // return "" (engine not ready) instead of propagating to the worker.
+        try {
+            initializeDeferred?.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Log.w(TAG, "Pending initialization did not complete successfully", e)
+        }
 
         // Store current Job so release() can cancel it if necessary
         val currentJob = coroutineContext[Job]
@@ -183,7 +217,7 @@ class OfflineTranscriber(
                 return@withContext text
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Error running inference", e)
                 return@withContext ""
             } finally {

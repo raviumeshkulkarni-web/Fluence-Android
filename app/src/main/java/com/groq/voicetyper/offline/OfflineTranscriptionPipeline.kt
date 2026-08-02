@@ -36,6 +36,7 @@ class OfflineTranscriptionPipeline(
         private const val VAD_SILENCE_THRESHOLD_SEC = 0.8f // Pause detection
         private const val SAMPLE_RATE = 16000
         private const val IDLE_RELEASE_DELAY_MS = 60_000L // 1 minute idle cache
+        private const val SEGMENT_QUEUE_CAPACITY = 32     // Bounded queue under load
     }
 
     private val audioCapture = OfflineAudioCapture()
@@ -50,6 +51,11 @@ class OfflineTranscriptionPipeline(
 
     // Expose model loading/ready state to UI callers
     val engineState: StateFlow<OfflineTranscriber.EngineState> = transcriber.engineState
+
+    // Expose a model-level failure (corrupt/missing files, init failure) so IME/bubble
+    // UX can surface it instead of silently dropping all offline transcription.
+    private val _modelError = MutableStateFlow<String?>(null)
+    val modelError: StateFlow<String?> = _modelError.asStateFlow()
 
     /** Returns true if both the VAD and transcriber engines are initialized and ready. */
     fun isReady(): Boolean = transcriber.isReady() && vad != null
@@ -98,9 +104,19 @@ class OfflineTranscriptionPipeline(
      */
     suspend fun initialize(modelDir: String) = withContext(Dispatchers.IO) {
         cancelIdleRelease()
-        verifyModelIntegrity()
-        transcriber.initialize(modelDir)
-        scheduleIdleRelease()
+        // Set the pending-init latch BEFORE the slow integrity hash so a concurrent
+        // worker's first transcribe() waits instead of dropping the first utterance.
+        transcriber.markInitializationPending()
+        try {
+            verifyModelIntegrity()
+            transcriber.initialize(modelDir)
+            _modelError.value = null
+        } catch (e: Throwable) {
+            transcriber.failPendingInitialization(e)
+            throw e
+        } finally {
+            scheduleIdleRelease()
+        }
     }
 
     /**
@@ -134,10 +150,24 @@ class OfflineTranscriptionPipeline(
         activeVad.reset()
 
         _isRunning.value = true
+        _modelError.value = null
+
+        // Set the pending-init latch up front (before the slow integrity hash below)
+        // so the worker's first transcribe() waits instead of returning "" on cold start.
+        if (!transcriber.isReady()) {
+            transcriber.markInitializationPending()
+        }
 
         // Create a bounded FIFO queue; if transcription falls behind, drop the
-        // oldest queued segment instead of letting the queue grow without bound
-        val channel = Channel<FloatArray>(16, BufferOverflow.DROP_OLDEST)
+        // oldest queued segment instead of letting the queue grow without bound,
+        // and log an overflow warning so the loss is visible.
+        val channel = Channel<FloatArray>(
+            capacity = SEGMENT_QUEUE_CAPACITY,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            onUndeliveredElement = {
+                Log.w(TAG, "Segment queue overflow: dropped oldest queued segment (cap $SEGMENT_QUEUE_CAPACITY)")
+            }
+        )
         segmentChannel = channel
 
         // 2. Launch model initialization concurrently in the background if not ready.
@@ -150,6 +180,8 @@ class OfflineTranscriptionPipeline(
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Background transcription engine initialization failed", e)
+                transcriber.failPendingInitialization(e)
+                _modelError.value = "Offline model unavailable: ${e.localizedMessage ?: "initialization failed"}"
             }
         }
 
@@ -165,7 +197,7 @@ class OfflineTranscriptionPipeline(
                     }
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e(TAG, "Error in sequential transcription worker", e)
                 }
             }
