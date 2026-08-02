@@ -295,24 +295,16 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         layoutParams.gravity = Gravity.TOP or if (finalAnchorRight) Gravity.END else Gravity.START
                         layoutParams.x = -padding
                         lastX = layoutParams.x
-                        // (2) Apply the origin move as one instantaneous transaction (no interpolated
-                        //     leash slide that would stretch the seam across frames).
+                        // (2) Apply the origin move as one instantaneous transaction
                         if (Build.VERSION.SDK_INT >= 34) {
                             layoutParams.setCanPlayMoveAnimation(false)
                         }
-                        // (3) Defer the window move to the pre-draw of the RE-ALIGNED content so the
-                        //     ordering is deterministically content-first and the seam stays off-screen.
-                        view.viewTreeObserver.addOnPreDrawListener(
-                            object : android.view.ViewTreeObserver.OnPreDrawListener {
-                                override fun onPreDraw(): Boolean {
-                                    view.viewTreeObserver.removeOnPreDrawListener(this)
-                                    if (isViewAdded && view.isAttachedToWindow) {
-                                        windowManager.updateViewLayout(view, layoutParams)
-                                    }
-                                    return true
-                                }
+                        // (3) Defer the window move to run after the Compose recomposition pass
+                        view.post {
+                            if (isViewAdded && view.isAttachedToWindow) {
+                                windowManager.updateViewLayout(view, layoutParams)
                             }
-                        )
+                        }
                     }
                 }
                 isAnchoredRight = finalAnchorRight
