@@ -232,6 +232,20 @@ object TranscriptionSessionManager {
                         }
                     }
 
+                    // Guard against a stop/cancel (or focus/noisy loss) that landed while
+                    // the pipeline was being spun up. pipeline.start() only checks its own
+                    // isRunning flag, so without this check it would start audio capture
+                    // even though the session already ended (mic hot with state IDLE).
+                    if (_recordingState.value != RecordingState.RECORDING) {
+                        amplitudeCollectJob?.cancel()
+                        amplitudeCollectJob = null
+                        engineStateCollectJob?.cancel()
+                        engineStateCollectJob = null
+                        modelErrorCollectJob?.cancel()
+                        modelErrorCollectJob = null
+                        return@launch
+                    }
+
                     pipeline.start(modelDir)
                 } catch (e: Exception) {
                     showError("Offline recording start failed: ${e.localizedMessage}")
@@ -297,7 +311,7 @@ object TranscriptionSessionManager {
                         val lang = getEffectiveLanguage(context)
                         val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
                         CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(finalTranscription, "offline", engineModelName, lang, durationMs, false)
+                            HistoryRepository.save(context.applicationContext, finalTranscription, "offline", engineModelName, lang, durationMs, false)
                         }
                         withContext(Dispatchers.Main) {
                             currentListener?.onTranscription(finalTranscription)
@@ -399,7 +413,7 @@ object TranscriptionSessionManager {
                         val text = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
                         val isAgent = _isAgentMode.value
                         CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(text, sttPreset, sttModel, languageCode, durationMs, isAgent)
+                            HistoryRepository.save(context.applicationContext, text, sttPreset, sttModel, languageCode, durationMs, isAgent)
                         }
                         if (isAgent) {
                             val contextText = currentListener?.getContextText() ?: ""

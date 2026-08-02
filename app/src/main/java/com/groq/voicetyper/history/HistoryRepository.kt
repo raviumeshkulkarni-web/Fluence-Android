@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
 object HistoryRepository {
+    @Volatile
     private var dao: TranscriptionHistoryDao? = null
 
     fun init(context: Context) {
@@ -18,7 +19,10 @@ object HistoryRepository {
 
     fun search(query: String): Flow<List<TranscriptionEntry>> = dao?.search(query) ?: emptyFlow()
 
-    suspend fun save(text: String, provider: String, model: String, language: String, durationMs: Long, isAgentMode: Boolean) {
+    suspend fun save(context: Context, text: String, provider: String, model: String, language: String, durationMs: Long, isAgentMode: Boolean) {
+        if (dao == null) {
+            init(context.applicationContext)
+        }
         dao?.insert(TranscriptionEntry(text = text, provider = provider, model = model, language = language, durationMs = durationMs, isAgentMode = isAgentMode, timestamp = System.currentTimeMillis()))
         try {
             cleanupToNewest(30)
