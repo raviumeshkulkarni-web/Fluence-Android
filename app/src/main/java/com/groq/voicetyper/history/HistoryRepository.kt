@@ -23,7 +23,11 @@ object HistoryRepository {
         if (dao == null) {
             init(context.applicationContext)
         }
-        dao?.insert(TranscriptionEntry(text = text, provider = provider, model = model, language = language, durationMs = durationMs, isAgentMode = isAgentMode, timestamp = System.currentTimeMillis()))
+        try {
+            dao?.insert(TranscriptionEntry(text = text, provider = provider, model = model, language = language, durationMs = durationMs, isAgentMode = isAgentMode, timestamp = System.currentTimeMillis()))
+        } catch (e: Exception) {
+            Log.e("HistoryRepository", "Failed to save transcription to history", e)
+        }
         try {
             cleanupToNewest(30)
         } catch (e: Exception) {
@@ -33,7 +37,10 @@ object HistoryRepository {
 
     suspend fun delete(entry: TranscriptionEntry) = dao?.delete(entry)
 
-    suspend fun deleteByIds(ids: List<Long>) = dao?.deleteByIds(ids)
+    suspend fun deleteByIds(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        dao?.deleteByIds(ids)
+    }
 
     suspend fun clearAll() {
         dao?.deleteAll()

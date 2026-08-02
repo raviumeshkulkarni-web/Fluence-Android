@@ -74,7 +74,7 @@ class BubbleControllerTest {
     }
 
     @Test
-    fun hideBubble_resetsStateAndStopsService() {
+    fun hideBubble_resetsStateAndDefersStopService() {
         every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
         resetBubbleState()
         BubbleController.showBubble(context, mockk(relaxed = true))
@@ -84,7 +84,9 @@ class BubbleControllerTest {
 
         assertFalse(BubbleController.isBubbleVisible.value)
         assertFalse(BubbleController.isBubbleExpanded.value)
-        assertTrue("stopService" in serviceCalls)
+        // stopService is deferred (not synchronous) so a rapid accessibility show/hide
+        // flap cannot stop the FGS before startForeground() runs.
+        assertFalse("stopService" in serviceCalls)
     }
 
     @Test

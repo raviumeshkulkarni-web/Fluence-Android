@@ -294,7 +294,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         Log.d(TAG, "onStartInputView: Starting input view, restarting=$restarting, inputType=${info?.inputType}")
-        apiKey = SecurityUtils.getApiKey(this)
+        apiKey = SecurityUtils.getProviderApiKey(this, "stt", SecurityUtils.getSttPreset(this))
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
 
         AutoLearnSessionManager.onStartInput(info, this)

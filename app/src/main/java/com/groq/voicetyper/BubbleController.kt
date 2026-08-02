@@ -24,6 +24,10 @@ import com.groq.voicetyper.offline.*
 object BubbleController {
     private const val TAG = "BubbleController"
 
+    // Defer stopService so an accessibility show/hide flap can't race an in-flight
+    // startForeground() (crashes with ForegroundServiceDidNotStartInTimeException).
+    private const val STOP_SERVICE_DELAY_MS = 1500L
+
     private val _isBubbleVisible = MutableStateFlow(false)
     val isBubbleVisible: StateFlow<Boolean> = _isBubbleVisible.asStateFlow()
 
@@ -54,8 +58,15 @@ object BubbleController {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val deferredStopService = Runnable {
+        stopFloatingBubbleService()
+    }
+
     fun showBubble(context: Context, node: AccessibilityNodeInfo) {
         applicationContext = context.applicationContext
+
+        // A bubble re-show within the defer window keeps the service alive.
+        mainHandler.removeCallbacks(deferredStopService)
 
         // Cache a strong reference to the focused node.
         // obtain() creates a copy so the original can be recycled by the caller.
@@ -87,6 +98,7 @@ object BubbleController {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start FloatingBubbleService", e)
+                _isBubbleVisible.value = false
             }
         }
 
@@ -108,7 +120,10 @@ object BubbleController {
             activeNode?.recycle()
             activeNode = null
         }
-        stopFloatingBubbleService()
+        // Defer stopping the foreground service so a rapid accessibility show/hide
+        // flap cannot stop it before startForeground() runs (crash). Re-shows cancel it.
+        mainHandler.removeCallbacks(deferredStopService)
+        mainHandler.postDelayed(deferredStopService, STOP_SERVICE_DELAY_MS)
     }
 
     private fun stopFloatingBubbleService() {

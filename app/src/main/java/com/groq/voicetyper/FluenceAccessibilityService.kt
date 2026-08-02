@@ -168,9 +168,11 @@ class FluenceAccessibilityService : AccessibilityService() {
 
             // Attempt 2: Recursive tree walk. Some WebView implementations
             // don't set FOCUS_INPUT but still report `isFocused()` on the node.
-            val budget = intArrayOf(MAX_TRAVERSAL_NODES)
             for (window in appWindows) {
                 val root = window.root ?: continue
+                // A fresh budget per window so a large first window cannot starve
+                // the remaining windows (split-screen / multi-window) out of search.
+                val budget = intArrayOf(MAX_TRAVERSAL_NODES)
                 val found = findFocusedEditableNode(root, 0, budget)
                 if (found != null) {
                     if (found !== root) {

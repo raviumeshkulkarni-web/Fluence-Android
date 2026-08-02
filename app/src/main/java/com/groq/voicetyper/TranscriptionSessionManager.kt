@@ -4,8 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -46,6 +44,7 @@ object TranscriptionSessionManager {
     private var sessionOwner = SessionOwner.BUBBLE
 
     private var audioRecorder: AudioRecorder? = null
+    @Volatile
     private var currentListener: SessionListener? = null
 
     private val _recordingState = MutableStateFlow(RecordingState.IDLE)
@@ -70,31 +69,23 @@ object TranscriptionSessionManager {
     private val handler = Handler(Looper.getMainLooper())
 
     private var appContext: Context? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
     private var noisyReceiver: BroadcastReceiver? = null
-
-    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
-            focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT ||
-            focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
-        ) {
-            handler.post {
-                val ctx = appContext ?: return@post
-                if (_recordingState.value == RecordingState.RECORDING || _recordingState.value == RecordingState.TRANSCRIBING) {
-                    cancelSessionInternal(ctx)
-                }
-            }
-        }
-    }
 
     private var amplitudeCollectJob: Job? = null
     private var engineStateCollectJob: Job? = null
     private var modelErrorCollectJob: Job? = null
     private var preWarmJob: Job? = null
     private var activeOffline = false
+    @Volatile
     private var activeEngineType: OfflineEngineType? = null
     private var recordingStartTimestampMs = 0L
     private val offlineTextAccumulator = StringBuilder()
+
+    // Monotonic session id. startRecordingInternal increments it; async cleanup
+    // (offline force-release on cancel) captures it and bails if a newer session
+    // started, so a stale teardown never stops a freshly-started session's capture.
+    @Volatile
+    private var sessionGeneration = 0L
 
     private fun isEngineModelReady(context: Context, engineType: OfflineEngineType): Boolean {
         return when (engineType) {
@@ -171,7 +162,9 @@ object TranscriptionSessionManager {
         if (_recordingState.value != RecordingState.IDLE && _recordingState.value != RecordingState.ERROR) {
             return
         }
+        sessionGeneration++
         sessionOwner = owner
+        appContext = context.applicationContext
         cancelPreWarm()
         currentListener = listener
         _errorMessage.value = null
@@ -183,7 +176,6 @@ object TranscriptionSessionManager {
         activeOffline = useOffline
         activeEngineType = if (useOffline) engineType else null
 
-        requestAudioFocus(context)
         registerNoisyReceiver(context)
 
         if (useOffline) {
@@ -227,7 +219,16 @@ object TranscriptionSessionManager {
                     modelErrorCollectJob = scope.launch {
                         pipeline.modelError.collect { error ->
                             if (!error.isNullOrBlank()) {
-                                showError("Offline transcription unavailable: $error")
+                                val generation = sessionGeneration
+                                if (sessionGeneration == generation) {
+                                    showError("Offline transcription unavailable: $error")
+                                    unregisterNoisyReceiver(context)
+                                    scope.launch {
+                                        if (sessionGeneration == generation) {
+                                            OfflinePipelineProvider.releaseInstance()
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -271,6 +272,10 @@ object TranscriptionSessionManager {
                 amplitudeCollectJob = null
                 recordingStartTimestampMs = 0L
                 _isAgentMode.value = false
+                // Return to a clean IDLE so the next mic tap can start again, and
+                // release the noisy resources we just claimed.
+                _recordingState.value = RecordingState.IDLE
+                unregisterNoisyReceiver(context)
                 showError("Could not start the microphone. Check that microphone permission is granted and try again.")
             }
         }
@@ -279,7 +284,6 @@ object TranscriptionSessionManager {
     fun stopRecording(context: Context) {
         if (_recordingState.value != RecordingState.RECORDING) return
         _recordingState.value = RecordingState.TRANSCRIBING
-        abandonAudioFocus(context)
         unregisterNoisyReceiver(context)
 
         val durationMs = if (recordingStartTimestampMs > 0L) {
@@ -351,6 +355,7 @@ object TranscriptionSessionManager {
     }
 
     private fun cancelSessionInternal(context: Context) {
+        val generation = sessionGeneration
         recordingStartTimestampMs = 0L
         _recordingState.value = RecordingState.IDLE
         amplitudeCollectJob?.cancel()
@@ -365,6 +370,9 @@ object TranscriptionSessionManager {
             _offlineEngineState.value = OfflineEngineState.UNLOADED
 
             scope.launch {
+                // A new session may have started while this teardown was queued;
+                // never tear down the new session's pipeline.
+                if (sessionGeneration != generation) return@launch
                 try {
                     val pipeline = OfflinePipelineProvider.getInstance(context, activeEngineType ?: OfflineEngineType.SENSEVOICE)
                     pipeline.forceRelease()
@@ -380,7 +388,6 @@ object TranscriptionSessionManager {
             audioRecorder?.cancelRecording()
             currentListener = null
         }
-        abandonAudioFocus(context)
         unregisterNoisyReceiver(context)
     }
 
@@ -402,6 +409,7 @@ object TranscriptionSessionManager {
         }
 
         scope.launch {
+            val generation = sessionGeneration
             val languageCode = getEffectiveLanguage(context)
             val sttBaseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
             val sttModel = SecurityUtils.getSttModel(context, sttPreset)
@@ -424,31 +432,43 @@ object TranscriptionSessionManager {
                             cmdResult.fold(
                                 onSuccess = { commandResult ->
                                     withContext(Dispatchers.Main) {
-                                        currentListener?.onCommand(commandResult, contextText)
-                                        _recordingState.value = RecordingState.IDLE
-                                        currentListener = null
+                                        if (sessionGeneration == generation) {
+                                            currentListener?.onCommand(commandResult, contextText)
+                                            _recordingState.value = RecordingState.IDLE
+                                            currentListener = null
+                                        }
                                     }
                                 },
                                 onFailure = { error ->
-                                    showError(error.localizedMessage ?: "Agent processing failed")
+                                    if (sessionGeneration == generation) {
+                                        showError(error.localizedMessage ?: "Agent processing failed")
+                                    }
                                 }
                             )
                         } else {
                             withContext(Dispatchers.Main) {
-                                currentListener?.onTranscription(text)
-                                _recordingState.value = RecordingState.IDLE
-                                currentListener = null
+                                if (sessionGeneration == generation) {
+                                    currentListener?.onTranscription(text)
+                                    _recordingState.value = RecordingState.IDLE
+                                    currentListener = null
+                                }
                             }
                         }
                     } else {
-                        _recordingState.value = RecordingState.IDLE
-                        currentListener = null
+                        if (sessionGeneration == generation) {
+                            _recordingState.value = RecordingState.IDLE
+                            currentListener = null
+                        }
                     }
-                    _isAgentMode.value = false
+                    if (sessionGeneration == generation) {
+                        _isAgentMode.value = false
+                    }
                 },
                 onFailure = { error ->
-                    showError(error.localizedMessage ?: "Transcription failed")
-                    _isAgentMode.value = false
+                    if (sessionGeneration == generation) {
+                        showError(error.localizedMessage ?: "Transcription failed")
+                        _isAgentMode.value = false
+                    }
                 }
             )
         }
@@ -501,8 +521,10 @@ object TranscriptionSessionManager {
                 return
             }
             Log.d(TAG, "onTrimMemory: Releasing offline pipeline resources to reclaim RAM.")
+            val generation = sessionGeneration
             scope.launch {
                 cancelPreWarm()
+                if (sessionGeneration != generation) return@launch
                 OfflinePipelineProvider.releaseInstance()
             }
         }
@@ -538,7 +560,6 @@ object TranscriptionSessionManager {
 
         val ctx = appContext
         if (ctx != null) {
-            abandonAudioFocus(ctx)
             unregisterNoisyReceiver(ctx)
         }
 
@@ -562,36 +583,15 @@ object TranscriptionSessionManager {
         }
     }
 
-    private fun requestAudioFocus(context: Context) {
-        appContext = context.applicationContext
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setOnAudioFocusChangeListener(audioFocusListener)
-            .build()
-        audioFocusRequest = request
-        audioManager.requestAudioFocus(request)
-    }
-
-    private fun abandonAudioFocus(context: Context) {
-        val request = audioFocusRequest ?: return
-        audioFocusRequest = null
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-        audioManager.abandonAudioFocusRequest(request)
-    }
-
     private fun registerNoisyReceiver(context: Context) {
         if (noisyReceiver != null) return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
                 val appCtx = appContext ?: return
+                val generation = sessionGeneration
                 handler.post {
+                    if (sessionGeneration != generation) return@post
                     if (_recordingState.value == RecordingState.RECORDING || _recordingState.value == RecordingState.TRANSCRIBING) {
                         cancelSessionInternal(appCtx)
                     }

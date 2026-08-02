@@ -130,7 +130,14 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     }
 
     private fun addOverlayView() {
-        if (isViewAdded) return
+        if (isViewAdded) {
+            if (!Settings.canDrawOverlays(this)) {
+                Log.w(TAG, "Overlay permission revoked mid-session — stopping bubble")
+                BubbleController.hideBubble()
+                stopSelf()
+            }
+            return
+        }
 
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Overlay permission missing — cannot show bubble")

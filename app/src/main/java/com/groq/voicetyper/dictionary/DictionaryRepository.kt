@@ -130,15 +130,22 @@ object DictionaryRepository {
                 }
             }
             SaveAction.UPDATE -> {
-                dao.update(
-                    CustomDictionaryEntry(
-                        id = id,
-                        spokenText = trimmedSpoken,
-                        replacementText = trimmedReplacement,
-                        isEnabled = isEnabled
+                try {
+                    dao.update(
+                        CustomDictionaryEntry(
+                            id = id,
+                            spokenText = trimmedSpoken,
+                            replacementText = trimmedReplacement,
+                            isEnabled = isEnabled
+                        )
                     )
-                )
-                SaveResult.UPDATED
+                    SaveResult.UPDATED
+                } catch (e: android.database.sqlite.SQLiteConstraintException) {
+                    // A concurrent save of the same spokenText won the race between the
+                    // getBySpokenText check and this update; the phrase already exists,
+                    // so preserve the user's intent instead of crashing.
+                    SaveResult.PRESERVED
+                }
             }
             SaveAction.PRESERVE -> SaveResult.PRESERVED
         }

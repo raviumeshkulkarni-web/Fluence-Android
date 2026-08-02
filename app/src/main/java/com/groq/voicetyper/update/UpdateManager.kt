@@ -205,6 +205,7 @@ class UpdateManager private constructor(context: Context) {
                         currentObserver = null
                         currentLiveData = null
                         val error = workInfo.outputData.getString(ApkDownloadWorker.KEY_ERROR) ?: "Download failed"
+                        preferences.resetDownloadedVersion()
                         _updateState.value = UpdateState.Error(error)
                     }
                     WorkInfo.State.CANCELLED -> {
@@ -255,6 +256,9 @@ class UpdateManager private constructor(context: Context) {
                     val apkFile = apkPath?.let { File(it) }
                     if (apkFile != null && apkFile.exists()) {
                         _updateState.value = UpdateState.ReadyToInstall(apkFile, restoreMetadata(versionCode))
+                    } else if (isApkStale(preferences.downloadedVersionCode, BuildConfig.VERSION_CODE)) {
+                        preferences.resetDownloadedVersion()
+                        _updateState.value = UpdateState.Idle
                     } else {
                         // The work claims success but the APK is unusable; surface it
                         // instead of silently staying Idle after the version was marked
