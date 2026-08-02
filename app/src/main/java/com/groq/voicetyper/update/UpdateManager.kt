@@ -62,6 +62,10 @@ class UpdateManager private constructor(context: Context) {
 
     fun onAppStart() {
         if (!preferences.autoCheckEnabled) return
+        // If a completed download is already sitting in ReadyToInstall, don't let
+        // the auto-check flip the dialog to Checking/UpdateAvailable (or re-download)
+        // for the same pending version.
+        if (_updateState.value is UpdateState.ReadyToInstall) return
         val currentTime = System.currentTimeMillis()
         val elapsed = currentTime - preferences.lastCheckedTimestamp
         if (elapsed >= CHECK_INTERVAL_MS) {
@@ -126,6 +130,7 @@ class UpdateManager private constructor(context: Context) {
 
         preferences.downloadedVersionCode = availableState.metadata.versionCode
         preferences.downloadedVersionName = availableState.metadata.versionName
+        preferences.downloadedApkSize = availableState.metadata.apkSize
 
         _updateState.value = UpdateState.Downloading(
             progressPercent = 0,
@@ -222,7 +227,7 @@ class UpdateManager private constructor(context: Context) {
         scope.launch {
             val infos = try {
                 withContext(Dispatchers.IO) {
-                    workManager.getWorkInfosForUniqueWork(WORK_NAME_DOWNLOAD_APK, ExistingWorkPolicy.KEEP)
+                    workManager.getWorkInfosForUniqueWork(WORK_NAME_DOWNLOAD_APK)
                         .get(5, TimeUnit.SECONDS)
                 }
             } catch (_: Exception) {
@@ -232,10 +237,13 @@ class UpdateManager private constructor(context: Context) {
             val info = infos.lastOrNull() ?: return@launch
             when (info.state) {
                 WorkInfo.State.RUNNING -> {
+                    // Recover the expected APK size persisted at download-start so
+                    // the reattached progress bar shows a determinate total instead
+                    // of an indeterminate "0 MB" state.
                     observeWork(
                         workId = info.id,
                         fallbackMetadata = null,
-                        defaultTotalBytes = 0L
+                        defaultTotalBytes = preferences.downloadedApkSize
                     )
                 }
                 WorkInfo.State.SUCCEEDED -> {
@@ -244,11 +252,14 @@ class UpdateManager private constructor(context: Context) {
                         preferences.downloadedVersionCode = versionCode
                     }
                     val apkPath = info.outputData.getString(ApkDownloadWorker.KEY_APK_PATH)
-                    if (apkPath != null) {
-                        val apkFile = File(apkPath)
-                        if (apkFile.exists()) {
-                            _updateState.value = UpdateState.ReadyToInstall(apkFile, restoreMetadata(versionCode))
-                        }
+                    val apkFile = apkPath?.let { File(it) }
+                    if (apkFile != null && apkFile.exists()) {
+                        _updateState.value = UpdateState.ReadyToInstall(apkFile, restoreMetadata(versionCode))
+                    } else {
+                        // The work claims success but the APK is unusable; surface it
+                        // instead of silently staying Idle after the version was marked
+                        // as downloaded.
+                        _updateState.value = UpdateState.Error("Downloaded APK file not found")
                     }
                 }
                 else -> {}

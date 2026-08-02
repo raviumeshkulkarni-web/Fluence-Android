@@ -19,6 +19,15 @@ class ApkDownloadWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // Bound retries: WorkManager backoff is capped at 5h exponential and would
+        // otherwise retry forever on persistent network failure, re-downloading the
+        // whole APK each attempt. Fail permanently once the cap is reached.
+        if (runAttemptCount >= MAX_RETRY_ATTEMPTS) {
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Download failed after $MAX_RETRY_ATTEMPTS attempts")
+            )
+        }
+
         val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL)
             ?: return@withContext Result.failure(workDataOf(KEY_ERROR to "Missing download URL"))
         val expectedSize = inputData.getLong(KEY_EXPECTED_SIZE, 0L)
@@ -26,8 +35,12 @@ class ApkDownloadWorker(
         val versionCode = inputData.getInt(KEY_VERSION_CODE, -1)
 
         val updatesDir = File(context.filesDir, "updates")
-        if (!updatesDir.exists()) {
-            updatesDir.mkdirs()
+        // Missing/undeletable dir is a permanent environment problem, not transient:
+        // surface it as a failure instead of retrying forever.
+        if (!updatesDir.exists() && !updatesDir.mkdirs()) {
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Failed to create updates directory")
+            )
         }
 
         // Clean up any old download files prior to starting new download
@@ -160,6 +173,10 @@ class ApkDownloadWorker(
 
         const val KEY_APK_PATH = "apk_path"
         const val KEY_ERROR = "error_message"
+
+        // Hard cap on attempts (initial run + retries). Prevents the worker from
+        // retrying forever on persistent network failures.
+        internal const val MAX_RETRY_ATTEMPTS = 10
 
         internal fun isRetryableHttpCode(code: Int): Boolean = code == 429 || code >= 500
 
