@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
@@ -584,10 +585,11 @@ object TranscriptionSessionManager {
             }
         }
         try {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.applicationContext.registerReceiver(
+            ContextCompat.registerReceiver(
+                context.applicationContext,
                 receiver,
-                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
             noisyReceiver = receiver
         } catch (e: Exception) {

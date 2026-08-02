@@ -116,6 +116,7 @@ class OfflineTranscriber(
      * Must be called BEFORE the slow model-integrity verification that precedes
      * [initialize]. Safe to call when the engine is already ready or loading.
      */
+    @Synchronized
     fun markInitializationPending() {
         if (_engineState.value == EngineState.READY) return
         if (initializeDeferred == null) {
@@ -128,6 +129,7 @@ class OfflineTranscriber(
      * fails before the engine is loaded, so awaiting [transcribe] calls unblock
      * instead of hanging forever.
      */
+    @Synchronized
     fun failPendingInitialization(e: Throwable) {
         val pending = initializeDeferred
         initializeDeferred = null
@@ -164,7 +166,9 @@ class OfflineTranscriber(
             }
 
             _engineState.value = EngineState.LOADING
-            val pendingInit = initializeDeferred ?: CompletableDeferred<Unit>().also { initializeDeferred = it }
+            val pendingInit = synchronized(this) {
+                initializeDeferred ?: CompletableDeferred<Unit>().also { initializeDeferred = it }
+            }
             Log.d(TAG, "Initializing engine from dir: $modelDir")
 
             try {
@@ -178,7 +182,7 @@ class OfflineTranscriber(
                 if (_engineState.value == EngineState.LOADING) {
                     _engineState.value = EngineState.UNLOADED
                 }
-                initializeDeferred = null
+                synchronized(this) { initializeDeferred = null }
                 pendingInit.complete(Unit)
             }
         }
