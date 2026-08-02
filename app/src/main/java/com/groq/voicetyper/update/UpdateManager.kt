@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -56,6 +57,7 @@ class UpdateManager private constructor(context: Context) {
 
     init {
         performPostInstallCleanup()
+        reattachDownloadState()
     }
 
     fun onAppStart() {
@@ -102,24 +104,28 @@ class UpdateManager private constructor(context: Context) {
     private var currentLiveData: androidx.lifecycle.LiveData<WorkInfo>? = null
 
     fun startDownload(availableState: UpdateState.UpdateAvailable) {
-        currentLiveData?.removeObserver(currentObserver ?: return)
-        currentObserver = null
-        currentLiveData = null
-
         val inputData = Data.Builder()
             .putString(ApkDownloadWorker.KEY_DOWNLOAD_URL, availableState.apkDownloadUrl)
             .putLong(ApkDownloadWorker.KEY_EXPECTED_SIZE, availableState.metadata.apkSize)
             .putString(ApkDownloadWorker.KEY_EXPECTED_SHA256, availableState.metadata.sha256)
+            .putInt(ApkDownloadWorker.KEY_VERSION_CODE, availableState.metadata.versionCode)
             .build()
 
         val constraints = androidx.work.Constraints.Builder()
-            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+            .setRequiredNetworkType(
+                if (preferences.allowMeteredDownloads) androidx.work.NetworkType.CONNECTED
+                else androidx.work.NetworkType.UNMETERED
+            )
             .build()
 
         val downloadWorkRequest = OneTimeWorkRequestBuilder<ApkDownloadWorker>()
             .setInputData(inputData)
             .setConstraints(constraints)
+            .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
+
+        preferences.downloadedVersionCode = availableState.metadata.versionCode
+        preferences.downloadedVersionName = availableState.metadata.versionName
 
         _updateState.value = UpdateState.Downloading(
             progressPercent = 0,
@@ -133,7 +139,23 @@ class UpdateManager private constructor(context: Context) {
             downloadWorkRequest
         )
 
-        val liveData = workManager.getWorkInfoByIdLiveData(downloadWorkRequest.id)
+        observeWork(
+            workId = downloadWorkRequest.id,
+            fallbackMetadata = availableState.metadata,
+            defaultTotalBytes = availableState.metadata.apkSize
+        )
+    }
+
+    private fun observeWork(
+        workId: java.util.UUID,
+        fallbackMetadata: ReleaseMetadata?,
+        defaultTotalBytes: Long
+    ) {
+        currentObserver?.let { observer -> currentLiveData?.removeObserver(observer) }
+        currentObserver = null
+        currentLiveData = null
+
+        val liveData = workManager.getWorkInfoByIdLiveData(workId)
 
         val observer = object : androidx.lifecycle.Observer<WorkInfo> {
             override fun onChanged(workInfo: WorkInfo) {
@@ -142,7 +164,7 @@ class UpdateManager private constructor(context: Context) {
                         val progress = workInfo.progress
                         val percent = progress.getInt(ApkDownloadWorker.KEY_PROGRESS_PERCENT, 0)
                         val bytes = progress.getLong(ApkDownloadWorker.KEY_PROGRESS_BYTES, 0L)
-                        val total = progress.getLong(ApkDownloadWorker.KEY_TOTAL_BYTES, availableState.metadata.apkSize)
+                        val total = progress.getLong(ApkDownloadWorker.KEY_TOTAL_BYTES, defaultTotalBytes)
 
                         _updateState.value = UpdateState.Downloading(
                             progressPercent = percent,
@@ -154,12 +176,18 @@ class UpdateManager private constructor(context: Context) {
                         liveData.removeObserver(this)
                         currentObserver = null
                         currentLiveData = null
-                        preferences.downloadedVersionCode = availableState.metadata.versionCode
+                        val versionCode = workInfo.outputData.getInt(ApkDownloadWorker.KEY_VERSION_CODE, -1)
+                        if (versionCode >= 0) {
+                            preferences.downloadedVersionCode = versionCode
+                        }
                         val apkPath = workInfo.outputData.getString(ApkDownloadWorker.KEY_APK_PATH)
                         if (apkPath != null) {
                             val apkFile = File(apkPath)
                             if (apkFile.exists()) {
-                                _updateState.value = UpdateState.ReadyToInstall(apkFile, availableState.metadata)
+                                _updateState.value = UpdateState.ReadyToInstall(
+                                    apkFile,
+                                    fallbackMetadata ?: restoreMetadata(versionCode)
+                                )
                             } else {
                                 _updateState.value = UpdateState.Error("Downloaded APK file not found")
                             }
@@ -190,6 +218,54 @@ class UpdateManager private constructor(context: Context) {
         liveData.observeForever(observer)
     }
 
+    private fun reattachDownloadState() {
+        scope.launch {
+            val infos = try {
+                withContext(Dispatchers.IO) {
+                    workManager.getWorkInfosForUniqueWork(WORK_NAME_DOWNLOAD_APK, ExistingWorkPolicy.KEEP)
+                        .get(5, TimeUnit.SECONDS)
+                }
+            } catch (_: Exception) {
+                return@launch
+            }
+
+            val info = infos.lastOrNull() ?: return@launch
+            when (info.state) {
+                WorkInfo.State.RUNNING -> {
+                    observeWork(
+                        workId = info.id,
+                        fallbackMetadata = null,
+                        defaultTotalBytes = 0L
+                    )
+                }
+                WorkInfo.State.SUCCEEDED -> {
+                    val versionCode = info.outputData.getInt(ApkDownloadWorker.KEY_VERSION_CODE, -1)
+                    if (versionCode >= 0) {
+                        preferences.downloadedVersionCode = versionCode
+                    }
+                    val apkPath = info.outputData.getString(ApkDownloadWorker.KEY_APK_PATH)
+                    if (apkPath != null) {
+                        val apkFile = File(apkPath)
+                        if (apkFile.exists()) {
+                            _updateState.value = UpdateState.ReadyToInstall(apkFile, restoreMetadata(versionCode))
+                        }
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
+
+    private fun restoreMetadata(versionCode: Int): ReleaseMetadata {
+        return ReleaseMetadata(
+            versionCode = versionCode,
+            versionName = preferences.downloadedVersionName ?: "",
+            apkName = "",
+            apkSize = 0L,
+            sha256 = ""
+        )
+    }
+
     fun cancelDownload() {
         workManager.cancelUniqueWork(WORK_NAME_DOWNLOAD_APK)
         _updateState.value = UpdateState.Idle
@@ -197,6 +273,10 @@ class UpdateManager private constructor(context: Context) {
 
     fun installUpdate(readyState: UpdateState.ReadyToInstall): Boolean {
         return installManager.installApk(readyState.apkFile)
+    }
+
+    fun reportError(message: String) {
+        _updateState.value = UpdateState.Error(message)
     }
 
     fun skipVersion(versionCode: Int) {
@@ -225,7 +305,7 @@ class UpdateManager private constructor(context: Context) {
                 val apkFile = File(updatesDir, "app-update.apk")
                 if (apkFile.exists()) {
                     val downloadedVersion = preferences.downloadedVersionCode
-                    if (downloadedVersion < 0 || BuildConfig.VERSION_CODE >= downloadedVersion) {
+                    if (isApkStale(downloadedVersion, BuildConfig.VERSION_CODE)) {
                         apkFile.delete()
                         preferences.resetDownloadedVersion()
                     }
@@ -245,6 +325,10 @@ class UpdateManager private constructor(context: Context) {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: UpdateManager(context.applicationContext).also { INSTANCE = it }
             }
+        }
+
+        internal fun isApkStale(downloadedVersionCode: Int, currentVersionCode: Int): Boolean {
+            return downloadedVersionCode >= 0 && currentVersionCode >= downloadedVersionCode
         }
     }
 }

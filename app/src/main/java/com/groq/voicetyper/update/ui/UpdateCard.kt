@@ -32,6 +32,7 @@ fun AboutAndUpdateCard(
     val state by viewModel.updateState.collectAsState()
     val preferences = viewModel.preferences
     var autoCheck by remember { mutableStateOf(preferences.autoCheckEnabled) }
+    var allowMeteredDownload by remember { mutableStateOf(preferences.allowMeteredDownloads) }
 
     val lastChecked = preferences.lastCheckedTimestamp
     val formattedLastChecked = if (lastChecked > 0) {
@@ -145,6 +146,29 @@ fun AboutAndUpdateCard(
                     onCheckedChange = { checked ->
                         autoCheck = checked
                         viewModel.setAutoCheckEnabled(checked)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Panel,
+                        checkedTrackColor = TextPrimary,
+                        uncheckedThumbColor = TextPrimary,
+                        uncheckedTrackColor = Panel
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Download over Mobile Data", fontSize = 14.sp, color = TextPrimary)
+                Switch(
+                    checked = allowMeteredDownload,
+                    onCheckedChange = { checked ->
+                        allowMeteredDownload = checked
+                        viewModel.setAllowMeteredDownloads(checked)
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Panel,
