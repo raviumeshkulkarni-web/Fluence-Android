@@ -7,6 +7,9 @@ data class CorrectionCandidate(
 
 object WordLcsExtractor {
 
+    private const val MAX_TEXT_CHARS = 10_000
+    private const val MAX_WORDS = 1_000
+
     /**
      * Extracts high-confidence word-level corrections by comparing committed text vs user edited text.
      */
@@ -15,10 +18,16 @@ object WordLcsExtractor {
             return emptyList()
         }
 
+        if (committedText.length > MAX_TEXT_CHARS || editedText.length > MAX_TEXT_CHARS) {
+            return emptyList()
+        }
+
         val committedWords = tokenize(committedText)
         val editedWords = tokenize(editedText)
 
-        if (committedWords.isEmpty() || editedWords.isEmpty()) {
+        if (committedWords.isEmpty() || editedWords.isEmpty() ||
+            committedWords.size > MAX_WORDS || editedWords.size > MAX_WORDS
+        ) {
             return emptyList()
         }
 

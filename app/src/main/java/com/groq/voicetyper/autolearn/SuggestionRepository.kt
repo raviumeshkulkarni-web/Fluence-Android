@@ -35,12 +35,21 @@ object SuggestionRepository {
 
     suspend fun acceptSuggestion(context: Context, suggestion: SuggestionEntry) {
         // Promote to Manual Custom Dictionary
-        DictionaryRepository.saveEntry(
+        val result = DictionaryRepository.saveEntry(
             context = context,
             spokenText = suggestion.spokenText,
             replacementText = suggestion.correctedText,
             isEnabled = true
         )
+        if (result == DictionaryRepository.SaveResult.PRESERVED) {
+            // A manual entry already owns this phrase. Apply the accepted
+            // correction to that entry so the suggestion isn't silently dropped.
+            DictionaryRepository.applyCorrectionToExisting(
+                context = context,
+                spokenText = suggestion.spokenText,
+                correctedText = suggestion.correctedText
+            )
+        }
         // Remove from pending suggestions table
         getDao(context).delete(suggestion)
     }

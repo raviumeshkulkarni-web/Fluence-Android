@@ -99,4 +99,42 @@ class DictionaryTextPostProcessorTest {
         val result = DictionaryTextPostProcessor.processWithCompiledRules("the ai revolution", rules)
         assertEquals("the AI revolution", result)
     }
+
+    @Test
+    fun `replacement text with dollar signs is treated literally`() {
+        val entries = listOf(
+            CustomDictionaryEntry(id = 1, spokenText = "price", replacementText = "price: \$5", isEnabled = true)
+        )
+
+        val input = "the price is high"
+        val expected = "the price: \$5 is high"
+
+        val actual = DictionaryTextPostProcessor.processWithEntries(input, entries)
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `replacement text with backslashes is treated literally`() {
+        val entries = listOf(
+            CustomDictionaryEntry(id = 1, spokenText = "path", replacementText = "C:\\Users\\me", isEnabled = true)
+        )
+
+        val input = "go to path"
+        val expected = "go to C:\\Users\\me"
+
+        val actual = DictionaryTextPostProcessor.processWithEntries(input, entries)
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `malformed compiled rule never throws during processing`() {
+        val rules = listOf(
+            CompiledDictionaryRule(regex = Regex("(?i)\\bprice\\b"), replacementText = "price: \$5")
+        )
+
+        val input = "the price is high"
+
+        val actual = DictionaryTextPostProcessor.processWithCompiledRules(input, rules)
+        assertEquals(input, actual)
+    }
 }

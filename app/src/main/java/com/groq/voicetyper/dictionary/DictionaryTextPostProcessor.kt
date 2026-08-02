@@ -2,6 +2,7 @@ package com.groq.voicetyper.dictionary
 
 import android.content.Context
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
+import java.util.regex.Matcher
 
 object DictionaryTextPostProcessor {
 
@@ -30,7 +31,11 @@ object DictionaryTextPostProcessor {
 
         var result = rawText
         for (rule in rules) {
-            result = rule.regex.replace(result, rule.replacementText)
+            result = try {
+                rule.regex.replace(result, rule.replacementText)
+            } catch (_: Exception) {
+                result
+            }
         }
         return result
     }
@@ -48,7 +53,7 @@ object DictionaryTextPostProcessor {
                 val escaped = Regex.escape(rule.spokenText.trim())
                 CompiledDictionaryRule(
                     regex = Regex("(?i)\\b$escaped\\b"),
-                    replacementText = rule.replacementText
+                    replacementText = Matcher.quoteReplacement(rule.replacementText)
                 )
             }
 
