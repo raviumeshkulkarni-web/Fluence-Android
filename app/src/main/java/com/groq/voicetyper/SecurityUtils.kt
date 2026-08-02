@@ -43,6 +43,14 @@ object SecurityUtils {
         getSharedPrefs(context).edit().putString("stt_provider_preset", preset).apply()
     }
 
+    fun getSttLanguage(context: Context): String {
+        return getSharedPrefs(context).getString("stt_language", "") ?: ""
+    }
+
+    fun saveSttLanguage(context: Context, code: String) {
+        getSharedPrefs(context).edit().putString("stt_language", code).apply()
+    }
+
     fun getSttBaseUrl(context: Context, preset: String): String {
         val defaultUrl = when (preset.lowercase()) {
             "groq" -> "https://api.groq.com/openai"

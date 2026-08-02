@@ -221,7 +221,7 @@ fun SttConfigScreen(
             customBaseUrl = SecurityUtils.getSttBaseUrl(context, "custom")
             customModel = SecurityUtils.getSttModel(context, "custom")
             selectedModel = SecurityUtils.getSttModel(context, selectedProvider)
-            selectedLanguage = null
+            selectedLanguage = SecurityUtils.getSttLanguage(context)
         }
         testResult = null
         fetchModelsForProvider()
@@ -374,6 +374,7 @@ fun SttConfigScreen(
                                     else Modifier,
                                     onClick = {
                                         selectedLanguage = code
+                                        SecurityUtils.saveSttLanguage(context, code ?: "")
                                         showLanguageDropdown = false
                                     }
                                 )
