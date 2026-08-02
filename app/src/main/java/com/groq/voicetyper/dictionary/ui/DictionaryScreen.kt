@@ -46,7 +46,7 @@ fun DictionaryScreen(
 
     var isEnabled by remember { mutableStateOf(DictionaryPreferences.isDictionaryEnabled(context)) }
     var isAutoLearnEnabled by remember { mutableStateOf(AutoLearnPreferences.isAutoLearnEnabled(context)) }
-    val entries by DictionaryRepository.getAll(context).collectAsState(initial = emptyList())
+    val entries by remember(context) { DictionaryRepository.getAll(context) }.collectAsState(initial = emptyList())
 
     var showDialog by remember { mutableStateOf(false) }
     var entryToEdit by remember { mutableStateOf<CustomDictionaryEntry?>(null) }

@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -29,7 +31,7 @@ fun PendingSuggestionsSection(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val pendingSuggestions by SuggestionRepository.getPendingSuggestions(context).collectAsState(initial = emptyList())
+    val pendingSuggestions by remember(context) { SuggestionRepository.getPendingSuggestions(context) }.collectAsState(initial = emptyList())
 
     if (pendingSuggestions.isEmpty()) return
 
@@ -56,10 +58,16 @@ fun PendingSuggestionsSection(
             )
         }
 
-        Column(
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 240.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            pendingSuggestions.forEach { suggestion ->
+            items(
+                items = pendingSuggestions,
+                key = { it.id }
+            ) { suggestion ->
                 PendingSuggestionCard(
                     suggestion = suggestion,
                     onAccept = {

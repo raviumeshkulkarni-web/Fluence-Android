@@ -18,7 +18,10 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CustomDictionaryEntry?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("SELECT * FROM custom_dictionary WHERE spokenText = :spokenText LIMIT 1")
+    suspend fun getBySpokenText(spokenText: String): CustomDictionaryEntry?
+
+    @Insert
     suspend fun insert(entry: CustomDictionaryEntry): Long
 
     @Update

@@ -42,6 +42,26 @@ class WordLcsExtractorTest {
     }
 
     @Test
+    fun testOversizedTextIsSkipped() {
+        val longText = (1..2000).joinToString(" ") { "word$it" }
+        val edited = "$longText replaced"
+
+        val corrections = WordLcsExtractor.extractCorrections(longText, edited)
+
+        assertTrue(corrections.isEmpty())
+    }
+
+    @Test
+    fun testWordCountCapBindsLcsCost() {
+        val manyWords = (1..1200).joinToString(" ") { "a$it" }
+        val edited = "$manyWords z"
+
+        val corrections = WordLcsExtractor.extractCorrections(manyWords, edited)
+
+        assertTrue(corrections.isEmpty())
+    }
+
+    @Test
     fun testPrivacySignalPasswordBlocked() {
         val editorInfo = EditorInfo().apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD

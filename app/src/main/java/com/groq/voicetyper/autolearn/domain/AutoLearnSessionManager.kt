@@ -45,7 +45,7 @@ object AutoLearnSessionManager {
         val committed = activeCommittedText ?: return
         if (!isPrivacyAllowed || currentTextAroundCursor.isBlank()) return
 
-        if (currentTextAroundCursor.length > MAX_FIELD_CHARS) {
+        if (committed.length > MAX_FIELD_CHARS || currentTextAroundCursor.length > MAX_FIELD_CHARS) {
             endSession()
             return
         }
@@ -53,7 +53,6 @@ object AutoLearnSessionManager {
         scope.launch {
             val corrections = WordLcsExtractor.extractCorrections(committed, currentTextAroundCursor)
             for (candidate in corrections) {
-                Log.i(TAG, "Extracted candidate correction: '${candidate.spokenText}' -> '${candidate.correctedText}'")
                 SuggestionRepository.recordCorrectionCandidate(
                     context = context,
                     spokenText = candidate.spokenText,

@@ -8,6 +8,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import java.util.concurrent.atomic.AtomicReference
+import java.util.regex.Matcher
 
 data class CompiledDictionaryRule(
     val regex: Regex,
@@ -15,10 +16,18 @@ data class CompiledDictionaryRule(
 )
 
 object DictionaryRepository {
+    internal enum class SaveAction { INSERT, UPDATE, PRESERVE }
+
     private var dao: CustomDictionaryDao? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val cachedRules = AtomicReference<List<CompiledDictionaryRule>>(emptyList())
     @Volatile private var isObserving = false
+
+    internal fun resolveSaveAction(existing: CustomDictionaryEntry?, id: Long): SaveAction = when {
+        existing != null && existing.id != id -> SaveAction.PRESERVE
+        id != 0L -> SaveAction.UPDATE
+        else -> SaveAction.INSERT
+    }
 
     fun init(context: Context) {
         if (dao == null) {
@@ -31,6 +40,9 @@ object DictionaryRepository {
     private fun startObservingCache() {
         if (isObserving) return
         isObserving = true
+        runCatching { dao?.getAllEnabledSync() }
+            .getOrNull()
+            ?.let { updateCompiledCache(it) }
         scope.launch {
             try {
                 dao?.getAllEnabled()?.collectLatest { entries ->
@@ -51,7 +63,7 @@ object DictionaryRepository {
                 val escaped = Regex.escape(rule.spokenText.trim())
                 CompiledDictionaryRule(
                     regex = Regex("(?i)\\b$escaped\\b"),
-                    replacementText = rule.replacementText
+                    replacementText = Matcher.quoteReplacement(rule.replacementText)
                 )
             }
         cachedRules.set(compiled)
@@ -84,13 +96,27 @@ object DictionaryRepository {
         val trimmedReplacement = replacementText.trim()
         if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return
 
-        val entry = CustomDictionaryEntry(
-            id = id,
-            spokenText = trimmedSpoken,
-            replacementText = trimmedReplacement,
-            isEnabled = isEnabled
-        )
-        getDao(context).insert(entry)
+        val dao = getDao(context)
+        val existing = dao.getBySpokenText(trimmedSpoken)
+        when (resolveSaveAction(existing, id)) {
+            SaveAction.INSERT -> dao.insert(
+                CustomDictionaryEntry(
+                    id = 0,
+                    spokenText = trimmedSpoken,
+                    replacementText = trimmedReplacement,
+                    isEnabled = isEnabled
+                )
+            )
+            SaveAction.UPDATE -> dao.update(
+                CustomDictionaryEntry(
+                    id = id,
+                    spokenText = trimmedSpoken,
+                    replacementText = trimmedReplacement,
+                    isEnabled = isEnabled
+                )
+            )
+            SaveAction.PRESERVE -> Unit
+        }
     }
 
     suspend fun toggleEntryEnabled(context: Context, entry: CustomDictionaryEntry, isEnabled: Boolean) {
