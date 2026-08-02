@@ -29,9 +29,9 @@ class AudioRecorder(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO)
     private val lock = Any()
 
-    fun startRecording() {
+    fun startRecording(): Boolean {
         synchronized(lock) {
-            if (isRecording) return
+            if (isRecording) return false
 
             // Use cache directory for privacy (files remain internal to the app)
             val cacheFile = File(context.cacheDir, "groq_voice_record_${System.currentTimeMillis()}.m4a")
@@ -62,22 +62,23 @@ class AudioRecorder(private val context: Context) {
                 Log.e(TAG, "Recording preparation failed", e)
                 safeRelease(recorder)
                 cleanupFile()
-                return
+                return false
             } catch (e: IllegalStateException) {
                 Log.e(TAG, "Recording start failed", e)
                 safeRelease(recorder)
                 cleanupFile()
-                return
+                return false
             } catch (e: SecurityException) {
                 Log.e(TAG, "Microphone permission denied at runtime", e)
                 safeRelease(recorder)
                 cleanupFile()
-                return
+                return false
             }
         }
 
         // Start polling outside the lock to avoid holding it during coroutine work
         startAmplitudePolling()
+        return true
     }
 
     private fun startAmplitudePolling() {
