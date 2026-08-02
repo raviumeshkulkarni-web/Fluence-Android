@@ -224,7 +224,7 @@ object TranscriptionSessionManager {
                     val rawTranscription = offlineTextAccumulator.toString().trim()
                     if (rawTranscription.isNotEmpty()) {
                         val finalTranscription = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
-                        val lang = getKeyboardLanguageCode(context)
+                        val lang = getEffectiveLanguage(context)
                         val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
                         CoroutineScope(Dispatchers.IO).launch {
                             HistoryRepository.save(finalTranscription, "offline", engineModelName, lang, durationMs, false)
@@ -304,7 +304,7 @@ object TranscriptionSessionManager {
         }
 
         scope.launch {
-            val languageCode = getKeyboardLanguageCode(context)
+            val languageCode = getEffectiveLanguage(context)
             val sttBaseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
             val sttModel = SecurityUtils.getSttModel(context, sttPreset)
 
@@ -354,6 +354,11 @@ object TranscriptionSessionManager {
                 }
             )
         }
+    }
+
+    private fun getEffectiveLanguage(context: Context): String {
+        val saved = SecurityUtils.getSttLanguage(context)
+        return if (saved.isNotBlank()) saved else getKeyboardLanguageCode(context)
     }
 
     private fun getKeyboardLanguageCode(context: Context): String {
