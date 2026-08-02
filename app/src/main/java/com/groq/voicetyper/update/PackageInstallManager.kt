@@ -28,6 +28,9 @@ class PackageInstallManager(private val context: Context) {
     }
 
     fun installApk(apkFile: File): Boolean {
+        if (!canInstallPackages()) {
+            return false
+        }
         if (!apkFile.exists() || apkFile.length() == 0L) {
             return false
         }

@@ -26,12 +26,30 @@ class UpdatePreferences(context: Context) {
         get() = prefs.getInt(KEY_DOWNLOADED_VERSION, -1)
         set(value) = prefs.edit().putInt(KEY_DOWNLOADED_VERSION, value).apply()
 
+    var downloadedVersionName: String?
+        get() = prefs.getString(KEY_DOWNLOADED_VERSION_NAME, null)
+        set(value) = prefs.edit().putString(KEY_DOWNLOADED_VERSION_NAME, value).apply()
+
+    var downloadedApkSize: Long
+        get() = prefs.getLong(KEY_DOWNLOADED_APK_SIZE, 0L)
+        set(value) = prefs.edit().putLong(KEY_DOWNLOADED_APK_SIZE, value).apply()
+
+    var allowMeteredDownloads: Boolean
+        get() = prefs.getBoolean(KEY_ALLOW_METERED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ALLOW_METERED, value).apply()
+
     fun resetSkippedVersion() {
         prefs.edit().remove(KEY_SKIPPED_VERSION).apply()
     }
 
     fun resetDownloadedVersion() {
-        prefs.edit().remove(KEY_DOWNLOADED_VERSION).apply()
+        // Single atomic edit: no window where versionCode is cleared but
+        // versionName survives.
+        prefs.edit()
+            .remove(KEY_DOWNLOADED_VERSION)
+            .remove(KEY_DOWNLOADED_VERSION_NAME)
+            .remove(KEY_DOWNLOADED_APK_SIZE)
+            .apply()
     }
 
     companion object {
@@ -41,5 +59,8 @@ class UpdatePreferences(context: Context) {
         private const val KEY_AUTO_CHECK = "auto_check_enabled"
         private const val KEY_CACHED_ETAG = "cached_etag"
         private const val KEY_DOWNLOADED_VERSION = "downloaded_version_code"
+        private const val KEY_DOWNLOADED_VERSION_NAME = "downloaded_version_name"
+        private const val KEY_DOWNLOADED_APK_SIZE = "downloaded_apk_size"
+        private const val KEY_ALLOW_METERED = "allow_metered_downloads"
     }
 }

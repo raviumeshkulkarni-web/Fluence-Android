@@ -19,14 +19,28 @@ class ApkDownloadWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // Bound retries: WorkManager backoff is capped at 5h exponential and would
+        // otherwise retry forever on persistent network failure, re-downloading the
+        // whole APK each attempt. Fail permanently once the cap is reached.
+        if (runAttemptCount >= MAX_RETRY_ATTEMPTS) {
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Download failed after $MAX_RETRY_ATTEMPTS attempts")
+            )
+        }
+
         val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL)
             ?: return@withContext Result.failure(workDataOf(KEY_ERROR to "Missing download URL"))
         val expectedSize = inputData.getLong(KEY_EXPECTED_SIZE, 0L)
         val expectedSha256 = inputData.getString(KEY_EXPECTED_SHA256) ?: ""
+        val versionCode = inputData.getInt(KEY_VERSION_CODE, -1)
 
         val updatesDir = File(context.filesDir, "updates")
-        if (!updatesDir.exists()) {
-            updatesDir.mkdirs()
+        // Missing/undeletable dir is a permanent environment problem, not transient:
+        // surface it as a failure instead of retrying forever.
+        if (!updatesDir.exists() && !updatesDir.mkdirs()) {
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Failed to create updates directory")
+            )
         }
 
         // Clean up any old download files prior to starting new download
@@ -48,9 +62,14 @@ class ApkDownloadWorker(
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(
-                        workDataOf(KEY_ERROR to "HTTP error ${response.code} downloading update APK")
-                    )
+                    val code = response.code
+                    return@withContext if (isRetryableHttpCode(code)) {
+                        Result.retry()
+                    } else {
+                        Result.failure(
+                            workDataOf(KEY_ERROR to "HTTP error $code downloading update APK")
+                        )
+                    }
                 }
 
                 val body = response.body
@@ -125,11 +144,20 @@ class ApkDownloadWorker(
                     return@withContext Result.failure(workDataOf(KEY_ERROR to "Failed to finalize downloaded APK file"))
                 }
 
-                Result.success(workDataOf(KEY_APK_PATH to finalApkFile.absolutePath))
+                Result.success(
+                    workDataOf(
+                        KEY_APK_PATH to finalApkFile.absolutePath,
+                        KEY_VERSION_CODE to versionCode
+                    )
+                )
             }
         } catch (e: Exception) {
             if (tempFile.exists()) tempFile.delete()
-            Result.failure(workDataOf(KEY_ERROR to "Download error: ${e.localizedMessage}"))
+            if (isRetryable(e)) {
+                Result.retry()
+            } else {
+                Result.failure(workDataOf(KEY_ERROR to "Download error: ${e.localizedMessage}"))
+            }
         }
     }
 
@@ -137,6 +165,7 @@ class ApkDownloadWorker(
         const val KEY_DOWNLOAD_URL = "download_url"
         const val KEY_EXPECTED_SIZE = "expected_size"
         const val KEY_EXPECTED_SHA256 = "expected_sha256"
+        const val KEY_VERSION_CODE = "version_code"
 
         const val KEY_PROGRESS_BYTES = "progress_bytes"
         const val KEY_TOTAL_BYTES = "total_bytes"
@@ -144,5 +173,13 @@ class ApkDownloadWorker(
 
         const val KEY_APK_PATH = "apk_path"
         const val KEY_ERROR = "error_message"
+
+        // Hard cap on attempts (initial run + retries). Prevents the worker from
+        // retrying forever on persistent network failures.
+        internal const val MAX_RETRY_ATTEMPTS = 10
+
+        internal fun isRetryableHttpCode(code: Int): Boolean = code == 429 || code >= 500
+
+        internal fun isRetryable(error: Exception): Boolean = error is java.io.IOException
     }
 }

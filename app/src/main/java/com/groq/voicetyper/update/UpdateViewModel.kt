@@ -30,6 +30,10 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         return updateManager.installUpdate(readyState)
     }
 
+    fun reportError(message: String) {
+        updateManager.reportError(message)
+    }
+
     fun skipVersion(versionCode: Int) {
         updateManager.skipVersion(versionCode)
     }
@@ -44,5 +48,9 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setAutoCheckEnabled(enabled: Boolean) {
         preferences.autoCheckEnabled = enabled
+    }
+
+    fun setAllowMeteredDownloads(enabled: Boolean) {
+        preferences.allowMeteredDownloads = enabled
     }
 }

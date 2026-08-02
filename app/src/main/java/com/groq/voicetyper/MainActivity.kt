@@ -18,7 +18,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.navigation.FluenceNavHost
 import com.groq.voicetyper.theme.*
 
@@ -49,6 +56,19 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val updateViewModel: com.groq.voicetyper.update.UpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                     val updateState by updateViewModel.updateState.collectAsState()
+                    var canInstallPackages by remember { mutableStateOf(updateViewModel.canInstallPackages) }
+                    val lifecycleOwner = LocalLifecycleOwner.current
+
+                    LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            canInstallPackages = updateViewModel.canInstallPackages
+                        }
+                    }.let { observer ->
+                        DisposableEffect(lifecycleOwner) {
+                            lifecycleOwner.lifecycle.addObserver(observer)
+                            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                        }
+                    }
 
                     FluenceNavHost(
                         onRequestPermission = {
@@ -58,10 +78,16 @@ class MainActivity : ComponentActivity() {
 
                     com.groq.voicetyper.update.ui.UpdateDialogHost(
                         updateState = updateState,
-                        canInstallPackages = updateViewModel.canInstallPackages,
+                        canInstallPackages = canInstallPackages,
                         onStartDownload = { availableState -> updateViewModel.startDownload(availableState) },
                         onCancelDownload = { updateViewModel.cancelDownload() },
-                        onInstall = { readyState -> updateViewModel.installUpdate(readyState) },
+                        onInstall = { readyState ->
+                            if (!updateViewModel.installUpdate(readyState)) {
+                                updateViewModel.reportError(
+                                    "Unable to start installation. Make sure 'Install unknown apps' is allowed, then try again."
+                                )
+                            }
+                        },
                         onSkipVersion = { versionCode -> updateViewModel.skipVersion(versionCode) },
                         onRemindMeLater = { updateViewModel.remindMeLater() },
                         onRetry = { updateViewModel.checkForUpdates(force = true) },
