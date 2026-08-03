@@ -28,6 +28,9 @@ object BubbleController {
     // startForeground() (crashes with ForegroundServiceDidNotStartInTimeException).
     private const val STOP_SERVICE_DELAY_MS = 1500L
 
+    // Depth cap for the WebView ancestor walk used by the SET_TEXT classifier.
+    private const val MAX_ANCESTOR_DEPTH = 25
+
     private val _isBubbleVisible = MutableStateFlow(false)
     val isBubbleVisible: StateFlow<Boolean> = _isBubbleVisible.asStateFlow()
 
@@ -316,6 +319,116 @@ object BubbleController {
     }
 
     /**
+     * Decides whether to attempt ACTION_SET_TEXT before the existing clipboard path.
+     *
+     * Only native, plain-text editable fields qualify. Every ambiguous or risky case
+     * returns false so the untouched clipboard implementation runs unchanged.
+     */
+    private fun shouldPreferSetText(node: AccessibilityNodeInfo, currentText: CharSequence): Boolean {
+        // Unknown or missing ACTION_SET_TEXT — cannot confirm support.
+        val actions = node.actionList ?: return false
+        if (actions.none { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }) return false
+
+        // contenteditable-style nodes advertise SET_TEXT without isEditable
+        // (see FluenceAccessibilityService.isEditableTextField). They historically
+        // needed clipboard insertion — keep the reference path for them.
+        if (!node.isEditable) return false
+
+        // WebView-hosted editors (Chrome/Brave/System WebView) can dispatch SET_TEXT
+        // without persisting it — keep the reference clipboard path for them.
+        if (hasWebViewAncestor(node)) return false
+
+        // Whole-field SET_TEXT would flatten formatting spans that paste preserves.
+        if (currentText is android.text.Spanned &&
+            currentText.getSpans(0, currentText.length, Any::class.java).isNotEmpty()) {
+            return false
+        }
+
+        return true
+    }
+
+    /**
+     * Walks the ancestor chain (bounded) looking for a WebView container. Chromium
+     * exposes web content as a virtual accessibility subtree hosted under the
+     * WebView view node, so a focused web input is always a descendant of a node
+     * whose class name contains "WebView". Any traversal failure defaults to the
+     * clipboard path (conservative).
+     */
+    @Suppress("DEPRECATION")
+    private fun hasWebViewAncestor(node: AccessibilityNodeInfo): Boolean {
+        var current = node.parent
+        var depth = 0
+        try {
+            while (current != null && depth < MAX_ANCESTOR_DEPTH) {
+                val cls = current.className?.toString()?.lowercase() ?: ""
+                val parent = current.parent
+                current.recycle()
+                current = parent
+                if (cls.contains("webview")) return true
+                depth++
+            }
+        } catch (e: Exception) {
+            // Cannot verify ancestry — fall back to the clipboard path.
+            return true
+        } finally {
+            // Recycle the final acquired parent on every exit path (depth cap,
+            // exception, or a WebView hit) so no node leaks.
+            if (current != null) current.recycle()
+        }
+        return false
+    }
+
+    /**
+     * Applies [newText] via ACTION_SET_TEXT and restores the cursor to [newCursorPos].
+     * Returns true only when the action was actually performed.
+     */
+    private fun trySetText(node: AccessibilityNodeInfo, newText: String, newCursorPos: Int): Boolean {
+        val setBundle = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+        }
+        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, setBundle)) return false
+        val selectBundle = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
+        }
+        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+        return true
+    }
+
+    /**
+     * True when the node is showing its hint rather than real text. Some apps
+     * (e.g. WhatsApp) expose the hint as the accessibility text without setting
+     * the showing-hint flag, so also treat a field whose text exactly equals its
+     * hint as empty — otherwise SET_TEXT would type the hint as real text.
+     */
+    @Suppress("DEPRECATION")
+    private fun isHintEmpty(node: AccessibilityNodeInfo): Boolean {
+        if (node.isShowingHintText) return true
+        val hint = node.hintText
+        if (hint != null && hint.isNotEmpty()) {
+            return node.text?.toString() == hint.toString()
+        }
+        return false
+    }
+
+    /**
+     * True when a field renders a placeholder as actual field text (WhatsApp
+     * exposes its "Message" placeholder as node.text with no hint flags and no
+     * selection). Real text in a focused editable field always carries a
+     * selection, so non-empty text with no hint and no selection is the
+     * placeholder signal. SET_TEXT must not reconstruct from such text, or it
+     * types the placeholder as real content.
+     */
+    private fun isPlaceholderText(node: AccessibilityNodeInfo): Boolean {
+        if (node.text.isNullOrEmpty()) return false
+        if (node.isShowingHintText) return false
+        @Suppress("DEPRECATION")
+        val hint = node.hintText
+        if (hint != null && hint.isNotEmpty()) return false
+        return node.textSelectionStart == -1 && node.textSelectionEnd == -1
+    }
+
+    /**
      * Injects text into the active node at the current cursor position.
      */
     fun injectText(context: Context, text: String) {
@@ -329,9 +442,11 @@ object BubbleController {
             Log.w(TAG, "Node refresh returned false — attempting injection anyway")
         }
 
-        val currentText = if (node.isShowingHintText) "" else (node.text ?: "")
-        val selectionStart = if (node.isShowingHintText) 0 else node.textSelectionStart
-        val selectionEnd = if (node.isShowingHintText) 0 else node.textSelectionEnd
+        val placeholderText = isPlaceholderText(node)
+        val hintEmpty = isHintEmpty(node) || placeholderText
+        val currentText = if (hintEmpty) "" else (node.text ?: "")
+        val selectionStart = if (hintEmpty) 0 else node.textSelectionStart
+        val selectionEnd = if (hintEmpty) 0 else node.textSelectionEnd
         val textToInsert = "${text.trim()} "
 
         if (selectionStart >= 0 && selectionEnd >= 0) {
@@ -340,6 +455,14 @@ object BubbleController {
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionEnd)
             node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
+            if (shouldPreferSetText(node, currentText) && !placeholderText) {
+                val newText = StringBuilder(currentText)
+                    .replace(selectionStart, selectionEnd, textToInsert)
+                    .toString()
+                val newCursorPos = selectionStart + textToInsert.length
+                if (trySetText(node, newText, newCursorPos)) return
+            }
+
             pasteTextViaClipboard(context, node, textToInsert) {
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
@@ -356,6 +479,11 @@ object BubbleController {
                 }
             }
         } else {
+            if (shouldPreferSetText(node, currentText) && !placeholderText) {
+                val newText = currentText.toString() + textToInsert
+                if (trySetText(node, newText, newText.length)) return
+            }
+
             pasteTextViaClipboard(context, node, textToInsert) {
                 val newText = currentText.toString() + textToInsert
                 val bundle = Bundle()
@@ -380,6 +508,14 @@ object BubbleController {
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionStart)
             node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
+            if (shouldPreferSetText(node, currentText)) {
+                val replacedText = StringBuilder(currentText)
+                    .replace(startPos, selectionStart, newText)
+                    .toString()
+                val newCursorPos = startPos + newText.length
+                if (trySetText(node, replacedText, newCursorPos)) return
+            }
+
             pasteTextViaClipboard(context, node, newText) {
                 val replacedText = StringBuilder(currentText)
                     .replace(startPos, selectionStart, newText)
@@ -403,6 +539,10 @@ object BubbleController {
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
             node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
+            if (shouldPreferSetText(node, currentText)) {
+                if (trySetText(node, newText, newText.length)) return
+            }
+
             pasteTextViaClipboard(context, node, newText) {
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
