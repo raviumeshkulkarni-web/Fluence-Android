@@ -414,7 +414,12 @@ object TranscriptionSessionManager {
             val sttBaseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
             val sttModel = SecurityUtils.getSttModel(context, sttPreset)
 
-            val result = GroqClient.transcribe(sttBaseUrl, sttModel, sttKey, file, languageCode)
+            // Auto-detect: only send a language hint to the STT API when the user
+            // explicitly chose one. Passing null makes Whisper detect the spoken
+            // language itself instead of assuming the keyboard/device language.
+            val sttLanguage = SecurityUtils.getSttLanguage(context).ifBlank { null }
+
+            val result = GroqClient.transcribe(sttBaseUrl, sttModel, sttKey, file, sttLanguage)
             result.fold(
                 onSuccess = { rawText ->
                     if (rawText.isNotBlank()) {

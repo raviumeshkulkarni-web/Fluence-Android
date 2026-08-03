@@ -278,9 +278,16 @@ object BubbleController {
             fallback()
             return
         }
-        
+
+        // Capture the original clip up front so every path below can restore it.
+        val primaryClip = try {
+            clipboard.primaryClip
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read current clipboard", e)
+            null
+        }
+
         try {
-            val primaryClip = clipboard.primaryClip
             clipboard.setPrimaryClip(ClipData.newPlainText("voice_input", textToPaste))
             val success = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             if (!success) {
@@ -289,15 +296,21 @@ object BubbleController {
                 fallback()
                 return
             }
-            
+
             // Only schedule delayed restore when paste succeeded —
             // gives the target app time to process the paste IPC before we swap the clipboard back.
             scope.launch(Dispatchers.Main) {
-                kotlinx.coroutines.delay(50)
-                restoreClipboard(clipboard, primaryClip)
+                try {
+                    kotlinx.coroutines.delay(50)
+                } finally {
+                    restoreClipboard(clipboard, primaryClip)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error in pasteTextViaClipboard", e)
+            // The clip was swapped to the transcription; always restore it, even on
+            // failure, so the transcription never lingers in the system clipboard.
+            restoreClipboard(clipboard, primaryClip)
             fallback()
         }
     }

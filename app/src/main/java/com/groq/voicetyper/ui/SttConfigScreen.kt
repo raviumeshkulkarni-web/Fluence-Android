@@ -171,7 +171,7 @@ fun SttConfigScreen(
     var selectedModel by remember { mutableStateOf(SecurityUtils.getSttModel(context, selectedProvider)) }
     var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var isFetchingModels by remember { mutableStateOf(false) }
-    var selectedLanguage by remember { mutableStateOf<String?>(null) }
+    var selectedLanguage by remember { mutableStateOf(SecurityUtils.getSttLanguage(context).ifBlank { null }) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var showPassword by remember { mutableStateOf(false) }
@@ -221,7 +221,6 @@ fun SttConfigScreen(
             customBaseUrl = SecurityUtils.getSttBaseUrl(context, "custom")
             customModel = SecurityUtils.getSttModel(context, "custom")
             selectedModel = SecurityUtils.getSttModel(context, selectedProvider)
-            selectedLanguage = SecurityUtils.getSttLanguage(context)
         }
         testResult = null
         fetchModelsForProvider()
@@ -240,8 +239,11 @@ fun SttConfigScreen(
         "zh" to "Chinese",
         "ko" to "Korean",
         "hi" to "Hindi",
+        "mr" to "Marathi",
+        "pa" to "Punjabi",
         "ar" to "Arabic",
-        "ru" to "Russian"
+        "ru" to "Russian",
+        "hu" to "Hungarian"
     )
 
     Box(
