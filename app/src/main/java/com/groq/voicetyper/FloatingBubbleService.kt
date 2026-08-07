@@ -15,6 +15,7 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.view.Gravity
 import android.view.WindowManager
+import android.view.Choreographer
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
@@ -177,6 +178,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                 FloatingBubbleUI(
                     isAnchoredRight = isAnchoredRight,
                     onDrag = { dx, dy ->
+                        BubbleTrace.log("DRAG", "dx=$dx dy=$dy")
                         val screenWidth = resources.displayMetrics.widthPixels
                         val screenHeight = resources.displayMetrics.heightPixels
                         val lp = this@FloatingBubbleService.layoutParams
@@ -195,6 +197,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         lastY = lp.y
                         if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
                             windowManager.updateViewLayout(composeView, lp)
+                            BubbleTrace.log("UVL_DRAG", "g=${lp.gravity} x=${lp.x} y=${lp.y} aR=$isAnchoredRight")
                         }
                     },
                     onDragReleased = {
@@ -216,6 +219,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         } else {
                             if (finalAnchorRight) screenWidth - collapsedSize - padding else -padding
                         }
+                        BubbleTrace.log("RELEASE", "curEnd=$currentlyEnd isLeft=$isLeft finalR=$finalAnchorRight targetX=$targetX")
                         animateSnap(targetX, finalAnchorRight, currentlyEnd)
                     },
                     onWidthUpdated = { _ ->
@@ -260,15 +264,41 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         if (lp.flags != oldFlags) {
             if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
                 windowManager.updateViewLayout(composeView, lp)
+                BubbleTrace.log("UVL_FLAGS", "keepScreenOn=$keepScreenOn")
             }
         }
     }
 
     private var snapAnimator: android.animation.ValueAnimator? = null
+    private var windowTraceFrames = 0
+
+    private fun startWindowTrace(frames: Int = 140) {
+        windowTraceFrames = frames
+        if (frames > 0) {
+            Choreographer.getInstance().postFrameCallback { frameNanos ->
+                windowTraceFrame(frameNanos)
+            }
+        }
+    }
+
+    private fun windowTraceFrame(frameNanos: Long) {
+        if (windowTraceFrames <= 0) return
+        windowTraceFrames--
+        composeView?.let { v ->
+            val loc = IntArray(2)
+            v.getLocationOnScreen(loc)
+            BubbleTrace.log("WINDOW_POS", "${loc[0]},${loc[1]}|frame=$frameNanos")
+        }
+        if (windowTraceFrames > 0) {
+            Choreographer.getInstance().postFrameCallback { fn -> windowTraceFrame(fn) }
+        }
+    }
 
     private fun animateSnap(targetX: Int, finalAnchorRight: Boolean, currentlyEnd: Boolean) {
         snapAnimator?.cancel()
         val startX = layoutParams.x
+        BubbleTrace.log("SNAP_START", "start=$startX target=$targetX finalR=$finalAnchorRight curEnd=$currentlyEnd")
+        startWindowTrace()
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
         animator.duration = 350
         animator.interpolator = android.view.animation.DecelerateInterpolator()
@@ -298,30 +328,45 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         //
                         // (1) Flip the Compose alignment now (schedules recomposition) and stage the
                         //     new window geometry.
+                        BubbleTrace.log("FLIP_BEGIN", "finalR=$finalAnchorRight curEnd=$currentlyEnd")
                         BubbleController.updateAnchoredRight(finalAnchorRight)
                         layoutParams.gravity = Gravity.TOP or if (finalAnchorRight) Gravity.END else Gravity.START
                         layoutParams.x = -padding
                         lastX = layoutParams.x
+                        BubbleTrace.log("FLIP_STAGED", "g=${layoutParams.gravity} x=${layoutParams.x}")
                         // (2) Apply the origin move as one instantaneous transaction
                         if (Build.VERSION.SDK_INT >= 34) {
                             layoutParams.setCanPlayMoveAnimation(false)
+                            BubbleTrace.log("FLIP_NOMOVEANIM", "sdk=${Build.VERSION.SDK_INT}")
                         }
-                        // (3) Defer the window move to run after the Compose recomposition pass
-                        view.post {
-                            if (isViewAdded && view.isAttachedToWindow) {
-                                windowManager.updateViewLayout(view, layoutParams)
+                        // (3) Defer the window move to the pre-draw of the RE-ALIGNED content so the
+                        //     ordering is deterministically content-first and the seam stays off-screen.
+                        BubbleTrace.log("FLIP_PREDRAW_ADD")
+                        view.viewTreeObserver.addOnPreDrawListener(
+                            object : android.view.ViewTreeObserver.OnPreDrawListener {
+                                override fun onPreDraw(): Boolean {
+                                    view.viewTreeObserver.removeOnPreDrawListener(this)
+                                    if (isViewAdded && view.isAttachedToWindow) {
+                                        BubbleTrace.log("FLIP_PREDRAW_EXEC", "attached=${view.isAttachedToWindow}")
+                                        windowManager.updateViewLayout(view, layoutParams)
+                                        BubbleTrace.log("UVL_POST", "g=${layoutParams.gravity} x=${layoutParams.x} y=${layoutParams.y}")
+                                    }
+                                    return true
+                                }
                             }
-                        }
+                        )
                     }
                 }
                 isAnchoredRight = finalAnchorRight
                 lastIsAnchoredRight = finalAnchorRight
+                BubbleTrace.log("FLIP_DONE", "isAnchoredRight=$isAnchoredRight")
             }
         })
         animator.addUpdateListener { animation ->
             val currX = animation.animatedValue as Int
             layoutParams.x = currX
             lastX = currX
+            BubbleTrace.log("SNAP_FRAME", "x=$currX")
             composeView?.let {
                 if (isViewAdded && it.isAttachedToWindow) {
                     windowManager.updateViewLayout(it, layoutParams)
