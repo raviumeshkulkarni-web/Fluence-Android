@@ -80,11 +80,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <provider
-            android:name="com.google.android.gms.fonts.provider.FontsProvider"
-            android:authorities="com.google.android.gms.fonts"
-            android:exported="false" />
-
     </application>
 
 </manifest>
