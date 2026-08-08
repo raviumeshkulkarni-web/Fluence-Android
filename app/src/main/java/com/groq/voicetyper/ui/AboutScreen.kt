@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.groq.voicetyper.BuildConfig
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.theme.*
 import com.groq.voicetyper.update.UpdateViewModel
@@ -30,8 +29,6 @@ fun AboutScreen(
     updateViewModel: UpdateViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val versionName = BuildConfig.VERSION_NAME
-    val versionCode = BuildConfig.VERSION_CODE
 
     Box(
         modifier = modifier
@@ -100,9 +97,15 @@ fun AboutScreen(
 
             // Credits
             Text(
-                text = "Built with Jetpack Compose, Material3, and Precision Ink.",
+                text = "Built with Jetpack Compose, Material3, and Fluence Design System.",
                 color = TextSecondary,
                 style = FluenceTypography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Privacy Note: Transcriptions and API keys are stored encrypted on-device and excluded from cloud backups.",
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall
             )
 
             Spacer(modifier = Modifier.height(32.dp))

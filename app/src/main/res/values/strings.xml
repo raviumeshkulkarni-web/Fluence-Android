@@ -3,4 +3,5 @@
     <string name="app_name">Fluence Transcribe</string>
     <string name="ime_name">Fluence</string>
     <string name="subtype_voice">Voice Typing (Fluence)</string>
+    <string name="accessibility_service_label">Fluence On-Screen Dictation</string>
 </resources>

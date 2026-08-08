@@ -112,6 +112,7 @@ fun PermissionsScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    var keyboardEnabled by remember { mutableStateOf(false) }
     var micGranted by remember { mutableStateOf(false) }
     var overlayGranted by remember { mutableStateOf(false) }
     var accessibilityEnabled by remember { mutableStateOf(false) }
@@ -121,6 +122,11 @@ fun PermissionsScreen(
     val prefs = remember { context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE) }
 
     fun refreshStatuses() {
+        val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        val isEnabled = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
+        val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        keyboardEnabled = isEnabled && defaultIme != null && defaultIme.contains(context.packageName)
+
         micGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
@@ -187,6 +193,18 @@ fun PermissionsScreen(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            PermissionRow(
+                icon = Icons.Default.Keyboard,
+                title = "Voice Typing Keyboard",
+                description = if (keyboardEnabled) "Enabled & Selected" else "Tap to enable or select as active keyboard",
+                isGranted = keyboardEnabled,
+                onRequest = {
+                    context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                }
+            )
+
+            SectionDivider()
 
             PermissionRow(
                 icon = Icons.Default.Mic,

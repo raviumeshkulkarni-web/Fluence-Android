@@ -46,7 +46,7 @@
         <service
             android:name=".FluenceAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:label="Fluence On-Screen Dictation"
+            android:label="@string/accessibility_service_label"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />

@@ -150,7 +150,7 @@ private suspend fun verifyApiKey(key: String, providerId: String = "groq", baseU
             }
         }
     } catch (e: Exception) {
-        false to "Connection error: ${e.localizedMessage}"
+        false to "Connection error. Please check your network and settings."
     }
 }
 

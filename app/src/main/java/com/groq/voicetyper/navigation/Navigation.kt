@@ -103,7 +103,11 @@ fun FluenceNavHost(onRequestPermission: () -> Unit = {}) {
         when (screen) {
             Screen.Home -> HomeScreen(
                 onNavigateToSettings = { navigateTo(Screen.SettingsHub) },
-                onOpenDetail = { entryId -> navigateTo(Screen.TranscriptionDetail(entryId)) }
+                onOpenDetail = { entryId -> navigateTo(Screen.TranscriptionDetail(entryId)) },
+                onNavigateToSttConfig = { navigateTo(Screen.SttConfig) },
+                onNavigateToAgentConfig = { navigateTo(Screen.AgentConfig) },
+                onNavigateToOfflineConfig = { navigateTo(Screen.OfflineConfig) },
+                onRequestPermission = onRequestPermission
             )
             Screen.SettingsHub -> SettingsScreen(
                 onNavigateBack = { navigateBack() },

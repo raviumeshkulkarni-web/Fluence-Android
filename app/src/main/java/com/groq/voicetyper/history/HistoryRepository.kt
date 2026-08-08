@@ -29,7 +29,7 @@ object HistoryRepository {
             Log.e("HistoryRepository", "Failed to save transcription to history", e)
         }
         try {
-            cleanupToNewest(30)
+            cleanupToNewest(50)
         } catch (e: Exception) {
             Log.e("HistoryRepository", "Failed to cap history to newest entries", e)
         }
@@ -46,7 +46,7 @@ object HistoryRepository {
         dao?.deleteAll()
     }
 
-    suspend fun cleanupToNewest(keep: Int = 30) {
+    suspend fun cleanupToNewest(keep: Int = 50) {
         dao?.deleteAllExceptNewest(keep)
     }
 }

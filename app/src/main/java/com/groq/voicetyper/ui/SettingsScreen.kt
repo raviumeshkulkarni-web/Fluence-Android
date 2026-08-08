@@ -48,13 +48,17 @@ private fun SettingsRow(
     Surface(
         color = Panel,
         shape = FluenceShapes.Medium,
-        shadowElevation = 2.dp,
+        shadowElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = FluenceSpacing.Base)
             .pressScale(interactionSource)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
-            .clickable(onClick = onClick)
+            .clickable(
+                onClickLabel = "Open $title",
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier
@@ -109,8 +113,8 @@ private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
     val state = remember { MutableTransitionState(false).apply { targetState = true } }
     AnimatedVisibility(
         visibleState = state,
-        enter = fadeIn(tween(durationMillis = 320, delayMillis = index * 55)) +
-            slideInVertically(tween(durationMillis = 320, delayMillis = index * 55)) { it / 8 }
+        enter = fadeIn(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = index * 40)) +
+            slideInVertically(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = index * 40)) { it / 8 }
     ) {
         content()
     }

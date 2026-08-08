@@ -7,11 +7,9 @@ import androidx.compose.ui.graphics.Color
 // No legacy aliases. No raw hex literals in UI code.
 // ────────────────────────────────────────────────────────────────────────────
 
-// ── App Background ──────────────────────────────────────────────────────────
-val AppBackground = Color(0xFF121212)
-
 // ── Surface Hierarchy ───────────────────────────────────────────────────────
 val Canvas         = Color(0xFF121212)
+val AppBackground  = Canvas
 val Sidebar        = Color(0xFF141414)
 val Panel          = Color(0xFF1E1E1E)
 val PanelElevated  = Color(0xFF262626)

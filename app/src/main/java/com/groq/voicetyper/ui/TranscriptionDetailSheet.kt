@@ -52,6 +52,8 @@ fun TranscriptionDetailSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -81,8 +83,7 @@ fun TranscriptionDetailSheet(
             Text(
                 text = "Transcription",
                 color = TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
+                style = FluenceTypography.headlineMedium,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
             )
 
@@ -98,8 +99,7 @@ fun TranscriptionDetailSheet(
                     Text(
                         text = item.text,
                         color = TextPrimary,
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp
+                        style = FluenceTypography.bodyLarge
                     )
                 }
 
@@ -110,8 +110,7 @@ fun TranscriptionDetailSheet(
                 Text(
                     text = sdf.format(Date(item.timestamp)),
                     color = TextSecondary,
-                    fontSize = 12.sp,
-                    fontFamily = GeistMonoFont,
+                    style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont),
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
 
@@ -147,15 +146,12 @@ fun TranscriptionDetailSheet(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Copy", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        Text(text = "Copy", color = TextPrimary, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
                     }
 
                     Button(
                         onClick = {
-                            coroutineScope.launch {
-                                repository.delete(item)
-                                onDismiss()
-                            }
+                            showDeleteConfirmation = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
                         shape = FluenceShapes.Medium,
@@ -170,11 +166,42 @@ fun TranscriptionDetailSheet(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Delete", color = Error)
+                        Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                if (showDeleteConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteConfirmation = false },
+                        containerColor = DialogSurface,
+                        titleContentColor = TextPrimary,
+                        textContentColor = TextSecondary,
+                        title = { Text("Delete transcription") },
+                        text = { Text("This action cannot be undone. Delete this transcription?") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        repository.delete(item)
+                                        showDeleteConfirmation = false
+                                        onDismiss()
+                                    }
+                                }
+                            ) {
+                                Text("Delete", color = Error)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showDeleteConfirmation = false }
+                            ) {
+                                Text("Cancel", color = TextSecondary)
+                            }
+                        }
+                    )
+                }
             } ?: run {
                 Box(
                     modifier = Modifier

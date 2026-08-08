@@ -2,7 +2,6 @@ package com.groq.voicetyper.update.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -10,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,13 +42,13 @@ fun AboutAndUpdateCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = PanelElevated),
-        shape = RoundedCornerShape(16.dp),
+        shape = FluenceShapes.Medium,
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp)
+                .padding(FluenceSpacing.Md)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
@@ -61,16 +59,15 @@ fun AboutAndUpdateCard(
                     tint = TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                 Text(
                     text = "App Updates",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    style = FluenceTypography.titleMedium
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
             // Current Version
             Row(
@@ -78,16 +75,15 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Installed Version", fontSize = 14.sp, color = TextSecondary)
+                Text("Installed Version", color = TextSecondary, style = FluenceTypography.bodyMedium)
                 Text(
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    style = FluenceTypography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
             // Latest Version / Status
             Row(
@@ -95,7 +91,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Latest Version", fontSize = 14.sp, color = TextSecondary)
+                Text("Latest Version", color = TextSecondary, style = FluenceTypography.bodyMedium)
                 val statusText = when (state) {
                     is UpdateState.Checking -> "Checking..."
                     is UpdateState.UpdateAvailable -> {
@@ -110,13 +106,12 @@ fun AboutAndUpdateCard(
                 }
                 Text(
                     statusText,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (state is UpdateState.UpdateAvailable) TextPrimary else TextSecondary
+                    color = if (state is UpdateState.UpdateAvailable) TextPrimary else TextSecondary,
+                    style = FluenceTypography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
             // Last Checked
             Row(
@@ -124,11 +119,11 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Last Checked", fontSize = 14.sp, color = TextSecondary)
+                Text("Last Checked", color = TextSecondary, style = FluenceTypography.bodyMedium)
                 Text(
                     formattedLastChecked,
-                    fontSize = 13.sp,
-                    color = TextTertiary
+                    color = TextTertiary,
+                    style = FluenceTypography.bodySmall
                 )
             }
 

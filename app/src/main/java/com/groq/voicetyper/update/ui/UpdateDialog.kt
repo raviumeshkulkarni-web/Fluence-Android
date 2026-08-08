@@ -158,7 +158,7 @@ private fun UpdateAvailableDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     TextButton(onClick = onSkipVersion) {
-                        Text("Skip Version", color = TextTertiary, fontSize = 13.sp)
+                        Text("Skip Version", color = TextSecondary, fontSize = 13.sp)
                     }
                     TextButton(onClick = onRemindMeLater) {
                         Text("Remind Me Later", color = TextSecondary, fontSize = 13.sp)
@@ -338,7 +338,7 @@ private fun UpdateReadyToInstallDialog(
                     onClick = onRemindMeLater,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Later", color = TextTertiary, fontSize = 13.sp)
+                    Text("Later", color = TextSecondary, fontSize = 13.sp)
                 }
             }
         }
@@ -367,7 +367,7 @@ private fun UpdateErrorDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Dismiss", color = TextTertiary)
+                Text("Dismiss", color = TextSecondary)
             }
         }
     )

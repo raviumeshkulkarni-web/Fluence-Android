@@ -15,6 +15,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -59,13 +60,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,9 +79,7 @@ import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -243,36 +244,73 @@ fun HomeScreen(
     onNavigateToSttConfig: () -> Unit = {},
     onNavigateToAgentConfig: () -> Unit = {},
     onNavigateToOfflineConfig: () -> Unit = {},
+    onRequestPermission: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isKeyboardActive by remember { mutableStateOf(false) }
+    var isMicGranted by remember { mutableStateOf(false) }
     var sttProvider by remember { mutableStateOf("groq") }
     var sttModel by remember { mutableStateOf("whisper-large-v3") }
+    var isApiKeySet by remember { mutableStateOf(false) }
+    var onboardingDismissed by remember {
+        mutableStateOf(context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE).getBoolean("onboarding_dismissed", false))
+    }
     var allEntries by remember { mutableStateOf<List<TranscriptionEntry>>(emptyList()) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedIds by remember { mutableStateOf(setOf<Long>()) }
+    val longSetSaver = Saver<MutableState<Set<Long>>, ArrayList<Long>>(
+        save = { arrayListOf<Long>().apply { addAll(it.value) } },
+        restore = { mutableStateOf(it.toSet()) }
+    )
+    val stringSetSaver = Saver<MutableState<Set<String>>, ArrayList<String>>(
+        save = { arrayListOf<String>().apply { addAll(it.value) } },
+        restore = { mutableStateOf(it.toSet()) }
+    )
+
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedIds by rememberSaveable(saver = longSetSaver) { mutableStateOf(setOf<Long>()) }
     val isMultiSelect = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var expandedGroups by remember { mutableStateOf(setOf<String>()) }
-    var currentSortOption by remember { mutableStateOf(SortOption.NEWEST) }
+    var expandedGroups by rememberSaveable(saver = stringSetSaver) { mutableStateOf(setOf<String>()) }
+    var currentSortOption by rememberSaveable { mutableStateOf(SortOption.NEWEST) }
     var showSortSheet by remember { mutableStateOf(false) }
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    fun refreshStatus() {
+        val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val isEnabled = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
+        val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val isSelected = defaultIme != null && defaultIme.contains(context.packageName)
+        isKeyboardActive = isEnabled && isSelected
+
+        isMicGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        sttProvider = SecurityUtils.getSttPreset(context)
+        sttModel = SecurityUtils.getSttModel(context, sttProvider)
+        isApiKeySet = sttProvider == "offline" || !SecurityUtils.getProviderApiKey(context, "stt", sttProvider).isNullOrBlank()
+    }
 
     LaunchedEffect(Unit) {
-        while (true) {
-            withContext(Dispatchers.IO) {
-                val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                isKeyboardActive = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
-                sttProvider = SecurityUtils.getSttPreset(context)
-                sttModel = SecurityUtils.getSttModel(context, sttProvider)
+        refreshStatus()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshStatus()
             }
-            kotlinx.coroutines.delay(2000)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+
     LaunchedEffect(Unit) {
         repository.getAll().collect { allEntries = it }
     }
@@ -331,6 +369,25 @@ fun HomeScreen(
                     context = context
                 )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+
+                val allStepsDone = isKeyboardActive && isMicGranted && isApiKeySet && allEntries.isNotEmpty()
+                if (!onboardingDismissed && !allStepsDone) {
+                    FirstRunOnboardingCard(
+                        isKeyboardActive = isKeyboardActive,
+                        isMicGranted = isMicGranted,
+                        isApiKeySet = isApiKeySet,
+                        hasTranscriptions = allEntries.isNotEmpty(),
+                        onRequestPermission = onRequestPermission,
+                        onNavigateToSettings = { context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
+                        onNavigateToSttConfig = onNavigateToSttConfig,
+                        onDismiss = {
+                            context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
+                                .edit().putBoolean("onboarding_dismissed", true).apply()
+                            onboardingDismissed = true
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                }
             }
 
             LazyColumn(
@@ -401,14 +458,34 @@ fun HomeScreen(
 
                 if (groupedEntries.isEmpty()) {
                     item {
+                        val (emptyActionLabel, emptyAction) = remember(searchQuery, isKeyboardActive, isMicGranted, isApiKeySet) {
+                            when {
+                                searchQuery.isNotEmpty() -> null to null
+                                !isKeyboardActive -> "Enable Keyboard" to {
+                                    context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                                }
+                                !isMicGranted -> "Grant Microphone Permission" to onRequestPermission
+                                !isApiKeySet -> "Configure API Key" to onNavigateToSttConfig
+                                else -> null to null
+                            }
+                        }
+
                         FluenceEmptyState(
                             icon = if (searchQuery.isNotEmpty()) Icons.Default.Search else Icons.Default.Mic,
                             title = if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
                             description = if (searchQuery.isNotEmpty())
                                 "Try a different word, or clear the search to see everything."
+                            else if (!isKeyboardActive)
+                                "Enable the Fluence keyboard in Android Settings to begin voice typing."
+                            else if (!isMicGranted)
+                                "Microphone permission is required to listen and transcribe your voice."
+                            else if (!isApiKeySet)
+                                "Configure your Speech-to-Text provider API key to start transcribing."
                             else
-                                "Tap the mic on the Fluence keyboard and start speaking — your transcriptions will appear here.",
-                            modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
+                                "Tap the mic on the Fluence keyboard in any app and start speaking — your transcriptions will appear here.",
+                            modifier = Modifier.padding(vertical = FluenceSpacing.Xxl),
+                            actionLabel = emptyActionLabel,
+                            onAction = emptyAction
                         )
                     }
                 } else {
@@ -440,10 +517,10 @@ fun HomeScreen(
                                         if (!isMultiSelect) {
                                             TextButton(
                                                 onClick = { showClearAllDialog = true },
-                                                contentPadding = PaddingValues(0.dp),
-                                                modifier = Modifier.heightIn(min = 32.dp)
+                                                contentPadding = PaddingValues(horizontal = FluenceSpacing.Xs, vertical = 0.dp),
+                                                modifier = Modifier.heightIn(min = 44.dp)
                                             ) {
-                                                Text("Clear All", color = TextTertiary, style = FluenceTypography.labelSmall)
+                                                Text("Clear History", color = TextTertiary, style = FluenceTypography.labelSmall)
                                             }
                                         }
                                     }
@@ -666,7 +743,6 @@ private fun DashboardHeroStats(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(8.dp, FluenceShapes.Medium, clip = false)
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
     ) {
@@ -719,7 +795,7 @@ private fun DashboardHeroStats(
                         .background(OutlineSubtle)
                 )
                 DashboardStatCell(
-                    title = "Typing Time Saved",
+                    title = "Monthly Time Saved",
                     value = monthlySaved,
                     subtitle = "in last 30 days",
                     icon = Icons.Default.CalendarToday,
@@ -795,9 +871,11 @@ private fun WeeklyActivityChart(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(6.dp, FluenceShapes.Medium, clip = false)
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Weekly activity: $weeklyWords words transcribed in 7 days, $weeklySavedHours hours saved"
+            }
             .padding(FluenceSpacing.Md)
     ) {
         Row(
@@ -886,7 +964,6 @@ private fun HomeSearchBar(
     onSearchChange: (String) -> Unit,
     onSortClick: () -> Unit
 ) {
-    val focusRequester = remember { FocusRequester() }
     OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchChange,
@@ -932,8 +1009,7 @@ private fun HomeSearchBar(
         shape = FluenceShapes.Small,
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp)
-            .focusRequester(focusRequester),
+            .defaultMinSize(minHeight = 48.dp),
         textStyle = FluenceTypography.bodySmall
     )
 }
@@ -1094,6 +1170,160 @@ private fun SortBottomSheet(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FirstRunOnboardingCard(
+    isKeyboardActive: Boolean,
+    isMicGranted: Boolean,
+    isApiKeySet: Boolean,
+    hasTranscriptions: Boolean,
+    onRequestPermission: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSttConfig: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val completedCount = listOf(isKeyboardActive, isMicGranted, isApiKeySet, hasTranscriptions).count { it }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, FluenceShapes.Medium)
+            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .padding(FluenceSpacing.Md)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Welcome to Fluence Transcribe",
+                    color = TextPrimary,
+                    style = FluenceTypography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "$completedCount of 4 setup steps completed",
+                    color = TextSecondary,
+                    style = FluenceTypography.bodySmall
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss checklist",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+        OnboardingStepRow(
+            stepNumber = 1,
+            title = "Enable Voice Typing Keyboard",
+            isDone = isKeyboardActive,
+            actionLabel = "Enable",
+            onAction = onNavigateToSettings
+        )
+
+        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+
+        OnboardingStepRow(
+            stepNumber = 2,
+            title = "Grant Microphone Permission",
+            isDone = isMicGranted,
+            actionLabel = "Grant",
+            onAction = onRequestPermission
+        )
+
+        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+
+        OnboardingStepRow(
+            stepNumber = 3,
+            title = "Configure STT API Key",
+            isDone = isApiKeySet,
+            actionLabel = "Configure",
+            onAction = onNavigateToSttConfig
+        )
+
+        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+
+        OnboardingStepRow(
+            stepNumber = 4,
+            title = "Dictate Your First Text",
+            isDone = hasTranscriptions,
+            actionLabel = null,
+            onAction = null
+        )
+    }
+}
+
+@Composable
+private fun OnboardingStepRow(
+    stepNumber: Int,
+    title: String,
+    isDone: Boolean,
+    actionLabel: String?,
+    onAction: (() -> Unit)?
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = FluenceSpacing.Xs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(if (isDone) Success.copy(alpha = 0.2f) else PanelElevated),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isDone) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Step $stepNumber completed",
+                    tint = Success,
+                    modifier = Modifier.size(14.dp)
+                )
+            } else {
+                Text(
+                    text = stepNumber.toString(),
+                    color = TextSecondary,
+                    style = FluenceTypography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+
+        Text(
+            text = title,
+            color = if (isDone) TextSecondary else TextPrimary,
+            style = FluenceTypography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+
+        if (!isDone && actionLabel != null && onAction != null) {
+            TextButton(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm, vertical = 0.dp),
+                modifier = Modifier.heightIn(min = 32.dp)
+            ) {
+                Text(
+                    text = actionLabel,
+                    color = BrandAmethyst,
+                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
     }

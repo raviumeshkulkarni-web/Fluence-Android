@@ -105,6 +105,12 @@ fun AgentConfigScreen(
         fetchModelsForProvider()
     }
 
+    LaunchedEffect(apiKey) {
+        if (apiKey.isBlank()) return@LaunchedEffect
+        kotlinx.coroutines.delay(600)
+        fetchModelsForProvider()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -198,7 +204,6 @@ fun AgentConfigScreen(
                 value = apiKey,
                 onValueChange = {
                     apiKey = it
-                    fetchModelsForProvider()
                 },
                 placeholder = { Text("Enter your API key", color = TextDisabled) },
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -412,7 +417,7 @@ fun AgentConfigScreen(
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    false to "Connection error: ${e.localizedMessage}"
+                                    false to "Connection error. Please check your network and settings."
                                 }
                             }
                             isTesting = false
