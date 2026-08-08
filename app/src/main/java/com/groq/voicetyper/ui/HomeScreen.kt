@@ -77,6 +77,8 @@ import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
+import com.groq.voicetyper.history.DailyStat
+import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.launch
@@ -95,12 +97,8 @@ enum class SortOption(val displayName: String) {
 private const val AVG_WPM = 40.0
 private const val PREVIEW_COUNT = 5
 
-private fun getEffectiveDurationMs(entry: TranscriptionEntry): Long {
-    if (entry.durationMs > 0L) return entry.durationMs
-    val wordCount = entry.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-    if (wordCount == 0) return 0L
-    return ((wordCount / 140.0) * 60_000.0).toLong().coerceAtLeast(1_000L)
-}
+private fun getEffectiveDurationMs(entry: TranscriptionEntry): Long =
+    StatsCalculator.effectiveDurationMs(entry.text, entry.durationMs)
 
 private data class DashboardStats(
     val totalWords: String,
@@ -114,14 +112,14 @@ private data class DashboardStats(
     val dayLabels: List<String>
 )
 
-private fun computeDashboardStats(entries: List<TranscriptionEntry>): DashboardStats {
-    val totalWords = entries.sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+private fun computeDashboardStats(dailyStats: List<DailyStat>): DashboardStats {
+    val totalWords = dailyStats.sumOf { it.wordCount }.toInt()
 
     val totalSavedHours = totalWords / AVG_WPM / 60.0
     val timeSaved = if (totalSavedHours < 1.0) "${(totalSavedHours * 60).toInt()}m"
         else String.format(Locale.US, "%.1fh", totalSavedHours)
 
-    val totalDictMs = entries.sumOf { getEffectiveDurationMs(it) }
+    val totalDictMs = dailyStats.sumOf { it.dictationMs }
     val totalDictMinutes = totalDictMs / 60_000.0
     val dictH = totalDictMinutes.toInt() / 60
     val dictM = totalDictMinutes.toInt() % 60
@@ -133,32 +131,28 @@ private fun computeDashboardStats(entries: List<TranscriptionEntry>): DashboardS
         else -> n.toString()
     }
 
-    val cal = java.util.Calendar.getInstance()
-    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-    cal.set(java.util.Calendar.MINUTE, 0)
-    cal.set(java.util.Calendar.SECOND, 0)
-    cal.set(java.util.Calendar.MILLISECOND, 0)
-    val todayStart = cal.timeInMillis
+    fun dayDate(offsetDays: Int): String {
+        val dayCal = java.util.Calendar.getInstance()
+        dayCal.add(java.util.Calendar.DAY_OF_YEAR, -offsetDays)
+        return StatsCalculator.localDateOf(dayCal.timeInMillis)
+    }
 
-    val monthStart = todayStart - TimeUnit.DAYS.toMillis(30)
-    val monthWords = entries.filter { it.timestamp >= monthStart }
-        .sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+    val monthStartDate = dayDate(30)
+    val monthWords = dailyStats.filter { it.day >= monthStartDate }.sumOf { it.wordCount }.toInt()
     val monthSavedHours = monthWords / AVG_WPM / 60.0
     val monthlySaved = if (monthSavedHours < 1.0) "${(monthSavedHours * 60).toInt()}m"
         else String.format(Locale.US, "%.1fh", monthSavedHours)
 
-    val weekStart = todayStart - TimeUnit.DAYS.toMillis(6)
-    val weekEntries = entries.filter { it.timestamp >= weekStart }
-    val weekWords = weekEntries.sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+    val weekStartDate = dayDate(6)
+    val weekRows = dailyStats.filter { it.day >= weekStartDate }
+    val weekWords = weekRows.sumOf { it.wordCount }.toInt()
     val weekSavedHours = weekWords / AVG_WPM / 60.0
-    val weekDictMs = weekEntries.sumOf { getEffectiveDurationMs(it) }
+    val weekDictMs = weekRows.sumOf { it.dictationMs }
     val weekSpokenHours = weekDictMs / 3_600_000.0
 
     val dayWordCounts = (6 downTo 0).map { i ->
-        val dayStart = todayStart - TimeUnit.DAYS.toMillis(i.toLong())
-        val dayEnd = dayStart + TimeUnit.DAYS.toMillis(1)
-        entries.filter { it.timestamp in dayStart until dayEnd }
-            .sumOf { it.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size }
+        val day = dayDate(i)
+        dailyStats.firstOrNull { it.day == day }?.wordCount?.toInt() ?: 0
     }
 
     val dayLabels = (6 downTo 0).map { i ->
@@ -258,6 +252,7 @@ fun HomeScreen(
         mutableStateOf(context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE).getBoolean("onboarding_dismissed", false))
     }
     var allEntries by remember { mutableStateOf<List<TranscriptionEntry>>(emptyList()) }
+    var dailyStats by remember { mutableStateOf<List<DailyStat>>(emptyList()) }
     val longSetSaver = Saver<MutableState<Set<Long>>, ArrayList<Long>>(
         save = { arrayListOf<Long>().apply { addAll(it.value) } },
         restore = { mutableStateOf(it.toSet()) }
@@ -315,6 +310,10 @@ fun HomeScreen(
         repository.getAll().collect { allEntries = it }
     }
 
+    LaunchedEffect(Unit) {
+        repository.getStats().collect { dailyStats = it }
+    }
+
     val displayedEntries = remember(allEntries, searchQuery, currentSortOption) {
         val filtered = if (searchQuery.isBlank()) allEntries
         else allEntries.filter { it.text.contains(searchQuery, ignoreCase = true) }
@@ -335,7 +334,7 @@ fun HomeScreen(
         }
     }
     
-    val dashboardStats = remember(allEntries) { computeDashboardStats(allEntries) }
+    val dashboardStats = remember(dailyStats) { computeDashboardStats(dailyStats) }
 
     Box(
         modifier = modifier
