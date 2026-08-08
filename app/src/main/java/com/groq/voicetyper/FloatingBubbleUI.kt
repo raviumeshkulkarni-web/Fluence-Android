@@ -55,17 +55,6 @@ fun FloatingBubbleUI(
     val errorMessage by BubbleController.errorMessage.collectAsState()
     val anchoredRight by BubbleController.isAnchoredRight.collectAsState()
     val contentAlignment = if (anchoredRight) Alignment.TopEnd else Alignment.TopStart
-    val alignKey = if (anchoredRight) "END" else "START"
-    var lastAlignKey by remember { mutableStateOf(alignKey) }
-    SideEffect {
-        if (lastAlignKey != alignKey) {
-            BubbleTrace.log("COMPOSE_ALIGN_APPLIED", alignKey)
-            lastAlignKey = alignKey
-        }
-    }
-    LaunchedEffect(anchoredRight) {
-        BubbleTrace.log("ANCHOR_OBSERVED", anchoredRight.toString())
-    }
     val coroutineScope = rememberCoroutineScope()
 
     // Size animations for morphing transition.
@@ -117,7 +106,6 @@ fun FloatingBubbleUI(
                             awaitPointerEventScope {
                                 while (true) {
                                     val down = awaitFirstDown()
-                                    BubbleTrace.log("POINTER_DOWN", "x=${down.position.x.toInt()} y=${down.position.y.toInt()} aR=$anchoredRight")
                                     val startPos = down.position
                                     var isDragging = false
                                     var isLongPressTriggered = false
@@ -142,7 +130,6 @@ fun FloatingBubbleUI(
                                             if (dragDistance > 8.dp.toPx()) {
                                                 isDragging = true
                                                 longPressJob.cancel()
-                                                BubbleTrace.log("POINTER_DRAG_START", "x=${currentPos.x.toInt()} y=${currentPos.y.toInt()}")
                                             }
 
                                             if (isDragging) {
@@ -159,7 +146,6 @@ fun FloatingBubbleUI(
                                     longPressJob.cancel()
 
                                     if (isDragging) {
-                                        BubbleTrace.log("POINTER_UP", "final x=${startPos.x.toInt()} y=${startPos.y.toInt()}")
                                         onDragReleased()
                                     } else {
                                         if (!isLongPressTriggered) {

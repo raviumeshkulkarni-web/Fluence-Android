@@ -41,7 +41,6 @@ object BubbleController {
     val isAnchoredRight: StateFlow<Boolean> = _isAnchoredRight.asStateFlow()
 
     fun updateAnchoredRight(anchoredRight: Boolean) {
-        BubbleTrace.log("ANCHOR_UPDATE", anchoredRight.toString())
         _isAnchoredRight.value = anchoredRight
     }
 

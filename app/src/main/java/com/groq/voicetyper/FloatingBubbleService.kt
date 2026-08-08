@@ -178,15 +178,12 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                 FloatingBubbleUI(
                     isAnchoredRight = isAnchoredRight,
                     onDrag = { dx, dy ->
-                        BubbleTrace.log("DRAG", "dx=$dx dy=$dy")
                         val screenWidth = resources.displayMetrics.widthPixels
                         val screenHeight = resources.displayMetrics.heightPixels
                         val lp = this@FloatingBubbleService.layoutParams
-                        // Direction C prototype: do NOT flip gravity/alignment mid-drag.
-                        // Keep the resting gravity for the entire drag so there is no
-                        // simultaneous window-move + alignment-flip under the finger (the flash).
-                        // Under Gravity.END, x is inset from the right edge, so a left-based
-                        // finger delta must be subtracted; under Gravity.START it is added.
+                        // Keep the resting gravity for the entire drag; the flip happens only at
+                        // snap completion. Under Gravity.END the x inset is from the right edge,
+                        // so a left-based finger delta is subtracted; under Gravity.START it is added.
                         if (isAnchoredRight) {
                             lp.x = (lp.x - dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
                         } else {
@@ -197,7 +194,6 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         lastY = lp.y
                         if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
                             windowManager.updateViewLayout(composeView, lp)
-                            BubbleTrace.log("UVL_DRAG", "g=${lp.gravity} x=${lp.x} y=${lp.y} aR=$isAnchoredRight")
                         }
                     },
                     onDragReleased = {
@@ -219,7 +215,6 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                         } else {
                             if (finalAnchorRight) screenWidth - collapsedSize - padding else -padding
                         }
-                        BubbleTrace.log("RELEASE", "curEnd=$currentlyEnd isLeft=$isLeft finalR=$finalAnchorRight targetX=$targetX")
                         animateSnap(targetX, finalAnchorRight, currentlyEnd)
                     },
                     onWidthUpdated = { _ ->
@@ -264,41 +259,15 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         if (lp.flags != oldFlags) {
             if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
                 windowManager.updateViewLayout(composeView, lp)
-                BubbleTrace.log("UVL_FLAGS", "keepScreenOn=$keepScreenOn")
             }
         }
     }
 
     private var snapAnimator: android.animation.ValueAnimator? = null
-    private var windowTraceFrames = 0
-
-    private fun startWindowTrace(frames: Int = 140) {
-        windowTraceFrames = frames
-        if (frames > 0) {
-            Choreographer.getInstance().postFrameCallback { frameNanos ->
-                windowTraceFrame(frameNanos)
-            }
-        }
-    }
-
-    private fun windowTraceFrame(frameNanos: Long) {
-        if (windowTraceFrames <= 0) return
-        windowTraceFrames--
-        composeView?.let { v ->
-            val loc = IntArray(2)
-            v.getLocationOnScreen(loc)
-            BubbleTrace.log("WINDOW_POS", "${loc[0]},${loc[1]}|frame=$frameNanos")
-        }
-        if (windowTraceFrames > 0) {
-            Choreographer.getInstance().postFrameCallback { fn -> windowTraceFrame(fn) }
-        }
-    }
 
     private fun animateSnap(targetX: Int, finalAnchorRight: Boolean, currentlyEnd: Boolean) {
         snapAnimator?.cancel()
         val startX = layoutParams.x
-        BubbleTrace.log("SNAP_START", "start=$startX target=$targetX finalR=$finalAnchorRight curEnd=$currentlyEnd")
-        startWindowTrace()
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
         animator.duration = 350
         animator.interpolator = android.view.animation.DecelerateInterpolator()
@@ -310,63 +279,43 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
             override fun onAnimationEnd(animation: Animator) {
                 if (wasCancelled || !isViewAdded || composeView?.isAttachedToWindow != true) return
-                // Direction C prototype: the gravity/alignment transition happens ONLY here,
-                // at snap completion, and only when the final side differs from the gravity we
-                // dragged in. The bubble is already at rest on the target edge, so the
-                // simultaneous window-move + alignment-flip is geometrically continuous
-                // (proven: both representations place the bubble at the same screen edge).
+                // Gravity/alignment flip happens only at snap completion, and only when the
+                // final side differs from the gravity used during the drag. The bubble is
+                // already at rest on the target edge, so the simultaneous origin-move and
+                // alignment-flip is geometrically continuous.
                 if (finalAnchorRight != currentlyEnd) {
                     val padding = (16 * resources.displayMetrics.density).toInt()
                     val view = composeView
                     if (view != null) {
-                        // S4 atomicity prototype. The flash is a race between two subsystems:
-                        // Compose applies the alignment flip (async recomposition) and WindowManager
-                        // applies the ~184dp origin move (separate transaction). If the window moves
-                        // first, the not-yet-realigned content shows the full offset ON-screen for one
-                        // frame (the flash); if the content re-aligns first, the transient offset lands
-                        // OFF-screen past the resting edge and is invisible.
-                        //
-                        // (1) Flip the Compose alignment now (schedules recomposition) and stage the
-                        //     new window geometry.
-                        BubbleTrace.log("FLIP_BEGIN", "finalR=$finalAnchorRight curEnd=$currentlyEnd")
+                        // Alpha gate: hide the overlay for exactly one frame while WindowManager
+                        // repositions the window origin and Compose applies the alignment flip.
+                        // The Choreographer callback restores alpha on Frame N+1 before traversal.
+                        view.alpha = 0f
                         BubbleController.updateAnchoredRight(finalAnchorRight)
                         layoutParams.gravity = Gravity.TOP or if (finalAnchorRight) Gravity.END else Gravity.START
                         layoutParams.x = -padding
                         lastX = layoutParams.x
-                        BubbleTrace.log("FLIP_STAGED", "g=${layoutParams.gravity} x=${layoutParams.x}")
-                        // (2) Apply the origin move as one instantaneous transaction
                         if (Build.VERSION.SDK_INT >= 34) {
                             layoutParams.setCanPlayMoveAnimation(false)
-                            BubbleTrace.log("FLIP_NOMOVEANIM", "sdk=${Build.VERSION.SDK_INT}")
                         }
-                        // (3) Defer the window move to the pre-draw of the RE-ALIGNED content so the
-                        //     ordering is deterministically content-first and the seam stays off-screen.
-                        BubbleTrace.log("FLIP_PREDRAW_ADD")
-                        view.viewTreeObserver.addOnPreDrawListener(
-                            object : android.view.ViewTreeObserver.OnPreDrawListener {
-                                override fun onPreDraw(): Boolean {
-                                    view.viewTreeObserver.removeOnPreDrawListener(this)
-                                    if (isViewAdded && view.isAttachedToWindow) {
-                                        BubbleTrace.log("FLIP_PREDRAW_EXEC", "attached=${view.isAttachedToWindow}")
-                                        windowManager.updateViewLayout(view, layoutParams)
-                                        BubbleTrace.log("UVL_POST", "g=${layoutParams.gravity} x=${layoutParams.x} y=${layoutParams.y}")
-                                    }
-                                    return true
-                                }
+                        if (isViewAdded && view.isAttachedToWindow) {
+                            windowManager.updateViewLayout(view, layoutParams)
+                        }
+                        Choreographer.getInstance().postFrameCallback {
+                            if (view.alpha == 0f) {
+                                view.alpha = 1f
                             }
-                        )
+                        }
                     }
                 }
                 isAnchoredRight = finalAnchorRight
                 lastIsAnchoredRight = finalAnchorRight
-                BubbleTrace.log("FLIP_DONE", "isAnchoredRight=$isAnchoredRight")
             }
         })
         animator.addUpdateListener { animation ->
             val currX = animation.animatedValue as Int
             layoutParams.x = currX
             lastX = currX
-            BubbleTrace.log("SNAP_FRAME", "x=$currX")
             composeView?.let {
                 if (isViewAdded && it.isAttachedToWindow) {
                     windowManager.updateViewLayout(it, layoutParams)
