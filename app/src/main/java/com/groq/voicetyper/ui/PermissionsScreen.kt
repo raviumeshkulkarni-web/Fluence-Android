@@ -123,9 +123,7 @@ fun PermissionsScreen(
 
     fun refreshStatuses() {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-        val isEnabled = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
-        val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-        keyboardEnabled = isEnabled && defaultIme != null && defaultIme.contains(context.packageName)
+        keyboardEnabled = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
 
         micGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO

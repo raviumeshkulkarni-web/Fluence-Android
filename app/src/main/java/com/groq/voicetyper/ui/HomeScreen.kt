@@ -276,10 +276,7 @@ fun HomeScreen(
 
     fun refreshStatus() {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        val isEnabled = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
-        val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-        val isSelected = defaultIme != null && defaultIme.contains(context.packageName)
-        isKeyboardActive = isEnabled && isSelected
+        isKeyboardActive = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
 
         isMicGranted = androidx.core.content.ContextCompat.checkSelfPermission(
             context,
