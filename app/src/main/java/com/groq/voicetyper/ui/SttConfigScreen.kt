@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.GroqClient
@@ -342,7 +343,9 @@ fun SttConfigScreen(
                     Text(
                         text = currentLanguageLabel,
                         color = TextPrimary,
-                        fontSize = 16.sp
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Box {
                         Icon(
@@ -438,7 +441,9 @@ fun SttConfigScreen(
                         Text(
                             text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
                             color = TextPrimary,
-                            fontSize = 16.sp
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Icon(
                             imageVector = Icons.Default.ArrowDropDown,

@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.GroqClient
@@ -311,7 +312,9 @@ fun AgentConfigScreen(
                             Text(
                                 text = model.ifBlank { "Select a model" },
                                 color = if (model.isBlank()) TextDisabled else TextPrimary,
-                                fontSize = 16.sp
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Icon(
                                 imageVector = Icons.Default.ArrowDropDown,

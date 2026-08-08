@@ -52,7 +52,7 @@ names.
 |---|---|---|
 | text-primary | `#E2E2E2` | Primary reading content, titles |
 | text-secondary | `#A0A0A0` | Supporting text, descriptions |
-| text-tertiary | `#808080` | Short (≤3 word) metadata, timestamps, icon captions ONLY — never sentence-length body or preview text, never in the editor |
+| text-tertiary | `#8E8E8E` | Short (≤3 word) metadata, timestamps, icon captions ONLY — never sentence-length body or preview text, never in the editor. Raised from the v2.1 `#808080` spec to `#8E8E8E` to hold WCAG AA ≥4.5:1 on Canvas/Panel surfaces; `Color.kt` is the source of truth |
 | text-disabled | `#4A4A4A` | Disabled state only |
 | editor-body | `#D4D4D4` | Long-form editor body text — paragraphs, prose content. Brighter than secondary for sustained readability; dimmer than primary to avoid eye strain. |
 

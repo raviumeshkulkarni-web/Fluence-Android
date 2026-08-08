@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -13,7 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.offline.MoonshineModelManager
@@ -160,18 +163,26 @@ fun OfflineConfigScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val senseVoiceInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pressScale(remember { MutableInteractionSource() }),
+                        .pressScale(senseVoiceInteraction)
+                        .selectable(
+                            selected = selectedEngineType == OfflineEngineType.SENSEVOICE,
+                            interactionSource = senseVoiceInteraction,
+                            indication = null,
+                            role = Role.RadioButton,
+                            onClick = {
+                                selectedEngineType = OfflineEngineType.SENSEVOICE
+                                OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
+                            }
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
                         selected = selectedEngineType == OfflineEngineType.SENSEVOICE,
-                        onClick = {
-                            selectedEngineType = OfflineEngineType.SENSEVOICE
-                            OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
-                        },
+                        onClick = null,
                         colors = RadioButtonDefaults.colors(
                             selectedColor = TextPrimary,
                             unselectedColor = TextSecondary
@@ -183,7 +194,9 @@ fun OfflineConfigScreen(
                             text = "SenseVoice (Default)",
                             color = TextPrimary,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "Multilingual, ~239 MB",
@@ -193,18 +206,26 @@ fun OfflineConfigScreen(
                     }
                 }
 
+                val moonshineInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pressScale(remember { MutableInteractionSource() }),
+                        .pressScale(moonshineInteraction)
+                        .selectable(
+                            selected = selectedEngineType == OfflineEngineType.MOONSHINE_BASE,
+                            interactionSource = moonshineInteraction,
+                            indication = null,
+                            role = Role.RadioButton,
+                            onClick = {
+                                selectedEngineType = OfflineEngineType.MOONSHINE_BASE
+                                OfflinePreferences.setEngineType(context, OfflineEngineType.MOONSHINE_BASE)
+                            }
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
                         selected = selectedEngineType == OfflineEngineType.MOONSHINE_BASE,
-                        onClick = {
-                            selectedEngineType = OfflineEngineType.MOONSHINE_BASE
-                            OfflinePreferences.setEngineType(context, OfflineEngineType.MOONSHINE_BASE)
-                        },
+                        onClick = null,
                         colors = RadioButtonDefaults.colors(
                             selectedColor = TextPrimary,
                             unselectedColor = TextSecondary
@@ -216,7 +237,9 @@ fun OfflineConfigScreen(
                             text = "Moonshine Base (Experimental)",
                             color = TextPrimary,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "English only, ~287 MB",
@@ -249,7 +272,9 @@ fun OfflineConfigScreen(
                             text = "SenseVoice Model: Ready",
                             color = TextPrimary,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "Storage: ${(modelSize / (1024 * 1024))} MB",
@@ -425,7 +450,9 @@ fun OfflineConfigScreen(
                             text = "Moonshine Model: Ready",
                             color = TextPrimary,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "Storage: ${(moonshineSize / (1024 * 1024))} MB",

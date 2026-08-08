@@ -103,7 +103,7 @@ fun AboutScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Privacy Note: Transcriptions and API keys are stored encrypted on-device and excluded from cloud backups.",
+                text = "Privacy Note: History is not backed up — transcriptions and API keys stay on this device only and are excluded from cloud backups.",
                 color = TextTertiary,
                 style = FluenceTypography.labelSmall
             )

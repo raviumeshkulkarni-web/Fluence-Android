@@ -30,6 +30,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ImeSettingsActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:label="@string/ime_name"
+            android:theme="@style/Theme.GroqVoiceTyper" />
+
         <service
             android:name=".VoiceInputIME"
             android:label="@string/ime_name"
@@ -71,6 +79,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <provider
+            android:name="com.google.android.gms.fonts.provider.FontsProvider"
+            android:authorities="com.google.android.gms.fonts"
+            android:exported="false" />
 
     </application>
 

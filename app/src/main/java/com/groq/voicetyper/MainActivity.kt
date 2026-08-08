@@ -2,6 +2,7 @@ package com.groq.voicetyper
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
@@ -31,6 +32,12 @@ import com.groq.voicetyper.theme.*
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val EXTRA_DEEP_LINK_SETTINGS = "deep_link_settings"
+    }
+
+    private var deepLinkToSettings by mutableStateOf(false)
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -44,6 +51,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        deepLinkToSettings = intent.getBooleanExtra(EXTRA_DEEP_LINK_SETTINGS, false)
 
         val updateManager = com.groq.voicetyper.update.UpdateManager.getInstance(this)
         updateManager.onAppStart()
@@ -71,6 +80,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     FluenceNavHost(
+                        deepLinkToSettings = deepLinkToSettings,
                         onRequestPermission = {
                             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
@@ -100,6 +110,14 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_DEEP_LINK_SETTINGS, false)) {
+            deepLinkToSettings = true
         }
     }
 }

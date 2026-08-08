@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -38,13 +39,23 @@ private val screenOrder = listOf(
 )
 
 @Composable
-fun FluenceNavHost(onRequestPermission: () -> Unit = {}) {
+fun FluenceNavHost(
+    deepLinkToSettings: Boolean = false,
+    onRequestPermission: () -> Unit = {}
+) {
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
     val current = backStack.lastOrNull() ?: Screen.Home
     var previousSize by remember { mutableIntStateOf(1) }
 
     val isNavigatingForward = backStack.size >= previousSize
     previousSize = backStack.size
+
+    LaunchedEffect(deepLinkToSettings) {
+        if (deepLinkToSettings) {
+            backStack.clear()
+            backStack.addAll(listOf(Screen.Home, Screen.SettingsHub))
+        }
+    }
 
     BackHandler(enabled = backStack.size > 1) {
         backStack.removeLastOrNull()
