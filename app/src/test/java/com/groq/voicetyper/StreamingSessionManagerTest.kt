@@ -365,7 +365,10 @@ class StreamingSessionManagerTest {
             anyConstructed<MistralVoxtralTranscriber>().connect(any(), any(), any(), any())
         } returns flowOf(StreamingTranscriptEvent.Final("second"))
         TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener2)
-        assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
+        // No intermediate RECORDING assertion here: the mocked connect flow emits
+        // Final immediately, and on a loaded CI runner the IO collector can deliver
+        // it before the test thread observes RECORDING (state races to IDLE). The
+        // restart cleanliness is proven by the verifications below instead.
         awaitState(RecordingState.IDLE)
 
         verify(exactly = 1) { listener1.onTranscription("first") }
