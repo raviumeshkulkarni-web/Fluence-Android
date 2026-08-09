@@ -48,6 +48,39 @@ jobs:
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
+    - name: Verify versionCode is newer than latest published release
+      run: |
+        CODE=$(grep -m1 "versionCode" app/build.gradle.kts | awk '{print $3}' | tr -d '"')
+        if [ -z "$CODE" ] || ! [ "$CODE" -eq "$CODE" ] 2>/dev/null; then
+          echo "ERROR: Could not parse versionCode from app/build.gradle.kts."
+          exit 1
+        fi
+        LATEST_JSON=$(curl -s -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/latest" || true)
+        LATEST_URL=$(echo "$LATEST_JSON" | python3 -c "import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(next((a['browser_download_url'] for a in d.get('assets',[]) if a['name']=='release.json'), ''))
+except Exception:
+    print('')" 2>/dev/null || true)
+        if [ -n "$LATEST_URL" ]; then
+          LATEST_CODE=$(curl -s "$LATEST_URL" | python3 -c "import json,sys
+try:
+    print(json.load(sys.stdin).get('versionCode', 0))
+except Exception:
+    print(0)" 2>/dev/null || echo 0)
+          echo "This release versionCode: $CODE; latest published versionCode: $LATEST_CODE"
+          if [ "$CODE" -le "$LATEST_CODE" ]; then
+            echo "ERROR: versionCode $CODE is not greater than the latest published versionCode $LATEST_CODE."
+            echo "The in-app updater (GitHubUpdateRepository) compares versionCode only; a same-or-lower"
+            echo "code release would be invisible to installed apps. Bump versionCode in app/build.gradle.kts."
+            exit 1
+          fi
+          echo "versionCode check passed."
+        else
+          echo "No previously published release found; skipping versionCode comparison."
+        fi
+
     - name: Sign Release APK
       env:
         KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
