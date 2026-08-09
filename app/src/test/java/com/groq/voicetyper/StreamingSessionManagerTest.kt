@@ -148,6 +148,40 @@ class StreamingSessionManagerTest {
     }
 
     @Test
+    fun streamingEnabled_mistralPreset_usesRealtimeCompatibleModel() {
+        // Release blocker: Mistral's realtime endpoint must be called with the
+        // realtime-compatible model, never the stored batch model
+        // (voxtral-mini-latest).
+        stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
+
+        coVerify(timeout = 3000) {
+            anyConstructed<MistralVoxtralTranscriber>()
+                .connect(any(), any(), eq("voxtral-mini-realtime-latest"), any())
+        }
+    }
+
+    @Test
+    fun streamingEnabled_customPreset_keepsConfiguredModel() {
+        // Custom providers keep their own configured model; only the Mistral
+        // preset is forced to the realtime-compatible model.
+        stubStreamingConfig(streamingEnabled = true, preset = "custom", sttKey = "stt-key")
+        every { SecurityUtils.getSttModel(any(), any()) } returns "my-custom-model"
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
+
+        coVerify(timeout = 3000) {
+            anyConstructed<MistralVoxtralTranscriber>()
+                .connect(any(), any(), eq("my-custom-model"), any())
+        }
+    }
+
+    @Test
     fun streamingDisabled_usesBatchRecorder() {
         stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
         resetCachedAudioRecorder()

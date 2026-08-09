@@ -554,6 +554,14 @@ fun SttConfigScreen(
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
+                if (selectedProvider == "custom") {
+                    Text(
+                        text = "Custom streaming requires a Mistral-compatible realtime transcription endpoint (e.g. a server exposing /v1/audio/transcriptions/realtime).",
+                        color = TextSecondary.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

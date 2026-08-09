@@ -47,7 +47,15 @@ class StreamingAudioCapture {
          * @param length Number of valid bytes in pcmBytes
          */
         fun onAudioFrame(pcmBytes: ByteArray, length: Int)
+
+        /**
+         * Fired on the capture thread when the audio pipeline fails after capture
+         * started (AudioRecord startRecording failure or a read error). Not fired
+         * for a normal stopCapture().
+         */
+        fun onCaptureFailed(error: String) {}
     }
+
 
     /**
      * Starts capturing audio from microphone on a dedicated high-priority background thread.
@@ -95,45 +103,53 @@ class StreamingAudioCapture {
     }
 
     private fun readLoop(record: AudioRecord, listener: AudioFrameListener) {
+        var failure: String? = null
         try {
             record.startRecording()
         } catch (e: IllegalStateException) {
             Log.e(TAG, "Failed to start AudioRecord recording state", e)
-            isRunning = false
-            _isCapturing.value = false
-            releaseRecord(record)
-            return
+            failure = "Could not start the audio capture: ${e.localizedMessage ?: "AudioRecord state error"}"
         }
 
-        val byteBuffer = ByteArray(FRAME_SIZE_SAMPLES * 2) // 16-bit PCM = 2 bytes per sample
+        if (failure == null) {
+            val byteBuffer = ByteArray(FRAME_SIZE_SAMPLES * 2) // 16-bit PCM = 2 bytes per sample
 
-        while (isRunning) {
-            val readResult = record.read(byteBuffer, 0, byteBuffer.size)
-            if (readResult <= 0) {
-                if (readResult == AudioRecord.ERROR_INVALID_OPERATION) {
-                    Log.e(TAG, "Invalid operation reading streaming audio")
-                } else if (readResult == AudioRecord.ERROR_BAD_VALUE) {
-                    Log.e(TAG, "Bad value error reading streaming audio")
+            while (isRunning) {
+                val readResult = try {
+                    record.read(byteBuffer, 0, byteBuffer.size)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error reading streaming audio", e)
+                    failure = "Audio capture read failed: ${e.localizedMessage ?: "unknown error"}"
+                    break
                 }
-                break
-            }
-
-            // Calculate peak amplitude for visualization
-            var maxVal = 0
-            var i = 0
-            while (i < readResult - 1) {
-                val sample = (byteBuffer[i].toInt() and 0xFF) or (byteBuffer[i + 1].toInt() shl 8)
-                val absVal = abs(sample.toShort().toInt())
-                if (absVal > maxVal) {
-                    maxVal = absVal
+                if (readResult <= 0) {
+                    failure = when (readResult) {
+                        AudioRecord.ERROR_INVALID_OPERATION -> "Audio capture read failed (invalid operation)"
+                        AudioRecord.ERROR_BAD_VALUE -> "Audio capture read failed (bad value)"
+                        AudioRecord.ERROR_DEAD_OBJECT -> "Audio capture read failed (recorder released)"
+                        else -> "Audio capture stopped unexpectedly"
+                    }
+                    Log.e(TAG, failure)
+                    break
                 }
-                i += 2
-            }
-            _amplitude.value = (maxVal.toFloat() / 32767f).coerceIn(0f, 1f)
 
-            // Deliver raw PCM bytes to listener
-            val frameBytes = if (readResult < byteBuffer.size) byteBuffer.copyOf(readResult) else byteBuffer
-            listener.onAudioFrame(frameBytes, readResult)
+                // Calculate peak amplitude for visualization
+                var maxVal = 0
+                var i = 0
+                while (i < readResult - 1) {
+                    val sample = (byteBuffer[i].toInt() and 0xFF) or (byteBuffer[i + 1].toInt() shl 8)
+                    val absVal = abs(sample.toShort().toInt())
+                    if (absVal > maxVal) {
+                        maxVal = absVal
+                    }
+                    i += 2
+                }
+                _amplitude.value = (maxVal.toFloat() / 32767f).coerceIn(0f, 1f)
+
+                // Deliver raw PCM bytes to listener
+                val frameBytes = if (readResult < byteBuffer.size) byteBuffer.copyOf(readResult) else byteBuffer
+                listener.onAudioFrame(frameBytes, readResult)
+            }
         }
 
         try {
@@ -143,6 +159,10 @@ class StreamingAudioCapture {
         }
         releaseRecord(record)
         _isCapturing.value = false
+        if (failure != null && isRunning) {
+            Log.w(TAG, "Streaming audio capture failed: $failure")
+            listener.onCaptureFailed(failure)
+        }
         Log.d(TAG, "Streaming audio capture thread finished")
     }
 

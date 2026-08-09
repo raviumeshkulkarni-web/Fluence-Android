@@ -96,6 +96,9 @@ object TranscriptionSessionManager {
 
     /** How long to wait for a Final/Error/Closed after stopAndFinalize before force-teardown. */
     internal const val STREAMING_FINALIZE_TIMEOUT_MS = 5_000L
+    /** Mistral's realtime endpoint only serves realtime-compatible models. */
+    private const val MISTRAL_STREAMING_MODEL = "voxtral-mini-realtime-latest"
+
 
     // Monotonic session id. startRecordingInternal increments it; async cleanup
     // (offline force-release on cancel) captures it and bails if a newer session
@@ -330,6 +333,25 @@ object TranscriptionSessionManager {
                     transcriber.sendAudioChunk(pcmBytes, length)
                 }
             }
+
+            override fun onCaptureFailed(error: String) {
+                // The AudioRecord pipeline died mid-session (startRecording or
+                // read failure). Surface the error and tear the session down
+                // through the same path as a mic-start failure, so the session
+                // cannot stay stuck in RECORDING with a dead capture.
+                if (sessionGeneration != generation ||
+                    _recordingState.value != RecordingState.RECORDING
+                ) return
+                scope.launch {
+                    withContext(Dispatchers.Main) {
+                        if (sessionGeneration == generation) {
+                            showError("Microphone capture failed: $error")
+                        }
+                    }
+                    endStreamingSession(context, generation)
+                    _recordingState.value = RecordingState.IDLE
+                }
+            }
         }
 
         try {
@@ -378,7 +400,17 @@ object TranscriptionSessionManager {
             }
 
             val baseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
-            val model = SecurityUtils.getSttModel(context, sttPreset)
+            // The stored preset model (e.g. voxtral-mini-latest) is the batch
+            // model; Mistral's realtime endpoint requires a realtime-compatible
+            // model, so streaming sessions on the Mistral preset always use
+            // voxtral-mini-realtime-latest. Custom providers keep their
+            // configured model (they must expose a Mistral-compatible realtime
+            // endpoint).
+            val model = if (sttPreset.equals("mistral", ignoreCase = true)) {
+                MISTRAL_STREAMING_MODEL
+            } else {
+                SecurityUtils.getSttModel(context, sttPreset)
+            }
             val language = getEffectiveLanguage(context)
 
             try {
