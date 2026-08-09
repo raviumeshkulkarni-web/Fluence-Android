@@ -9,18 +9,39 @@ object SecurityUtils {
     private const val PREFS_NAME = "groq_voice_typer_secure_prefs"
     private const val KEY_API_KEY = "groq_api_key"
 
-    private fun getSharedPrefs(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    // Cached EncryptedSharedPreferences instance. Building a MasterKey + encrypted
+    // prefs instance on every getter call put 2+ Keystore cycles on the main thread's
+    // recording hot path (tap -> mic). The instance is created once and reused.
+    @Volatile
+    private var cachedPrefs: SharedPreferences? = null
+    private val prefsLock = Any()
 
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+    // Hot-path value caches for the branch decision in TranscriptionSessionManager.
+    // Invalidated by the corresponding save functions; single-process app, so a plain
+    // volatile snapshot is safe.
+    @Volatile
+    private var cachedSttPreset: String? = null
+    @Volatile
+    private var cachedStreamingEnabled: Boolean? = null
+
+    private fun getSharedPrefs(context: Context): SharedPreferences {
+        cachedPrefs?.let { return it }
+        synchronized(prefsLock) {
+            cachedPrefs?.let { return it }
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            val prefs = EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            cachedPrefs = prefs
+            return prefs
+        }
     }
 
     fun saveApiKey(context: Context, apiKey: String) {
@@ -35,11 +56,16 @@ object SecurityUtils {
         getSharedPrefs(context).edit().remove(KEY_API_KEY).apply()
     }
 
+
     fun getSttPreset(context: Context): String {
-        return getSharedPrefs(context).getString("stt_provider_preset", "groq") ?: "groq"
+        cachedSttPreset?.let { return it }
+        return (getSharedPrefs(context).getString("stt_provider_preset", "groq") ?: "groq").also {
+            cachedSttPreset = it
+        }
     }
 
     fun saveSttPreset(context: Context, preset: String) {
+        cachedSttPreset = null
         getSharedPrefs(context).edit().putString("stt_provider_preset", preset).apply()
     }
 
@@ -144,4 +170,18 @@ object SecurityUtils {
             "$base/v1/${path.trimStart('/')}"
         }
     }
+
+
+    fun isStreamingEnabled(context: Context): Boolean {
+        cachedStreamingEnabled?.let { return it }
+        return getSharedPrefs(context).getBoolean("stt_streaming_enabled", false).also {
+            cachedStreamingEnabled = it
+        }
+    }
+
+    fun saveStreamingEnabled(context: Context, enabled: Boolean) {
+        cachedStreamingEnabled = null
+        getSharedPrefs(context).edit().putBoolean("stt_streaming_enabled", enabled).apply()
+    }
 }
+

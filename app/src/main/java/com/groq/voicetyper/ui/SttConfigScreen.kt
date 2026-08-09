@@ -483,8 +483,84 @@ fun SttConfigScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            var isStreamingEnabled by remember { mutableStateOf(SecurityUtils.isStreamingEnabled(context)) }
+            val isStreamingSupported = selectedProvider == "mistral" || selectedProvider == "custom"
+
+            // Transcription Mode
+            Text(
+                text = "Transcription Mode",
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (isStreamingSupported) {
+                    "Choose between standard post-recording upload or live real-time streaming dictation. Agent Mode works with both — it is independent of the transcription mode."
+                } else {
+                    "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
+                },
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !isStreamingEnabled || !isStreamingSupported,
+                    onClick = {
+                        isStreamingEnabled = false
+                        SecurityUtils.saveStreamingEnabled(context, false)
+                    },
+                    label = { Text("Standard", fontSize = 13.sp) },
+                    shape = FluenceShapes.ExtraSmall,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
+                        selectedLabelColor = TextPrimary,
+                        containerColor = ButtonSecondary,
+                        labelColor = TextSecondary
+                    )
+                )
+
+                FilterChip(
+                    selected = isStreamingEnabled && isStreamingSupported,
+                    enabled = isStreamingSupported,
+                    onClick = {
+                        isStreamingEnabled = true
+                        SecurityUtils.saveStreamingEnabled(context, true)
+                    },
+                    label = { Text("Real-time Streaming", fontSize = 13.sp) },
+                    shape = FluenceShapes.ExtraSmall,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
+                        selectedLabelColor = TextPrimary,
+                        containerColor = ButtonSecondary,
+                        labelColor = TextSecondary,
+                        disabledContainerColor = ButtonSecondary.copy(alpha = 0.4f),
+                        disabledLabelColor = TextDisabled
+                    )
+                )
+            }
+
+            if (isStreamingEnabled && isStreamingSupported) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Notice: Real-time streaming mode transmits encrypted audio continuously while speaking. Cancelling stops further transmission, but audio already transmitted is processed by the cloud provider.",
+                    color = TextSecondary.copy(alpha = 0.8f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // API Key section
             if (selectedProvider == "groq") {
+
                 ApiKeySection(
                     label = "Groq API Key",
                     placeholder = "gsk_...",

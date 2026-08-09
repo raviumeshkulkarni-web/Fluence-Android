@@ -86,6 +86,14 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // START_STICKY restarts the service with a null intent after the process was
+        // killed. The bubble's in-memory state is gone, so there is nothing to show;
+        // running a headless foreground service with a misleading MICROPHONE-type
+        // notification and no overlay would be wrong — stop immediately instead.
+        if (intent == null && !BubbleController.isBubbleVisible.value) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 

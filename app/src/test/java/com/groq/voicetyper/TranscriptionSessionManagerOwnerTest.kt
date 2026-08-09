@@ -34,9 +34,14 @@ class TranscriptionSessionManagerOwnerTest {
         mockkStatic(Looper::class)
         every { Looper.getMainLooper() } returns mockk(relaxed = true)
 
+        mockkObject(SecurityUtils)
+        every { SecurityUtils.isStreamingEnabled(any()) } returns false
+        every { SecurityUtils.getSttPreset(any()) } returns "groq"
+
         mockkObject(OfflinePreferences)
         every { OfflinePreferences.isOfflineModeEnabled(any()) } returns true
         every { OfflinePreferences.getEngineType(any()) } returns OfflineEngineType.SENSEVOICE
+
 
         mockkObject(ModelAssetManager)
         every { ModelAssetManager.isModelReadySync(any()) } returns true

@@ -33,6 +33,7 @@ interface SessionListener {
     fun onCommand(command: CommandResult, contextText: String)
     fun getContextText(): String
     fun onError(message: String)
+    fun onPartialTranscription(text: String) {}
 }
 
 object TranscriptionSessionManager {
@@ -62,6 +63,15 @@ object TranscriptionSessionManager {
     private val _amplitude = MutableStateFlow(0f)
     val amplitude: StateFlow<Float> = _amplitude.asStateFlow()
 
+    private val _partialText = MutableStateFlow("")
+    val partialText: StateFlow<String> = _partialText.asStateFlow()
+
+    private var streamingAudioCapture: com.groq.voicetyper.streaming.StreamingAudioCapture? = null
+    private var streamingTranscriber: com.groq.voicetyper.streaming.StreamingTranscriber? = null
+    private var streamingCollectJob: Job? = null
+    private var activeStreaming = false
+
+
     // This scope lives for the entire app process lifetime. We never cancel it,
     // because TranscriptionSessionManager is a process-level singleton object.
     // Individual sessions are managed through job cancellation, not scope cancellation.
@@ -80,6 +90,12 @@ object TranscriptionSessionManager {
     private var activeEngineType: OfflineEngineType? = null
     private var recordingStartTimestampMs = 0L
     private val offlineTextAccumulator = StringBuilder()
+
+    /** Delay before retrying a streaming mic start (mic may be transiently held). */
+    internal const val MIC_START_RETRY_DELAY_MS = 400L
+
+    /** How long to wait for a Final/Error/Closed after stopAndFinalize before force-teardown. */
+    internal const val STREAMING_FINALIZE_TIMEOUT_MS = 5_000L
 
     // Monotonic session id. startRecordingInternal increments it; async cleanup
     // (offline force-release on cancel) captures it and bails if a newer session
@@ -173,12 +189,22 @@ object TranscriptionSessionManager {
 
         val engineType = OfflinePreferences.getEngineType(context)
         val useOffline = isOffline && !agentMode && isEngineModelReady(context, engineType)
-        activeOffline = useOffline
+        val sttPreset = SecurityUtils.getSttPreset(context)
+        val isStreamingConfigured = SecurityUtils.isStreamingEnabled(context)
+        // Agent Mode is orthogonal to the transcription mode: the streaming Final is
+        // routed through the same command-processing path as batch (deliverTranscript).
+        val useStreaming = isStreamingConfigured && !isOffline && (sttPreset == "mistral" || sttPreset == "custom")
+        activeStreaming = useStreaming
+        activeOffline = if (useStreaming) false else useOffline
         activeEngineType = if (useOffline) engineType else null
+        _partialText.value = ""
 
         registerNoisyReceiver(context)
 
-        if (useOffline) {
+        if (useStreaming) {
+            startStreamingSessionInternal(context, listener)
+        } else if (useOffline) {
+
             _recordingState.value = RecordingState.RECORDING
             scope.launch {
                 try {
@@ -281,6 +307,201 @@ object TranscriptionSessionManager {
         }
     }
 
+    private fun startStreamingSessionInternal(context: Context, listener: SessionListener) {
+        val generation = sessionGeneration
+        _recordingState.value = RecordingState.RECORDING
+
+        val capture = com.groq.voicetyper.streaming.StreamingAudioCapture()
+        streamingAudioCapture = capture
+
+        val transcriber = com.groq.voicetyper.streaming.MistralVoxtralTranscriber()
+        streamingTranscriber = transcriber
+
+        amplitudeCollectJob?.cancel()
+        amplitudeCollectJob = scope.launch {
+            capture.amplitude.collect {
+                _amplitude.value = it
+            }
+        }
+
+        val frameListener = object : com.groq.voicetyper.streaming.StreamingAudioCapture.AudioFrameListener {
+            override fun onAudioFrame(pcmBytes: ByteArray, length: Int) {
+                if (sessionGeneration == generation && _recordingState.value == RecordingState.RECORDING) {
+                    transcriber.sendAudioChunk(pcmBytes, length)
+                }
+            }
+        }
+
+        try {
+            capture.startCapture(frameListener)
+        } catch (e: SecurityException) {
+            // No permission — fail immediately, never retry.
+            Log.e(TAG, "Streaming capture start denied", e)
+            scope.launch { failStreamingStart(context, generation) }
+        } catch (e: IllegalStateException) {
+            // The mic can be transiently held by the HAL right after a process death
+            // or force-close. Retry once shortly after; a newer session or a cancel
+            // invalidates the retry through the generation/state guards below.
+            Log.w(TAG, "Streaming capture start failed, retrying once: ${e.localizedMessage}")
+            scope.launch {
+                delay(MIC_START_RETRY_DELAY_MS)
+                if (sessionGeneration != generation || _recordingState.value != RecordingState.RECORDING) {
+                    return@launch
+                }
+                try {
+                    capture.startCapture(frameListener)
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Streaming capture start failed after retry", e2)
+                    failStreamingStart(context, generation)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Streaming capture start failed", e)
+            scope.launch { failStreamingStart(context, generation) }
+        }
+
+        streamingCollectJob?.cancel()
+        streamingCollectJob = scope.launch(Dispatchers.IO) {
+            val sttPreset = SecurityUtils.getSttPreset(context)
+            val apiKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
+            if (apiKey.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    if (sessionGeneration == generation) {
+                        showError("API Key is missing for STT provider: ${sttPreset.uppercase()}")
+                    }
+                }
+                // Full teardown: without stopping the capture here, it keeps running
+                // and a second tap would start a second AudioRecord (two mics active).
+                endStreamingSession(context, generation)
+                _recordingState.value = RecordingState.IDLE
+                return@launch
+            }
+
+            val baseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
+            val model = SecurityUtils.getSttModel(context, sttPreset)
+            val language = getEffectiveLanguage(context)
+
+            try {
+                transcriber.connect(baseUrl, apiKey, model, language).collect { event ->
+                    if (sessionGeneration != generation) return@collect
+                    when (event) {
+                        is com.groq.voicetyper.streaming.StreamingTranscriptEvent.Partial -> {
+                            _partialText.value = event.cumulativeText
+                            withContext(Dispatchers.Main) {
+                                if (sessionGeneration == generation) {
+                                    try {
+                                        currentListener?.onPartialTranscription(event.cumulativeText)
+                                    } catch (e: Throwable) {
+                                        Log.w(TAG, "Error invoking onPartialTranscription listener", e)
+                                    }
+                                }
+                            }
+                        }
+                        is com.groq.voicetyper.streaming.StreamingTranscriptEvent.Final -> {
+                            val rawText = event.finalText.trim()
+                            if (rawText.isNotEmpty()) {
+                                val processedText = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                                val durationMs = if (recordingStartTimestampMs > 0L) {
+                                    (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
+                                } else 0L
+                                deliverTranscript(context, processedText, sttPreset, model, language, durationMs)
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    if (sessionGeneration == generation) {
+                                        _recordingState.value = RecordingState.IDLE
+                                        currentListener = null
+                                    }
+                                }
+                                if (sessionGeneration == generation) {
+                                    _isAgentMode.value = false
+                                }
+                            }
+                            endStreamingSession(context, generation)
+                        }
+                        is com.groq.voicetyper.streaming.StreamingTranscriptEvent.Error -> {
+                            if (sessionGeneration == generation) {
+                                withContext(Dispatchers.Main) {
+                                    showError("Streaming error: ${event.message}")
+                                }
+                                endStreamingSession(context, generation)
+                            }
+                        }
+                        com.groq.voicetyper.streaming.StreamingTranscriptEvent.Closed -> {
+                            // The server closed the socket without a Final. If the
+                            // session is still active, end it explicitly so the user
+                            // can retry; previously the session hung in RECORDING with
+                            // a dead socket, or in TRANSCRIBING forever.
+                            if (_recordingState.value == RecordingState.RECORDING ||
+                                _recordingState.value == RecordingState.TRANSCRIBING
+                            ) {
+                                // showError FIRST: endStreamingSession cancels this
+                                // collect job, and any suspension point after that
+                                // would throw CancellationException, silently killing
+                                // the error surfacing (the hang S5c described).
+                                withContext(Dispatchers.Main) {
+                                    if (sessionGeneration == generation) {
+                                        showError("Streaming connection closed before the transcript finished.")
+                                    }
+                                }
+                                endStreamingSession(context, generation)
+                            }
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Intentional session end (cancel/stop/watchdog/teardown). Never
+                // surface a spurious "connection failed" error for an intentional stop.
+                throw e
+            } catch (e: Exception) {
+                if (sessionGeneration == generation) {
+                    withContext(Dispatchers.Main) {
+                        showError("Streaming connection failed: ${e.localizedMessage}")
+                    }
+                    endStreamingSession(context, generation)
+                }
+            }
+        }
+    }
+
+    /**
+     * Single authoritative teardown for the streaming session. Idempotent; safe to
+     * call from every streaming exit (Final, Error, Closed, missing API key, cancel,
+     * mic-start failure, watchdog, destroy) and from inside the collect job itself
+     * (the job is cancelled, and the statements after this call in the job body are
+     * plain state writes with no suspension points).
+     *
+     * Every exit path to IDLE must converge here so that:
+     * - the AudioRecord is always stopped (never two captures on the next tap),
+     * - the WebSocket is closed and the writer job cancelled,
+     * - stale async callbacks cannot touch the next session's listener/state.
+     */
+    private fun endStreamingSession(context: Context, generation: Long) {
+        streamingAudioCapture?.stopCapture()
+        streamingAudioCapture = null
+        streamingTranscriber?.close()
+        streamingTranscriber = null
+        streamingCollectJob?.cancel()
+        streamingCollectJob = null
+        activeStreaming = false
+        if (sessionGeneration == generation) {
+            currentListener = null
+            sessionOwner = SessionOwner.BUBBLE
+            recordingStartTimestampMs = 0L
+            _partialText.value = ""
+        }
+        unregisterNoisyReceiver(context)
+    }
+
+    private suspend fun failStreamingStart(context: Context, generation: Long) {
+        withContext(Dispatchers.Main) {
+            if (sessionGeneration == generation) {
+                showError("Could not start streaming microphone. Check permissions and try again.")
+            }
+        }
+        endStreamingSession(context, generation)
+        _recordingState.value = RecordingState.IDLE
+    }
+
     fun stopRecording(context: Context) {
         if (_recordingState.value != RecordingState.RECORDING) return
         _recordingState.value = RecordingState.TRANSCRIBING
@@ -289,12 +510,38 @@ object TranscriptionSessionManager {
         val durationMs = if (recordingStartTimestampMs > 0L) {
             (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
         } else 0L
-        recordingStartTimestampMs = 0L
 
         amplitudeCollectJob?.cancel()
         amplitudeCollectJob = null
+        if (activeStreaming) {
+            val capture = streamingAudioCapture
+            val transcriber = streamingTranscriber
+            val generation = sessionGeneration
+            scope.launch {
+                capture?.stopCapture()
+                transcriber?.stopAndFinalize()
+                // Watchdog: if the provider never delivers a Final/Error/Closed (dead
+                // socket, silent close), force teardown so the session cannot hang in
+                // TRANSCRIBING forever (previously it did exactly that).
+                delay(STREAMING_FINALIZE_TIMEOUT_MS)
+                if (sessionGeneration == generation && _recordingState.value == RecordingState.TRANSCRIBING) {
+                    withContext(Dispatchers.Main) {
+                        showError("Streaming transcription did not complete. Please try again.")
+                    }
+                    endStreamingSession(context, generation)
+                    _recordingState.value = RecordingState.IDLE
+                }
+            }
+            return
+        }
+
+        // Batch and offline sessions have no async Final path — the session clock
+        // stops now. For streaming, the timestamp stays live until the Final arrives
+        // (the Final handler computes durationMs; endStreamingSession zeroes it).
+        recordingStartTimestampMs = 0L
 
         if (activeOffline) {
+
             engineStateCollectJob?.cancel()
             engineStateCollectJob = null
             modelErrorCollectJob?.cancel()
@@ -362,7 +609,11 @@ object TranscriptionSessionManager {
         amplitudeCollectJob = null
 
         _isAgentMode.value = false
-        if (activeOffline) {
+        _partialText.value = ""
+        if (activeStreaming) {
+            endStreamingSession(context, generation)
+        } else if (activeOffline) {
+
             engineStateCollectJob?.cancel()
             engineStateCollectJob = null
             modelErrorCollectJob?.cancel()
@@ -424,49 +675,13 @@ object TranscriptionSessionManager {
                 onSuccess = { rawText ->
                     if (rawText.isNotBlank()) {
                         val text = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
-                        val isAgent = _isAgentMode.value
-                        CoroutineScope(Dispatchers.IO).launch {
-                            HistoryRepository.save(context.applicationContext, text, sttPreset, sttModel, languageCode, durationMs, isAgent)
-                        }
-                        if (isAgent) {
-                            val contextText = currentListener?.getContextText() ?: ""
-                            val llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, llmPreset)
-                            val llmModel = SecurityUtils.getLlmModel(context, llmPreset)
-
-                            val cmdResult = CommandProcessor.processCommand(llmBaseUrl, llmModel, llmKey!!, text, contextText)
-                            cmdResult.fold(
-                                onSuccess = { commandResult ->
-                                    withContext(Dispatchers.Main) {
-                                        if (sessionGeneration == generation) {
-                                            currentListener?.onCommand(commandResult, contextText)
-                                            _recordingState.value = RecordingState.IDLE
-                                            currentListener = null
-                                        }
-                                    }
-                                },
-                                onFailure = { error ->
-                                    if (sessionGeneration == generation) {
-                                        showError(error.localizedMessage ?: "Agent processing failed")
-                                    }
-                                }
-                            )
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                if (sessionGeneration == generation) {
-                                    currentListener?.onTranscription(text)
-                                    _recordingState.value = RecordingState.IDLE
-                                    currentListener = null
-                                }
-                            }
-                        }
+                        deliverTranscript(context, text, sttPreset, sttModel, languageCode, durationMs)
                     } else {
                         if (sessionGeneration == generation) {
                             _recordingState.value = RecordingState.IDLE
                             currentListener = null
+                            _isAgentMode.value = false
                         }
-                    }
-                    if (sessionGeneration == generation) {
-                        _isAgentMode.value = false
                     }
                 },
                 onFailure = { error ->
@@ -476,6 +691,71 @@ object TranscriptionSessionManager {
                     }
                 }
             )
+        }
+    }
+
+    /**
+     * Delivers a completed transcript through the session's listener exactly once,
+     * routing through the Agent command pipeline when Agent Mode is on. Shared by the
+     * batch path ([transcribeAudioOnline]) and the streaming Final path so Agent Mode
+     * behaves identically in both transcription modes. Generation-guarded on every
+     * async hop; a newer session can never receive a stale transcript.
+     */
+    private suspend fun deliverTranscript(
+        context: Context,
+        text: String,
+        sttPreset: String,
+        model: String,
+        language: String,
+        durationMs: Long
+    ) {
+        val generation = sessionGeneration
+        val isAgent = _isAgentMode.value
+        val listener = currentListener
+
+        CoroutineScope(Dispatchers.IO).launch {
+            HistoryRepository.save(context.applicationContext, text, sttPreset, model, language, durationMs, isAgent)
+        }
+
+        if (isAgent) {
+            val contextText = listener?.getContextText() ?: ""
+            val llmPreset = SecurityUtils.getLlmPreset(context)
+            val llmKey = SecurityUtils.getProviderApiKey(context, "llm", llmPreset)
+            if (llmKey.isNullOrBlank()) {
+                showError("API Key is missing for Agent provider: ${llmPreset.uppercase()}")
+                return
+            }
+            val llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, llmPreset)
+            val llmModel = SecurityUtils.getLlmModel(context, llmPreset)
+
+            val cmdResult = CommandProcessor.processCommand(llmBaseUrl, llmModel, llmKey, text, contextText)
+            cmdResult.fold(
+                onSuccess = { commandResult ->
+                    withContext(Dispatchers.Main) {
+                        if (sessionGeneration == generation) {
+                            listener?.onCommand(commandResult, contextText)
+                            _recordingState.value = RecordingState.IDLE
+                            currentListener = null
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    if (sessionGeneration == generation) {
+                        showError(error.localizedMessage ?: "Agent processing failed")
+                    }
+                }
+            )
+        } else {
+            withContext(Dispatchers.Main) {
+                if (sessionGeneration == generation) {
+                    listener?.onTranscription(text)
+                    _recordingState.value = RecordingState.IDLE
+                    currentListener = null
+                }
+            }
+        }
+        if (sessionGeneration == generation) {
+            _isAgentMode.value = false
         }
     }
 
@@ -549,6 +829,10 @@ object TranscriptionSessionManager {
         currentListener = null
 
         audioRecorder?.cancelRecording()
+        val ctxForTeardown = appContext
+        if (ctxForTeardown != null) {
+            endStreamingSession(ctxForTeardown, sessionGeneration)
+        }
 
         // Reset all state flows so the next IME session starts clean.
         // This is critical: if the IME is destroyed mid-recording (e.g. keyboard switch),
@@ -558,6 +842,8 @@ object TranscriptionSessionManager {
         _errorMessage.value = null
         _offlineEngineState.value = OfflineEngineState.UNLOADED
         _amplitude.value = 0f
+        _partialText.value = ""
+
         activeOffline = false
         activeEngineType = null
         offlineTextAccumulator.setLength(0)

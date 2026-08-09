@@ -131,4 +131,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver)
+    // Real org.json implementation: the mockable android.jar stubs org.json with
+    // "Stub!" throwers, but the streaming transcriber parses server frames with it
+    // in production, so the transport tests need the real classes.
+    testImplementation("org.json:json:20231013")
 }
