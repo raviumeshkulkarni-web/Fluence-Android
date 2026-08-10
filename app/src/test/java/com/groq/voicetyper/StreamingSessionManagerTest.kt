@@ -291,12 +291,16 @@ class StreamingSessionManagerTest {
         TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
         TranscriptionSessionManager.stopRecording(context)
         assertEquals(RecordingState.TRANSCRIBING, TranscriptionSessionManager.recordingState.value)
-        coVerify { anyConstructed<MistralVoxtralTranscriber>().stopAndFinalize() }
 
         // No Final ever arrives (dead socket): the watchdog must end the session
         // instead of hanging in TRANSCRIBING forever (S5c).
         awaitState(RecordingState.IDLE, TranscriptionSessionManager.STREAMING_FINALIZE_TIMEOUT_MS + 4000)
         assertTrue(TranscriptionSessionManager.errorMessage.value?.contains("did not complete") == true)
+        // stopAndFinalize runs on the manager's async scope (Dispatchers.Default) before
+        // the watchdog delay, so once the session has reached IDLE it is guaranteed to
+        // have been invoked. Verify after that observation instead of racing the
+        // dispatcher (this coVerify flaked on loaded CI runners within its poll window).
+        coVerify { anyConstructed<MistralVoxtralTranscriber>().stopAndFinalize() }
         verify { anyConstructed<StreamingAudioCapture>().stopCapture() }
         verify { anyConstructed<MistralVoxtralTranscriber>().close() }
     }
