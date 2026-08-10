@@ -86,6 +86,31 @@ fun FloatingBubbleUI(
     )
 
     val shape = RoundedCornerShape(cornerRadius)
+    // Idle dimming — pure Compose render-layer opacity, no WindowManager involvement.
+    // Fully opaque while active (expanded, recording/transcribing, or error feedback);
+    // dims to 35% when idle. Starts dimmed on mount; after a real active→idle
+    // transition it holds full opacity ~2500ms as transcription-completion feedback.
+    val isActive = isExpanded || recordingState != RecordingState.IDLE || errorMessage != null
+    var wasActive by remember { mutableStateOf(false) }
+    var dimmed by remember { mutableStateOf(true) }
+    LaunchedEffect(isActive) {
+        if (isActive) {
+            dimmed = false
+        } else if (wasActive) {
+            kotlinx.coroutines.delay(2500)
+            dimmed = true
+        }
+        wasActive = isActive
+    }
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (dimmed) 0.35f else 1f,
+        animationSpec = if (dimmed) {
+            tween(durationMillis = 400, easing = FastOutSlowInEasing)
+        } else {
+            tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        },
+        label = "bubbleAlpha"
+    )
 
     Box(
         modifier = Modifier
@@ -97,8 +122,11 @@ fun FloatingBubbleUI(
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
-                .amethystObsidianGlow(isExpanded = isExpanded, shape = shape)
+                .amethystObsidianGlow(isExpanded = isExpanded, shape = shape, dimmed = dimmed)
                 .clip(shape)
+                // Idle dimming via RenderNode layer alpha — dims glow, border, background,
+                // and content together. Does not affect layout, hit testing, or the window.
+                .graphicsLayer { alpha = dimAlpha }
                 // Gesture handling for Collapsed state (drag, instant tap, hold for agent mode)
                 .run {
                     if (!isExpanded) {
@@ -285,11 +313,25 @@ fun FloatingBubbleUI(
 fun Modifier.amethystObsidianGlow(
     isExpanded: Boolean,
     glowRadius: Dp = 8.dp,
-    shape: RoundedCornerShape
+    shape: RoundedCornerShape,
+    dimmed: Boolean = false
 ): Modifier = this.composed {
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
     val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.65f else 0.45f)
+
+    if (dimmed) {
+        // Quiet-glass idle look: no glow/bloom layers, translucent obsidian base,
+        // faint neutral hairline. The callsite graphicsLayer alpha further subdues it.
+        return@composed this.background(
+            color = Color(0x1F0D0E12), // translucent obsidian glass
+            shape = shape
+        ).border(
+            width = 0.8.dp,
+            color = Color(0x4DFFFFFF), // faint white hairline for discoverability
+            shape = shape
+        )
+    }
 
     this.drawBehind {
         val shapeRadiusPx = shape.topStart.toPx(size, this)
