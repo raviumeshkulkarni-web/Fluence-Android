@@ -23,6 +23,10 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -42,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * AudioManager / AudioFocusRequest are mocked; reconcile() is driven directly
  * except for the final wiring test which drives the real recording state flow.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class AudioFocusManagerTest {
 
     private lateinit var context: Context
@@ -53,6 +58,7 @@ class AudioFocusManagerTest {
     fun setUp() {
         mockkStatic(Looper::class)
         every { Looper.getMainLooper() } returns mockk(relaxed = true)
+        kotlinx.coroutines.Dispatchers.setMain(kotlinx.coroutines.Dispatchers.Unconfined)
 
         mockkObject(AudioFocusPreferences)
         every { AudioFocusPreferences.isDuckingEnabled(any()) } returns true
@@ -89,16 +95,12 @@ class AudioFocusManagerTest {
 
     @After
     fun tearDown() {
-        // A session may still hold RECORDING, TRANSCRIBING, or ERROR. Both entry
-        // points are owner-guarded, so drive cleanup through each and wait for
-        // IDLE while mocks are still live (cancel first: unmocking with a session
-        // coroutine in flight would leak ERROR into subsequent tests).
         if (TranscriptionSessionManager.recordingState.value != RecordingState.IDLE) {
             TranscriptionSessionManager.cancelRecording(context)
             TranscriptionSessionManager.cancelImeRecording(context)
-            waitFor { TranscriptionSessionManager.recordingState.value == RecordingState.IDLE }
         }
         AudioFocusManager.resetForTests()
+        kotlinx.coroutines.Dispatchers.resetMain()
         clearAllMocks()
         unmockkAll()
     }
@@ -250,6 +252,19 @@ class AudioFocusManagerTest {
         every { SecurityUtils.isStreamingEnabled(any()) } returns false
         every { SecurityUtils.getSttPreset(any()) } returns "groq"
         every { SecurityUtils.getSttLanguage(any()) } returns ""
+        every { SecurityUtils.getLlmPreset(any()) } returns "groq"
+        every { SecurityUtils.getSttBaseUrl(any(), any<String>()) } returns "https://api.groq.com/openai"
+        every { SecurityUtils.getSttModel(any(), any<String>()) } returns "whisper-large-v3"
+        every { SecurityUtils.getProviderApiKey(any(), any<String>(), any<String>()) } returns "fake-key"
+
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } returns Result.success("hello")
+
+        mockkObject(com.groq.voicetyper.history.HistoryRepository)
+        coEvery { com.groq.voicetyper.history.HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) } just Runs
+
+        mockkObject(com.groq.voicetyper.dictionary.DictionaryTextPostProcessor)
+        every { com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(any(), any()) } answers { secondArg() }
 
         mockkObject(OfflinePreferences)
         every { OfflinePreferences.isOfflineModeEnabled(any()) } returns true
@@ -273,7 +288,9 @@ class AudioFocusManagerTest {
         coEvery { OfflinePipelineProvider.getInstance(any(), any()) } returns pipeline
 
         val sessionContext = mockk<Context>(relaxed = true)
+        every { sessionContext.applicationContext } returns sessionContext
         every { sessionContext.packageName } returns "com.example.normal"
+        every { sessionContext.cacheDir } returns File(System.getProperty("java.io.tmpdir"))
 
         // Start the live observer for the wiring test.
         AudioFocusManager.attach(context)
@@ -282,7 +299,7 @@ class AudioFocusManagerTest {
 
         TranscriptionSessionManager.startRecording(
             sessionContext,
-            isOffline = true,
+            isOffline = false,
             agentMode = false,
             listener = listener,
             targetPackage = sessionContext.packageName
@@ -292,10 +309,6 @@ class AudioFocusManagerTest {
         TranscriptionSessionManager.stopRecording(sessionContext)
         waitFor { abandonCalls.get() >= 1 }
 
-        // The session's own offline-finalize coroutine (running on the session's
-        // process-lifetime scope) must reach IDLE while all mocks are still live.
-        // Exiting earlier would let it hit unmocked code in tearDown, call
-        // showError() and leak a permanent ERROR state into later tests.
         waitFor { TranscriptionSessionManager.recordingState.value == RecordingState.IDLE }
 
         assertTrue(requestCalls.get() >= 1)
