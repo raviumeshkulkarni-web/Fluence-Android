@@ -86,9 +86,23 @@ fun FloatingBubbleUI(
     )
 
     val shape = RoundedCornerShape(cornerRadius)
+    var idleOpacity by remember { mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context)) }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == FloatingBubblePreferences.KEY_OPACITY) {
+                idleOpacity = FloatingBubblePreferences.getOpacity(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
     // Idle dimming — pure Compose render-layer opacity, no WindowManager involvement.
     // Fully opaque while active (expanded, recording/transcribing, or error feedback);
-    // dims to 35% when idle. Starts dimmed on mount; after a real active→idle
+    // dims to idleOpacity when idle. Starts dimmed on mount; after a real active→idle
     // transition it holds full opacity ~2500ms as transcription-completion feedback.
     val isActive = isExpanded || recordingState != RecordingState.IDLE || errorMessage != null
     var wasActive by remember { mutableStateOf(false) }
@@ -103,7 +117,7 @@ fun FloatingBubbleUI(
         wasActive = isActive
     }
     val dimAlpha by animateFloatAsState(
-        targetValue = if (dimmed) 0.35f else 1f,
+        targetValue = if (dimmed) idleOpacity else 1f,
         animationSpec = if (dimmed) {
             tween(durationMillis = 400, easing = FastOutSlowInEasing)
         } else {
