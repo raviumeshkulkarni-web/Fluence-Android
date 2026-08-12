@@ -21,12 +21,14 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.groq.voicetyper.AudioFocusPreferences
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.offline.ModelAssetManager
@@ -134,6 +136,7 @@ fun SettingsScreen(
     val llmModel = remember { mutableStateOf(SecurityUtils.getLlmModel(context, llmPreset.value)) }
     val offlineEnabled = remember { mutableStateOf(false) }
     val modelReady = remember { mutableStateOf(false) }
+    val duckingEnabled = remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -143,6 +146,7 @@ fun SettingsScreen(
             llmModel.value = SecurityUtils.getLlmModel(context, llmPreset.value)
             offlineEnabled.value = OfflinePreferences.isOfflineModeEnabled(context)
             modelReady.value = ModelAssetManager.isModelReadySync(context)
+            duckingEnabled.value = AudioFocusPreferences.isDuckingEnabled(context)
         }
     }
 
@@ -253,8 +257,67 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // About
+            // Audio Focus Ducking
             EntranceRow(6) {
+                Surface(
+                    color = Panel,
+                    shape = FluenceShapes.Medium,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FluenceSpacing.Base)
+                        .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeDown,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Reduce media volume while dictating",
+                                color = TextPrimary,
+                                style = FluenceTypography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                            Text(
+                                text = "Duck other apps' audio while recording",
+                                color = TextSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        }
+
+                        Switch(
+                            checked = duckingEnabled.value,
+                            onCheckedChange = { checked ->
+                                duckingEnabled.value = checked
+                                AudioFocusPreferences.setDuckingEnabled(context, checked)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Panel,
+                                checkedTrackColor = TextPrimary,
+                                uncheckedThumbColor = TextPrimary,
+                                uncheckedTrackColor = Panel
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // About
+            EntranceRow(7) {
                 SettingsRow(
                     icon = Icons.Default.Info,
                     title = "About",
