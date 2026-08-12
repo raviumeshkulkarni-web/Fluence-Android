@@ -218,7 +218,7 @@ class OfflineTranscriber(
             try {
                 Log.d(TAG, "Starting inference on ${samples.size} samples")
                 val text = engine.transcribe(samples, sampleRate)
-                Log.d(TAG, "Inference completed: '$text'")
+                Log.d(TAG, "Inference completed")
                 return@withContext text
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

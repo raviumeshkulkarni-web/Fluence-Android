@@ -239,7 +239,7 @@ class MistralVoxtralTranscriber : StreamingTranscriber {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse incoming WebSocket JSON frame: $text", e)
+            Log.w(TAG, "Failed to parse incoming WebSocket JSON frame", e)
         }
     }
 

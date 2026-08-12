@@ -38,7 +38,7 @@ object AutoLearnSessionManager {
         }
 
         activeCommittedText = committedText.trim()
-        Log.d(TAG, "Started observation session for committed text (${committedText.length} chars)")
+        Log.d(TAG, "Started observation session")
     }
 
     fun onTextUpdated(currentTextAroundCursor: String, context: Context) {

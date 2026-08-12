@@ -40,6 +40,8 @@ object BubbleController {
     private val _isAnchoredRight = MutableStateFlow(true)
     val isAnchoredRight: StateFlow<Boolean> = _isAnchoredRight.asStateFlow()
 
+
+
     fun updateAnchoredRight(anchoredRight: Boolean) {
         _isAnchoredRight.value = anchoredRight
     }

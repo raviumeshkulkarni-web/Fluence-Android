@@ -111,9 +111,9 @@ fun FloatingBubbleUI(
         },
         label = "bubbleAlpha"
     )
-
     Box(
         modifier = Modifier
+            // Preserve the fixed V1 visual frame for both collapsed and expanded states.
             .widthIn(min = 272.dp)
             .heightIn(min = 96.dp)
             .padding(16.dp),

@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -13,6 +15,24 @@ class FluenceAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "FluenceA11y"
+
+        @Volatile
+        private var activeInstance: FluenceAccessibilityService? = null
+
+        fun addBubbleVisualOverlay(view: View, layoutParams: WindowManager.LayoutParams) {
+            val service = activeInstance
+                ?: throw IllegalStateException("Accessibility service is not connected")
+            service.accessibilityWindowManager?.addView(view, layoutParams)
+                ?: throw IllegalStateException("Accessibility window manager is unavailable")
+        }
+
+        fun updateBubbleVisualOverlay(view: View, layoutParams: WindowManager.LayoutParams) {
+            activeInstance?.accessibilityWindowManager?.updateViewLayout(view, layoutParams)
+        }
+
+        fun removeBubbleVisualOverlay(view: View) {
+            activeInstance?.accessibilityWindowManager?.removeView(view)
+        }
 
         /** Max recursion depth when walking the accessibility tree. */
         private const val MAX_TREE_DEPTH = 25
@@ -31,6 +51,7 @@ class FluenceAccessibilityService : AccessibilityService() {
     private var isFloatingBubbleEnabled = false
     private val handler = Handler(Looper.getMainLooper())
     private var pendingEvaluation: Runnable? = null
+    private var accessibilityWindowManager: WindowManager? = null
 
     private val prefListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
@@ -45,6 +66,8 @@ class FluenceAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
+        accessibilityWindowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        activeInstance = this
         val sharedPrefs = getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
         isFloatingBubbleEnabled = sharedPrefs.getBoolean("floating_bubble_enabled", false)
         sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
@@ -314,6 +337,10 @@ class FluenceAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         cancelPendingEvaluation()
+        if (activeInstance === this) {
+            activeInstance = null
+        }
+        accessibilityWindowManager = null
         val sharedPrefs = getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
         sharedPrefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         BubbleController.stopService(this)

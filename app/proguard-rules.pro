@@ -54,3 +54,11 @@
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses,EnclosingMethod
+
+# --- Strip Verbose, Debug, and Info Logging in Release Builds ---
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+}
+

@@ -14,6 +14,7 @@ import android.util.Log
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.view.Choreographer
 import androidx.compose.ui.platform.ComposeView
@@ -57,6 +58,16 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     private lateinit var layoutParams: WindowManager.LayoutParams
     private var isViewAdded = false
     private var isAnchoredRight = true
+
+    // Interaction (touch) window: transparent overlay sized by its own Compose
+    // content, positioned identically to the visual window. The visual window is
+    // FLAG_NOT_TOUCHABLE, so every touch routes through this window.
+    private var interactionView: ComposeView? = null
+    private var interactionLayoutParams: WindowManager.LayoutParams? = null
+
+    // Drag clamp constants shared by the visual and interaction windows.
+    private var paddingPx = 0
+    private var collapsedSizePx = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -157,19 +168,26 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         val density = resources.displayMetrics.density
         val padding = (16 * density).toInt()
         val collapsedSize = (56 * density).toInt()
+        paddingPx = padding
+        collapsedSizePx = collapsedSize
 
         layoutParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            alpha = 1f
+            var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+            // The visual window never receives input; the interaction window owns it.
+            this.flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = Gravity.TOP or if (lastIsAnchoredRight) Gravity.END else Gravity.START
             x = if (lastIsAnchoredRight) -padding else (lastX ?: -padding)
             y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
+
         }
+
         isAnchoredRight = lastIsAnchoredRight
         BubbleController.updateAnchoredRight(lastIsAnchoredRight)
 
@@ -185,46 +203,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             setContent {
                 FloatingBubbleUI(
                     isAnchoredRight = isAnchoredRight,
-                    onDrag = { dx, dy ->
-                        val screenWidth = resources.displayMetrics.widthPixels
-                        val screenHeight = resources.displayMetrics.heightPixels
-                        val lp = this@FloatingBubbleService.layoutParams
-                        // Keep the resting gravity for the entire drag; the flip happens only at
-                        // snap completion. Under Gravity.END the x inset is from the right edge,
-                        // so a left-based finger delta is subtracted; under Gravity.START it is added.
-                        if (isAnchoredRight) {
-                            lp.x = (lp.x - dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
-                        } else {
-                            lp.x = (lp.x + dx.toInt()).coerceIn(-padding, screenWidth - collapsedSize - padding)
-                        }
-                        lp.y = (lp.y + dy.toInt()).coerceIn(-padding, screenHeight - collapsedSize - padding)
-                        lastX = lp.x
-                        lastY = lp.y
-                        if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
-                            windowManager.updateViewLayout(composeView, lp)
-                        }
-                    },
-                    onDragReleased = {
-                        val screenWidth = resources.displayMetrics.widthPixels
-                        val lp = this@FloatingBubbleService.layoutParams
-                        // No mid-drag flip anymore: the current gravity is END iff isAnchoredRight.
-                        val currentlyEnd = isAnchoredRight
-                        val bubbleLeft = if (currentlyEnd) {
-                            // END gravity: x is inset from the right; bubble sits `padding` from window-right.
-                            screenWidth - lp.x - padding - collapsedSize
-                        } else {
-                            lp.x + padding
-                        }
-                        val isLeft = bubbleLeft + collapsedSize / 2 < screenWidth / 2
-                        val finalAnchorRight = !isLeft
-                        // Snap target expressed in the CURRENT gravity's coordinate space.
-                        val targetX = if (currentlyEnd) {
-                            if (finalAnchorRight) -padding else screenWidth - collapsedSize - padding
-                        } else {
-                            if (finalAnchorRight) screenWidth - collapsedSize - padding else -padding
-                        }
-                        animateSnap(targetX, finalAnchorRight, currentlyEnd)
-                    },
+                    onDrag = { dx, dy -> handleDrag(dx, dy) },
+                    onDragReleased = { handleDragReleased() },
                     onWidthUpdated = { _ ->
                         // WindowManager native gravity (Gravity.START or Gravity.END) keeps the anchored
                         // edge fixed automatically while Compose resizes. No per-frame updateViewLayout required!
@@ -235,20 +215,150 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
         composeView = view
         try {
-            windowManager.addView(view, layoutParams)
+            FluenceAccessibilityService.addBubbleVisualOverlay(view, layoutParams)
             isViewAdded = true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay view", e)
             composeView = null
             BubbleController.hideBubble()
+            return
+
+
+        }
+
+        // Interaction window: transparent overlay hosting the touch replica,
+        // added after the visual window so it sits on top and receives every
+        // touch (verified in InputDispatcher: topmost-first dispatch). Its size
+        // is driven by its own Compose content (88x88dp collapsed, 272x96dp
+        // expanded — instant on state transitions, never per-frame). Its position
+        // mirrors the visual window's x/y/gravity; both windows share the same
+        // frame in each state, so the visual window below never receives touches.
+        val interactionLp = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.TRANSLUCENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = layoutParams.gravity
+            x = layoutParams.x
+            y = layoutParams.y
+        }
+        interactionLayoutParams = interactionLp
+        val touchView = ComposeView(this).apply {
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            setViewTreeLifecycleOwner(this@FloatingBubbleService)
+            setViewTreeViewModelStoreOwner(this@FloatingBubbleService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingBubbleService)
+            // The touch layer is semantically empty so the visual window remains
+            // the single accessibility surface (TalkBack actions still reach the
+            // visual window's nodes even though it is not touchable).
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO)
+            setContent {
+                BubbleTouchLayer(
+                    onDrag = { dx, dy -> handleDrag(dx, dy) },
+                    onDragReleased = { handleDragReleased() }
+                )
+            }
+        }
+        interactionView = touchView
+        try {
+            windowManager.addView(touchView, interactionLp)
+        } catch (e: Exception) {
+            // Without the interaction window the bubble would be untouchable.
+            Log.e(TAG, "Failed to add interaction overlay view", e)
+            interactionView = null
+            interactionLayoutParams = null
+            if (view.isAttachedToWindow) {
+                FluenceAccessibilityService.removeBubbleVisualOverlay(view)
+            }
+            composeView = null
+            isViewAdded = false
+            BubbleController.hideBubble()
         }
     }
 
+    /**
+     * Shared drag handler for the visual and interaction windows. The visual
+     * window's position is the single source of truth; the interaction window
+     * mirrors it.
+     */
+    private fun handleDrag(dx: Float, dy: Float) {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val lp = layoutParams
+        // Keep the resting gravity for the entire drag; the flip happens only at
+        // snap completion. Under Gravity.END the x inset is from the right edge,
+        // so a left-based finger delta is subtracted; under Gravity.START it is added.
+        if (isAnchoredRight) {
+            lp.x = (lp.x - dx.toInt()).coerceIn(-paddingPx, screenWidth - collapsedSizePx - paddingPx)
+        } else {
+            lp.x = (lp.x + dx.toInt()).coerceIn(-paddingPx, screenWidth - collapsedSizePx - paddingPx)
+        }
+        lp.y = (lp.y + dy.toInt()).coerceIn(-paddingPx, screenHeight - collapsedSizePx - paddingPx)
+        lastX = lp.x
+        lastY = lp.y
+        if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
+            FluenceAccessibilityService.updateBubbleVisualOverlay(composeView!!, lp)
+        }
+        mirrorPositionToInteraction()
+    }
+
+    private fun handleDragReleased() {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val lp = layoutParams
+        // No mid-drag flip anymore: the current gravity is END iff isAnchoredRight.
+        val currentlyEnd = isAnchoredRight
+        val bubbleLeft = if (currentlyEnd) {
+            // END gravity: x is inset from the right; bubble sits `padding` from window-right.
+            screenWidth - lp.x - paddingPx - collapsedSizePx
+        } else {
+            lp.x + paddingPx
+        }
+        val isLeft = bubbleLeft + collapsedSizePx / 2 < screenWidth / 2
+        val finalAnchorRight = !isLeft
+        // Snap target expressed in the CURRENT gravity's coordinate space.
+        val targetX = if (currentlyEnd) {
+            if (finalAnchorRight) -paddingPx else screenWidth - collapsedSizePx - paddingPx
+        } else {
+            if (finalAnchorRight) screenWidth - collapsedSizePx - paddingPx else -paddingPx
+        }
+        animateSnap(targetX, finalAnchorRight, currentlyEnd)
+    }
+
+    /**
+     * Copies the visual window's position to the interaction window. Called on
+     * every drag frame, every snap frame, the snap-end gravity flip, and mount.
+     */
+    private fun mirrorPositionToInteraction() {
+        val view = interactionView ?: return
+        if (!view.isAttachedToWindow) return
+        val lp2 = interactionLayoutParams ?: return
+        lp2.x = layoutParams.x
+        lp2.y = layoutParams.y
+        lp2.gravity = layoutParams.gravity
+        // Match the visual window: the snap-end flip must teleport, not glide.
+        if (Build.VERSION.SDK_INT >= 34) {
+            lp2.setCanPlayMoveAnimation(false)
+        }
+        windowManager.updateViewLayout(view, lp2)
+    }
+
     private fun removeOverlayView() {
+        interactionView?.let {
+            if (it.isAttachedToWindow) {
+                windowManager.removeView(it)
+            }
+        }
+        interactionView = null
+        interactionLayoutParams = null
         if (!isViewAdded) return
         composeView?.let {
             if (it.isAttachedToWindow) {
-                windowManager.removeView(it)
+                FluenceAccessibilityService.removeBubbleVisualOverlay(it)
             }
         }
         composeView = null
@@ -266,7 +376,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         }
         if (lp.flags != oldFlags) {
             if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
-                windowManager.updateViewLayout(composeView, lp)
+                FluenceAccessibilityService.updateBubbleVisualOverlay(composeView!!, lp)
             }
         }
     }
@@ -307,7 +417,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                             layoutParams.setCanPlayMoveAnimation(false)
                         }
                         if (isViewAdded && view.isAttachedToWindow) {
-                            windowManager.updateViewLayout(view, layoutParams)
+                            FluenceAccessibilityService.updateBubbleVisualOverlay(view, layoutParams)
+                            mirrorPositionToInteraction()
                         }
                         Choreographer.getInstance().postFrameCallback {
                             if (view.alpha == 0f) {
@@ -326,9 +437,10 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             lastX = currX
             composeView?.let {
                 if (isViewAdded && it.isAttachedToWindow) {
-                    windowManager.updateViewLayout(it, layoutParams)
+                    FluenceAccessibilityService.updateBubbleVisualOverlay(it, layoutParams)
                 }
             }
+            mirrorPositionToInteraction()
         }
         snapAnimator = animator
         animator.start()
@@ -354,6 +466,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     companion object {
         private const val TAG = "FloatingBubbleService"
         private const val NOTIFICATION_ID = 2026
+
         
         // Static variables to persist the bubble's coordinates and side anchoring across show/hide events
         private var lastX: Int? = null
