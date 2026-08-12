@@ -27,6 +27,7 @@ import io.mockk.mockkStatic
 import io.mockk.verify
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +90,7 @@ class StreamingSessionManagerTest {
         every { anyConstructed<MistralVoxtralTranscriber>().close() } just Runs
 
         context = mockk(relaxed = true)
+        every { context.packageName } returns "com.example.normal"
     }
 
     @After
@@ -141,7 +143,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
 
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
         verify { anyConstructed<StreamingAudioCapture>().startCapture(any()) }
@@ -155,7 +157,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         coVerify(timeout = 3000) {
@@ -172,7 +174,7 @@ class StreamingSessionManagerTest {
         every { SecurityUtils.getSttModel(any(), any()) } returns "my-custom-model"
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         coVerify(timeout = 3000) {
@@ -193,7 +195,7 @@ class StreamingSessionManagerTest {
         coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } returns Result.success("hello batch")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
         verify { anyConstructed<AudioRecorder>().startRecording() }
 
@@ -220,7 +222,7 @@ class StreamingSessionManagerTest {
         coEvery { OfflinePipelineProvider.getInstance(any(), any()) } returns pipeline
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
         verify(timeout = 3000) { pipeline.start(any()) }
     }
@@ -231,7 +233,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener, targetPackage = context.packageName)
 
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
         verify { anyConstructed<StreamingAudioCapture>().startCapture(any()) }
@@ -251,7 +253,7 @@ class StreamingSessionManagerTest {
         )
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         awaitState(RecordingState.IDLE)
 
         // Invariant: partial text never reaches the target — only the final is
@@ -271,7 +273,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.cancelRecording(context)
@@ -288,7 +290,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         TranscriptionSessionManager.stopRecording(context)
         assertEquals(RecordingState.TRANSCRIBING, TranscriptionSessionManager.recordingState.value)
 
@@ -312,7 +314,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = null)
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         awaitState(RecordingState.IDLE)
 
         assertTrue(TranscriptionSessionManager.errorMessage.value?.contains("API Key is missing") == true)
@@ -328,7 +330,7 @@ class StreamingSessionManagerTest {
         } returns flowOf(StreamingTranscriptEvent.Error(Exception("boom"), "boom"))
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         awaitState(RecordingState.ERROR)
 
         assertTrue(TranscriptionSessionManager.errorMessage.value?.contains("boom") == true)
@@ -345,7 +347,7 @@ class StreamingSessionManagerTest {
         } returns flowOf(StreamingTranscriptEvent.Closed)
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         awaitState(RecordingState.ERROR)
 
         assertTrue(TranscriptionSessionManager.errorMessage.value?.contains("closed") == true)
@@ -362,13 +364,13 @@ class StreamingSessionManagerTest {
         coEvery {
             anyConstructed<MistralVoxtralTranscriber>().connect(any(), any(), any(), any())
         } returns flowOf(StreamingTranscriptEvent.Final("first"))
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener1)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener1, targetPackage = context.packageName)
         awaitState(RecordingState.IDLE)
 
         coEvery {
             anyConstructed<MistralVoxtralTranscriber>().connect(any(), any(), any(), any())
         } returns flowOf(StreamingTranscriptEvent.Final("second"))
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener2)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener2, targetPackage = context.packageName)
         // No intermediate RECORDING assertion here: the mocked connect flow emits
         // Final immediately, and on a loaded CI runner the IO collector can deliver
         // it before the test thread observes RECORDING (state races to IDLE). The
@@ -390,7 +392,7 @@ class StreamingSessionManagerTest {
             IllegalStateException("mic busy") andThenJust Runs
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         // Retry succeeds; the session continues and completes normally, with no error.
@@ -406,7 +408,7 @@ class StreamingSessionManagerTest {
             IllegalStateException("mic busy")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         awaitState(RecordingState.IDLE)
 
         assertTrue(TranscriptionSessionManager.errorMessage.value?.contains("microphone") == true)
@@ -419,7 +421,7 @@ class StreamingSessionManagerTest {
         stubStreamingConfig(streamingEnabled = true, preset = "mistral", sttKey = "stt-key")
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startImeRecording(context, isOffline = false, agentMode = false, listener)
+        TranscriptionSessionManager.startImeRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.destroy()
@@ -443,7 +445,7 @@ class StreamingSessionManagerTest {
             Result.success(CommandResult("DELETE_CHARS", deleteCount = 4))
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener, targetPackage = context.packageName)
         awaitState(RecordingState.IDLE)
 
         coVerify { CommandProcessor.processCommand(any(), any(), any(), "delete last word", any()) }
@@ -467,7 +469,7 @@ class StreamingSessionManagerTest {
         )
         val listener = mockk<SessionListener>(relaxed = true)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener, targetPackage = context.packageName)
         TranscriptionSessionManager.stopRecording(context)
         awaitState(RecordingState.IDLE)
 
@@ -475,4 +477,5 @@ class StreamingSessionManagerTest {
         verify(exactly = 1) { listener.onCommand(any(), any()) }
         verify(exactly = 0) { listener.onTranscription(any()) }
     }
+
 }

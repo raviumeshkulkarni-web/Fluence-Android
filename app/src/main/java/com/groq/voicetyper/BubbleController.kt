@@ -68,6 +68,11 @@ object BubbleController {
     }
 
     fun showBubble(context: Context, node: AccessibilityNodeInfo) {
+        if (PrivacyPreferences.isPackageExcluded(context, node.packageName?.toString())) {
+            suppressForPrivacy()
+            return
+        }
+
         applicationContext = context.applicationContext
 
         // A bubble re-show within the defer window keeps the service alive.
@@ -110,6 +115,26 @@ object BubbleController {
         // Pre-initialize/pre-warm offline pipeline
         val appCtx = context.applicationContext
         TranscriptionSessionManager.preWarmOfflinePipeline(appCtx)
+    }
+
+    /**
+     * Removes bubble interaction without cancelling an active recording or
+     * transcription session. The existing hideBubble() intentionally retains
+     * its legacy cancellation behavior for non-privacy lifecycle callers.
+     */
+    fun suppressForPrivacy() {
+        TranscriptionSessionManager.cancelPreWarm()
+        _isBubbleVisible.value = false
+        _isBubbleExpanded.value = false
+        if (recordingState.value == RecordingState.IDLE) {
+            @Suppress("DEPRECATION")
+            synchronized(nodeLock) {
+                activeNode?.recycle()
+                activeNode = null
+            }
+        }
+        mainHandler.removeCallbacks(deferredStopService)
+        mainHandler.postDelayed(deferredStopService, STOP_SERVICE_DELAY_MS)
     }
 
     fun hideBubble() {
@@ -157,7 +182,58 @@ object BubbleController {
         }
     }
 
+    private fun activeNodePackage(): String? {
+        return synchronized(nodeLock) {
+            activeNode?.packageName?.toString()
+        }
+    }
+
+    private fun isTargetAllowed(
+        context: Context,
+        targetPackage: String?,
+        verifyActiveWindow: Boolean = false
+    ): Boolean {
+        if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
+            return false
+        }
+        return true
+    }
+
+    private fun isCurrentTargetAllowed(): Boolean {
+        val context = applicationContext ?: return false
+        return isTargetAllowed(context, activeNodePackage())
+    }
+
+    private fun isNodeTargetAllowed(context: Context, node: AccessibilityNodeInfo): Boolean {
+        return !PrivacyPreferences.isPackageExcluded(context, node.packageName?.toString()) &&
+            isTargetAllowed(context, activeNodePackage())
+    }
+
+    private fun performAllowedAction(
+        context: Context,
+        node: AccessibilityNodeInfo,
+        action: Int,
+        arguments: Bundle? = null
+    ): Boolean {
+        if (!isNodeTargetAllowed(context, node)) return false
+        return if (arguments == null) {
+            node.performAction(action)
+        } else {
+            node.performAction(action, arguments)
+        }
+    }
+
+    private fun performCurrentTargetAction(
+        node: AccessibilityNodeInfo,
+        action: Int,
+        arguments: Bundle? = null
+    ): Boolean {
+        val context = applicationContext ?: return false
+        return performAllowedAction(context, node, action, arguments)
+    }
+
     fun startRecording(context: Context, agentMode: Boolean = false) {
+        val targetPackage = activeNodePackage()
         _isBubbleExpanded.value = true
         applicationContext = context.applicationContext
 
@@ -166,22 +242,28 @@ object BubbleController {
             context = context,
             isOffline = isOffline,
             agentMode = agentMode,
+            targetPackage = targetPackage,
             listener = object : SessionListener {
                 override fun onTranscription(text: String) {
                     mainHandler.post {
-                        injectText(context, "$text ")
+                        if (!PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
+                            injectText(context, "$text ")
+                        }
                         _isBubbleExpanded.value = false
                     }
                 }
 
                 override fun onCommand(command: CommandResult, contextText: String) {
                     mainHandler.post {
-                        executeCommandAction(context, command, contextText.length)
+                        if (!PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
+                            executeCommandAction(context, command, contextText.length)
+                        }
                         _isBubbleExpanded.value = false
                     }
                 }
 
                 override fun getContextText(): String {
+                    if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) return ""
                     return synchronized(nodeLock) {
                         val node = activeNode
                         if (node != null) {
@@ -232,6 +314,7 @@ object BubbleController {
     }
 
     private fun executeCommandAction(context: Context, result: CommandResult, contextTextLength: Int) {
+        if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return
         Log.d(TAG, "Executing command action: ${result.action}")
         when (result.action) {
             "DELETE_CHARS" -> {
@@ -255,7 +338,7 @@ object BubbleController {
                 if (actions != null) {
                     for (action in actions) {
                         if (action.id == AccessibilityNodeInfo.ACTION_CLICK) {
-                            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_CLICK)
                             break
                         }
                     }
@@ -293,8 +376,13 @@ object BubbleController {
         }
 
         try {
+            if (!isNodeTargetAllowed(context, node)) return
             clipboard.setPrimaryClip(ClipData.newPlainText("voice_input", textToPaste))
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            if (!isNodeTargetAllowed(context, node)) {
+                restoreClipboard(clipboard, primaryClip)
+                return
+            }
+            val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_PASTE)
             if (!success) {
                 Log.w(TAG, "ACTION_PASTE returned false, restoring clipboard and running fallback")
                 restoreClipboard(clipboard, primaryClip)
@@ -384,16 +472,16 @@ object BubbleController {
      * Applies [newText] via ACTION_SET_TEXT and restores the cursor to [newCursorPos].
      * Returns true only when the action was actually performed.
      */
-    private fun trySetText(node: AccessibilityNodeInfo, newText: String, newCursorPos: Int): Boolean {
+    private fun trySetText(context: Context, node: AccessibilityNodeInfo, newText: String, newCursorPos: Int): Boolean {
         val setBundle = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
         }
-        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, setBundle)) return false
+        if (!performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, setBundle)) return false
         val selectBundle = Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
         }
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+        performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
         return true
     }
 
@@ -434,7 +522,9 @@ object BubbleController {
      * Injects text into the active node at the current cursor position.
      */
     fun injectText(context: Context, text: String) {
+        if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(context, node)) return
 
         // Attempt to refresh the node to get up-to-date text/cursor state.
         // If refresh fails (common in WebViews or after window changes), we
@@ -443,6 +533,7 @@ object BubbleController {
         if (!refreshed) {
             Log.w(TAG, "Node refresh returned false — attempting injection anyway")
         }
+        if (!isNodeTargetAllowed(context, node)) return
 
         val placeholderText = isPlaceholderText(node)
         val hintEmpty = isHintEmpty(node) || placeholderText
@@ -455,49 +546,54 @@ object BubbleController {
             val selectBundle = Bundle()
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selectionStart)
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionEnd)
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+            performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
             if (shouldPreferSetText(node, currentText) && !placeholderText) {
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
                     .toString()
                 val newCursorPos = selectionStart + textToInsert.length
-                if (trySetText(node, newText, newCursorPos)) return
+                if (trySetText(context, node, newText, newCursorPos)) return
             }
 
             pasteTextViaClipboard(context, node, textToInsert) {
+                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
                     .toString()
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                 if (success) {
                     val newCursorPos = selectionStart + textToInsert.length
                     val selectBundle2 = Bundle()
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
-                    node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
+                    performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
             }
         } else {
             if (shouldPreferSetText(node, currentText) && !placeholderText) {
                 val newText = currentText.toString() + textToInsert
-                if (trySetText(node, newText, newText.length)) return
+                if (trySetText(context, node, newText, newText.length)) return
             }
 
             pasteTextViaClipboard(context, node, textToInsert) {
+                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
                 val newText = currentText.toString() + textToInsert
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
             }
         }
     }
 
     fun performReplaceText(context: Context, newText: String, contextTextLength: Int) {
+        if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(context, node)) return
         try { node.refresh() } catch (_: Exception) {}
+        if (!isNodeTargetAllowed(context, node)) return
         
         val currentText = node.text ?: ""
         val selectionStart = node.textSelectionStart
@@ -508,14 +604,14 @@ object BubbleController {
             val selectBundle = Bundle()
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, startPos)
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionStart)
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+            performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
             if (shouldPreferSetText(node, currentText)) {
                 val replacedText = StringBuilder(currentText)
                     .replace(startPos, selectionStart, newText)
                     .toString()
                 val newCursorPos = startPos + newText.length
-                if (trySetText(node, replacedText, newCursorPos)) return
+                if (trySetText(context, node, replacedText, newCursorPos)) return
             }
 
             pasteTextViaClipboard(context, node, newText) {
@@ -524,13 +620,13 @@ object BubbleController {
                     .toString()
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, replacedText)
-                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                 if (success) {
                     val newCursorPos = startPos + newText.length
                     val selectBundle2 = Bundle()
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
-                    node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
+                    performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
             }
         } else {
@@ -539,50 +635,59 @@ object BubbleController {
             val selectBundle = Bundle()
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+            performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             
             if (shouldPreferSetText(node, currentText)) {
-                if (trySetText(node, newText, newText.length)) return
+                if (trySetText(context, node, newText, newText.length)) return
             }
 
             pasteTextViaClipboard(context, node, newText) {
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                 if (success) {
                     val selectBundle2 = Bundle()
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newText.length)
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newText.length)
-                    node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
+                    performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
             }
         }
     }
 
     fun performSelectAll() {
+        if (!isCurrentTargetAllowed()) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(applicationContext ?: return, node)) return
         try { node.refresh() } catch (_: Exception) {}
+        if (!isCurrentTargetAllowed()) return
         val textLength = node.text?.length ?: 0
         val selectBundle = Bundle()
         selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
         selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+        performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
     }
 
     fun performMoveCursor(position: String) {
+        if (!isCurrentTargetAllowed()) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(applicationContext ?: return, node)) return
         try { node.refresh() } catch (_: Exception) {}
+        if (!isCurrentTargetAllowed()) return
         val textLength = node.text?.length ?: 0
         val targetPos = if (position.equals("START", ignoreCase = true)) 0 else textLength
         val selectBundle = Bundle()
         selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, targetPos)
         selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, targetPos)
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+        performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
     }
 
     fun performDeleteChars(count: Int) {
+        if (!isCurrentTargetAllowed()) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(applicationContext ?: return, node)) return
         try { node.refresh() } catch (_: Exception) {}
+        if (!isCurrentTargetAllowed()) return
         if (node.isShowingHintText || count <= 0) return
 
         val currentText = node.text ?: ""
@@ -593,13 +698,13 @@ object BubbleController {
             val newText = StringBuilder(currentText).delete(selectionStart - count, selectionStart).toString()
             val bundle = Bundle()
             bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+            val success = performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
             if (success) {
                 val newCursorPos = selectionStart - count
                 val selectBundle = Bundle()
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
-                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+                performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             }
         } else {
             val textLength = currentText.length
@@ -607,21 +712,24 @@ object BubbleController {
                 val newText = StringBuilder(currentText).delete(textLength - count, textLength).toString()
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                val success = performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                 if (success) {
                     val newCursorPos = textLength - count
                     val selectBundle = Bundle()
                     selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
                     selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
-                    node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+                    performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
                 }
             }
         }
     }
 
     fun performBackspace() {
+        if (!isCurrentTargetAllowed()) return
         val node = synchronized(nodeLock) { activeNode } ?: return
+        if (!isNodeTargetAllowed(applicationContext ?: return, node)) return
         try { node.refresh() } catch (_: Exception) {}
+        if (!isCurrentTargetAllowed()) return
 
         if (node.isShowingHintText) {
             return
@@ -635,24 +743,24 @@ object BubbleController {
             val newText = StringBuilder(currentText).deleteAt(selectionStart - 1).toString()
             val bundle = Bundle()
             bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+            val success = performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
             if (success) {
                 val newCursorPos = selectionStart - 1
                 val selectBundle = Bundle()
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
-                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+                performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             }
         } else if (selectionStart >= 0 && selectionEnd > selectionStart) {
             val newText = StringBuilder(currentText).delete(selectionStart, selectionEnd).toString()
             val bundle = Bundle()
             bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+            val success = performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
             if (success) {
                 val selectBundle = Bundle()
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selectionStart)
                 selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionStart)
-                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
+                performCurrentTargetAction(node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
             }
         }
     }

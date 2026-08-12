@@ -241,8 +241,20 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // About
+            // Privacy & App Exclusions
             EntranceRow(5) {
+                SettingsRow(
+                    icon = Icons.Default.Security,
+                    title = "Privacy & App Exclusions",
+                    summary = "Choose apps where Fluence stays unavailable",
+                    onClick = { onNavigateTo(Screen.PrivacyExclusions) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // About
+            EntranceRow(6) {
                 SettingsRow(
                     icon = Icons.Default.Info,
                     title = "About",

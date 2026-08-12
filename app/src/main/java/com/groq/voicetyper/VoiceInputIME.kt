@@ -55,6 +55,25 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     private lateinit var composeView: ComposeView
 
     private var isOfflineMode by mutableStateOf(false)
+    private var isTargetExcluded by mutableStateOf(true)
+
+    @Volatile
+    private var currentTargetPackage: String? = null
+
+    private val privacyLifecycleHandler = Handler(Looper.getMainLooper())
+    private var pendingImeFinishCancellation = false
+    private var pendingFinishTargetPackage: String? = null
+    private val pendingImeFinishCancellationRunnable = Runnable {
+        if (!pendingImeFinishCancellation) return@Runnable
+        pendingImeFinishCancellation = false
+        val targetPackage = currentTargetPackage ?: pendingFinishTargetPackage
+        pendingFinishTargetPackage = null
+        if (!PrivacyPreferences.isPackageExcluded(this, targetPackage) &&
+            (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)
+        ) {
+            TranscriptionSessionManager.cancelImeRecording(this)
+        }
+    }
 
     // IME State (delegated to TranscriptionSessionManager)
     private var apiKey by mutableStateOf<String?>(null)
@@ -157,34 +176,45 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 audioRecorder = AudioRecorder(this), // Pass a dummy unused instance
                 apiKey = apiKey,
                 onBackspace = {
+                    if (!isCurrentTargetAllowed()) return@IMEScreen
                     val conn = currentInputConnection
                     if (conn != null) {
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         val selectedText = conn.getSelectedText(0)
                         if (!selectedText.isNullOrEmpty()) {
+                            if (!isCurrentTargetAllowed()) return@IMEScreen
                             conn.commitText("", 1)
                         } else {
+                            if (!isCurrentTargetAllowed()) return@IMEScreen
                             conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                            if (!isCurrentTargetAllowed()) return@IMEScreen
                             conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
                         }
                     }
                 },
                 onBackspaceSelect = { words ->
+                    if (!isCurrentTargetAllowed()) return@IMEScreen
                     val conn = currentInputConnection ?: return@IMEScreen
                     if (initialCursorPos == -1) {
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         val extracted = conn.getExtractedText(ExtractedTextRequest(), 0)
                         initialCursorPos = extracted?.selectionStart ?: -1
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         swipeTextBefore = conn.getTextBeforeCursor(300, 0)?.toString() ?: ""
                     }
                     val lengthToSelect = getCharsForWords(swipeTextBefore, words)
                     swipeSelectLength = lengthToSelect
                     if (initialCursorPos != -1 && lengthToSelect > 0) {
                         val start = (initialCursorPos - lengthToSelect).coerceAtLeast(0)
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         conn.setSelection(start, initialCursorPos)
                     }
                 },
                 onBackspaceDeleteSelected = {
+                    if (!isCurrentTargetAllowed()) return@IMEScreen
                     val conn = currentInputConnection
                     if (conn != null && swipeSelectLength > 0) {
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         conn.commitText("", 1)
                     }
                     initialCursorPos = -1
@@ -192,8 +222,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                     swipeTextBefore = ""
                 },
                 onBackspaceCancelSelect = {
+                    if (!isCurrentTargetAllowed()) return@IMEScreen
                     val conn = currentInputConnection
                     if (conn != null && initialCursorPos != -1) {
+                        if (!isCurrentTargetAllowed()) return@IMEScreen
                         conn.setSelection(initialCursorPos, initialCursorPos)
                     }
                     initialCursorPos = -1
@@ -202,35 +234,47 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 recordingState = recordingState,
                 isAgentMode = isAgentMode,
+                isTargetExcluded = isTargetExcluded,
                 errorMessage = errorMessage,
                 onCancelRecording = {
                     TranscriptionSessionManager.cancelImeRecording(this@VoiceInputIME)
                 },
                 onStartRecording = { agentMode ->
-                    val isOffline = OfflinePreferences.isOfflineModeEnabled(this@VoiceInputIME)
-                    TranscriptionSessionManager.startImeRecording(
-                        context = this@VoiceInputIME,
-                        isOffline = isOffline,
-                        agentMode = agentMode,
-                        listener = object : SessionListener {
-                            override fun onTranscription(text: String) {
-                                currentInputConnection?.commitText("$text ", 1)
-                                AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
-                            }
+                    if (isCurrentTargetAllowed()) {
+                        val isOffline = OfflinePreferences.isOfflineModeEnabled(this@VoiceInputIME)
+                        val targetPackage = currentTargetPackage
+                        TranscriptionSessionManager.startImeRecording(
+                            context = this@VoiceInputIME,
+                            isOffline = isOffline,
+                            agentMode = agentMode,
+                            targetPackage = targetPackage,
+                            listener = object : SessionListener {
+                                override fun onTranscription(text: String) {
+                                    if (!isCurrentTargetAllowed()) return
+                                    val connection = currentInputConnection ?: return
+                                    if (!isCurrentTargetAllowed()) return
+                                    connection.commitText("$text ", 1)
+                                    if (!isCurrentTargetAllowed()) return
+                                    AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
+                                }
 
-                            override fun onCommand(command: CommandResult, contextText: String) {
-                                executeCommandAction(command, contextText)
-                            }
+                                override fun onCommand(command: CommandResult, contextText: String) {
+                                    if (isCurrentTargetAllowed()) {
+                                        executeCommandAction(command, contextText)
+                                    }
+                                }
 
-                            override fun getContextText(): String {
-                                return currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
-                            }
+                                override fun getContextText(): String {
+                                    if (!isCurrentTargetAllowed()) return ""
+                                    return currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
+                                }
 
-                            override fun onError(message: String) {
-                                // State handled by manager
+                                override fun onError(message: String) {
+                                    // State handled by manager
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 },
                 onStopRecording = {
                     TranscriptionSessionManager.stopRecording(this@VoiceInputIME)
@@ -291,14 +335,24 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         outInsets.touchableRegion.set(rect)
     }
 
+    override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(info, restarting)
+        currentTargetPackage = info?.packageName?.toString()
+        isTargetExcluded = PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         Log.d(TAG, "onStartInputView: Starting input view, restarting=$restarting, inputType=${info?.inputType}")
+        currentTargetPackage = info?.packageName?.toString()
+        isTargetExcluded = PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
         apiKey = SecurityUtils.getProviderApiKey(this, "stt", SecurityUtils.getSttPreset(this))
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
 
         AutoLearnSessionManager.onStartInput(info, this)
-        TranscriptionSessionManager.preWarmOfflinePipeline(this)
+        if (!isTargetExcluded) {
+            TranscriptionSessionManager.preWarmOfflinePipeline(this)
+        }
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
@@ -313,6 +367,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         candidatesEnd: Int
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (!isCurrentTargetAllowed()) {
+            AutoLearnSessionManager.endSession()
+            return
+        }
         val conn = currentInputConnection ?: return
         val textBefore = conn.getTextBeforeCursor(1000, 0)?.toString() ?: ""
         val textAfter = conn.getTextAfterCursor(1000, 0)?.toString() ?: ""
@@ -324,10 +382,18 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         super.onFinishInputView(finishingInput)
         AutoLearnSessionManager.endSession()
         TranscriptionSessionManager.cancelPreWarm()
-        
+
+        privacyLifecycleHandler.removeCallbacks(pendingImeFinishCancellationRunnable)
+        pendingImeFinishCancellation = false
+        pendingFinishTargetPackage = null
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
-            TranscriptionSessionManager.cancelImeRecording(this)
+            pendingFinishTargetPackage = currentTargetPackage ?: currentInputEditorInfo?.packageName?.toString()
+            pendingImeFinishCancellation = true
+            privacyLifecycleHandler.post(pendingImeFinishCancellationRunnable)
         }
+
+        currentTargetPackage = null
+        isTargetExcluded = true
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -339,6 +405,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     override fun onDestroy() {
+        privacyLifecycleHandler.removeCallbacks(pendingImeFinishCancellationRunnable)
+        pendingImeFinishCancellation = false
+        pendingFinishTargetPackage = null
+
         // Cancel any active recording FIRST, before we destroy anything.
         // This ensures the SessionManager's state is clean before we reset it.
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
@@ -365,44 +435,60 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     private fun executeCommandAction(result: CommandResult, contextText: String) {
+        if (!isCurrentTargetAllowed()) return
         val conn = currentInputConnection ?: return
         Log.d(TAG, "Executing IME command action: ${result.action}")
         when (result.action) {
             "DELETE_CHARS" -> {
                 if (result.deleteCount > 0) {
+                    if (!isCurrentTargetAllowed()) return
                     conn.deleteSurroundingText(result.deleteCount, 0)
                 }
             }
             "REPLACE_TEXT" -> {
                 val charsToDelete = contextText.length
                 if (charsToDelete > 0) {
+                    if (!isCurrentTargetAllowed()) return
                     conn.deleteSurroundingText(charsToDelete, 0)
                 }
+                if (!isCurrentTargetAllowed()) return
                 conn.commitText(result.replacementText ?: "", 1)
             }
             "INSERT_TEXT" -> {
+                if (!isCurrentTargetAllowed()) return
                 conn.commitText(result.insertionText ?: "", 1)
             }
             "SELECT_ALL" -> {
+                if (!isCurrentTargetAllowed()) return
                 conn.performContextMenuAction(android.R.id.selectAll)
             }
             "MOVE_CURSOR" -> {
+                if (!isCurrentTargetAllowed()) return
                 val textBefore = conn.getTextBeforeCursor(10000, 0)?.length ?: 0
+                if (!isCurrentTargetAllowed()) return
                 val textAfter = conn.getTextAfterCursor(10000, 0)?.length ?: 0
                 val totalLength = textBefore + textAfter
                 val targetPos = if (result.cursorPosition?.equals("START", ignoreCase = true) == true) 0 else totalLength
+                if (!isCurrentTargetAllowed()) return
                 conn.setSelection(targetPos, targetPos)
             }
             "SEND" -> {
                 val editorInfo = currentInputEditorInfo
                 if (editorInfo != null && editorInfo.actionId != 0) {
+                    if (!isCurrentTargetAllowed()) return
                     conn.performEditorAction(editorInfo.actionId)
                 } else {
+                    if (!isCurrentTargetAllowed()) return
                     conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                    if (!isCurrentTargetAllowed()) return
                     conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
                 }
             }
         }
+    }
+
+    private fun isCurrentTargetAllowed(): Boolean {
+        return !PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
     }
 
     private fun updateScreenOnFlag(keepScreenOn: Boolean) {

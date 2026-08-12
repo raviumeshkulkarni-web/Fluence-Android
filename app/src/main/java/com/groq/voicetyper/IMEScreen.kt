@@ -107,7 +107,8 @@ fun IMEScreen(
     onStopRecording: () -> Unit,
     onSwitchKeyboard: () -> Unit,
     isOfflineReady: Boolean = false,
-    isOfflineMode: Boolean = false
+    isOfflineMode: Boolean = false,
+    isTargetExcluded: Boolean = false
 ) {
     val coroutineScope = rememberCoroutineScope()
     val view = androidx.compose.ui.platform.LocalView.current
@@ -129,7 +130,9 @@ fun IMEScreen(
     val seconds = recordTimeSeconds % 60
     val timeText = String.format(Locale.US, "%02d:%02d", minutes, seconds)
 
-    val isEnabled = (isOfflineReady || !apiKey.isNullOrBlank()) && recordingState != RecordingState.TRANSCRIBING
+    val isEnabled = (isOfflineReady || !apiKey.isNullOrBlank()) &&
+        recordingState != RecordingState.TRANSCRIBING &&
+        !isTargetExcluded
     val currentRecordingState by rememberUpdatedState(recordingState)
     val currentOnStartRecording by rememberUpdatedState(onStartRecording)
     val currentOnStopRecording by rememberUpdatedState(onStopRecording)

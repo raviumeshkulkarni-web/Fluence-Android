@@ -163,12 +163,24 @@ object TranscriptionSessionManager {
         preWarmJob = null
     }
 
-    fun startRecording(context: Context, isOffline: Boolean, agentMode: Boolean, listener: SessionListener) {
-        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.BUBBLE)
+    fun startRecording(
+        context: Context,
+        isOffline: Boolean,
+        agentMode: Boolean,
+        listener: SessionListener,
+        targetPackage: String? = null
+    ) {
+        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.BUBBLE, targetPackage)
     }
 
-    internal fun startImeRecording(context: Context, isOffline: Boolean, agentMode: Boolean, listener: SessionListener) {
-        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.IME)
+    internal fun startImeRecording(
+        context: Context,
+        isOffline: Boolean,
+        agentMode: Boolean,
+        listener: SessionListener,
+        targetPackage: String? = null
+    ) {
+        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.IME, targetPackage)
     }
 
     private fun startRecordingInternal(
@@ -176,8 +188,14 @@ object TranscriptionSessionManager {
         isOffline: Boolean,
         agentMode: Boolean,
         listener: SessionListener,
-        owner: SessionOwner
+        owner: SessionOwner,
+        targetPackage: String?
     ) {
+        if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
+            listener.onError("Dictation is unavailable in this app")
+            return
+        }
+
         if (_recordingState.value != RecordingState.IDLE && _recordingState.value != RecordingState.ERROR) {
             return
         }
@@ -596,9 +614,9 @@ object TranscriptionSessionManager {
                         CoroutineScope(Dispatchers.IO).launch {
                             HistoryRepository.save(context.applicationContext, finalTranscription, "offline", engineModelName, lang, durationMs, false)
                         }
-                        withContext(Dispatchers.Main) {
-                            currentListener?.onTranscription(finalTranscription)
-                        }
+        withContext(Dispatchers.Main) {
+            currentListener?.onTranscription(finalTranscription)
+        }
                     }
                     offlineTextAccumulator.setLength(0)
                     activeEngineType = null
@@ -743,14 +761,17 @@ object TranscriptionSessionManager {
     ) {
         val generation = sessionGeneration
         val isAgent = _isAgentMode.value
-        val listener = currentListener
+        val listener = currentListener ?: run {
+            completeWithoutExternalDelivery(generation)
+            return
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             HistoryRepository.save(context.applicationContext, text, sttPreset, model, language, durationMs, isAgent)
         }
 
         if (isAgent) {
-            val contextText = listener?.getContextText() ?: ""
+            val contextText = listener.getContextText()
             val llmPreset = SecurityUtils.getLlmPreset(context)
             val llmKey = SecurityUtils.getProviderApiKey(context, "llm", llmPreset)
             if (llmKey.isNullOrBlank()) {
@@ -765,7 +786,7 @@ object TranscriptionSessionManager {
                 onSuccess = { commandResult ->
                     withContext(Dispatchers.Main) {
                         if (sessionGeneration == generation) {
-                            listener?.onCommand(commandResult, contextText)
+                            listener.onCommand(commandResult, contextText)
                             _recordingState.value = RecordingState.IDLE
                             currentListener = null
                         }
@@ -780,7 +801,7 @@ object TranscriptionSessionManager {
         } else {
             withContext(Dispatchers.Main) {
                 if (sessionGeneration == generation) {
-                    listener?.onTranscription(text)
+                    listener.onTranscription(text)
                     _recordingState.value = RecordingState.IDLE
                     currentListener = null
                 }
@@ -789,6 +810,13 @@ object TranscriptionSessionManager {
         if (sessionGeneration == generation) {
             _isAgentMode.value = false
         }
+    }
+
+    private fun completeWithoutExternalDelivery(generation: Long) {
+        if (sessionGeneration != generation) return
+        _recordingState.value = RecordingState.IDLE
+        currentListener = null
+        _isAgentMode.value = false
     }
 
     private fun getEffectiveLanguage(context: Context): String {

@@ -34,6 +34,14 @@ class FluenceAccessibilityService : AccessibilityService() {
             activeInstance?.accessibilityWindowManager?.removeView(view)
         }
 
+        /**
+         * Bubble-only foreground check. The IME deliberately does not use this
+         * source; it uses its current EditorInfo package instead.
+         */
+        fun isCurrentApplicationAllowed(targetPackage: String? = null): Boolean {
+            return activeInstance?.isCurrentApplicationAllowedInternal(targetPackage) ?: true
+        }
+
         /** Max recursion depth when walking the accessibility tree. */
         private const val MAX_TREE_DEPTH = 25
 
@@ -125,6 +133,11 @@ class FluenceAccessibilityService : AccessibilityService() {
      * back to scanning all application windows.
      */
     private fun handleFocusChange(node: AccessibilityNodeInfo) {
+        if (PrivacyPreferences.isPackageExcluded(this, node.packageName?.toString())) {
+            BubbleController.suppressForPrivacy()
+            return
+        }
+
         if (isEditableTextField(node)) {
             if (isSecureField(node)) {
                 BubbleController.hideBubble()
@@ -166,6 +179,8 @@ class FluenceAccessibilityService : AccessibilityService() {
      *    inside a child window.
      */
     private fun evaluateAllWindows() {
+        if (suppressIfRequired(null)) return
+
         try {
             val appWindows = windows
                 ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
@@ -236,6 +251,58 @@ class FluenceAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "evaluateAllWindows failed", e)
             // Don't hide on transient errors — keep current state.
+        }
+    }
+
+    private fun suppressIfRequired(event: AccessibilityEvent?): Boolean {
+        val eventPackage = event?.packageName?.toString()
+        if (PrivacyPreferences.isPackageExcluded(this, eventPackage)) {
+            cancelPendingEvaluation()
+            BubbleController.suppressForPrivacy()
+            return true
+        }
+        return false
+    }
+
+    private fun isCurrentApplicationAllowedInternal(targetPackage: String?): Boolean {
+        if (PrivacyPreferences.isPackageExcluded(this, targetPackage)) return false
+        val activePackage = resolveActiveApplicationPackage() ?: return true
+        return !PrivacyPreferences.isPackageExcluded(this, activePackage)
+    }
+
+    /**
+     * Resolve the active application window package only when the platform gives
+     * us a positive, unambiguous application-window identity. Unknown window
+     * state is returned as null so privacy-sensitive callers can fail closed.
+     */
+    private fun resolveActiveApplicationPackage(): String? {
+        return try {
+            val appWindows = windows
+                ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                .orEmpty()
+
+            val focusedWindows = appWindows.filter { it.isFocused }
+            val candidateWindows = if (focusedWindows.isNotEmpty()) {
+                focusedWindows
+            } else {
+                appWindows.filter { it.isActive }
+            }
+            if (candidateWindows.isEmpty()) return null
+
+            val packageNames = candidateWindows.map { window ->
+                val root = window.root
+                try {
+                    root?.packageName?.toString()?.takeIf { it.isNotBlank() }
+                } finally {
+                    root?.recycle()
+                }
+            }
+
+            if (packageNames.any { it.isNullOrBlank() }) return null
+            packageNames.filterNotNull().distinct().singleOrNull()
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to resolve active application package", e)
+            null
         }
     }
 

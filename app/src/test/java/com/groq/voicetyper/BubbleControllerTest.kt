@@ -18,6 +18,7 @@ class BubbleControllerTest {
 
     private lateinit var context: Context
     private val serviceCalls = mutableListOf<String>()
+    private val normalPackage = "com.example.normal"
 
     @Before
     fun setUp() {
@@ -27,6 +28,7 @@ class BubbleControllerTest {
 
         context = mockk(relaxed = true)
         every { context.applicationContext } returns context
+        every { context.packageName } returns normalPackage
         every { context.startForegroundService(any()) } answers {
             serviceCalls += "startForegroundService"
             null
@@ -51,12 +53,18 @@ class BubbleControllerTest {
         serviceCalls.clear()
     }
 
+    private fun normalNode(): AccessibilityNodeInfo {
+        val node = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { node.packageName } returns normalPackage
+        return node
+    }
+
     @Test
     fun showBubble_withoutRecordAudioPermission_doesNotStartServiceAndStaysHidden() {
         every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_DENIED
         resetBubbleState()
 
-        BubbleController.showBubble(context, mockk(relaxed = true))
+        BubbleController.showBubble(context, normalNode())
 
         assertFalse(BubbleController.isBubbleVisible.value)
         assertEquals(0, serviceCalls.size)
@@ -67,7 +75,7 @@ class BubbleControllerTest {
         every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
         resetBubbleState()
 
-        BubbleController.showBubble(context, mockk(relaxed = true))
+        BubbleController.showBubble(context, normalNode())
 
         assertTrue(BubbleController.isBubbleVisible.value)
         assertEquals(1, serviceCalls.size)
@@ -77,7 +85,7 @@ class BubbleControllerTest {
     fun hideBubble_resetsStateAndDefersStopService() {
         every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
         resetBubbleState()
-        BubbleController.showBubble(context, mockk(relaxed = true))
+        BubbleController.showBubble(context, normalNode())
         serviceCalls.clear()
 
         BubbleController.hideBubble()
@@ -94,10 +102,22 @@ class BubbleControllerTest {
         every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
         resetBubbleState()
 
-        BubbleController.showBubble(context, mockk(relaxed = true))
-        BubbleController.showBubble(context, mockk(relaxed = true))
+        BubbleController.showBubble(context, normalNode())
+        BubbleController.showBubble(context, normalNode())
 
         assertTrue(BubbleController.isBubbleVisible.value)
         assertEquals(1, serviceCalls.size)
+    }
+
+    @Test
+    fun showBubble_excludedPackage_doesNotCacheOrStartService() {
+        mockkObject(PrivacyPreferences)
+        every { PrivacyPreferences.isPackageExcluded(any(), any()) } returns true
+        resetBubbleState()
+
+        BubbleController.showBubble(context, normalNode())
+
+        assertFalse(BubbleController.isBubbleVisible.value)
+        assertEquals(0, serviceCalls.size)
     }
 }

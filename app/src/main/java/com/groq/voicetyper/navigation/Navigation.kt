@@ -23,6 +23,7 @@ import com.groq.voicetyper.ui.HomeScreen
 import com.groq.voicetyper.ui.OfflineConfigScreen
 import com.groq.voicetyper.ui.SettingsScreen
 import com.groq.voicetyper.ui.PermissionsScreen
+import com.groq.voicetyper.ui.PrivacyExclusionsScreen
 import com.groq.voicetyper.ui.SttConfigScreen
 import com.groq.voicetyper.dictionary.ui.DictionaryScreen
 import com.groq.voicetyper.ui.TranscriptionDetailSheet
@@ -35,6 +36,7 @@ private val screenOrder = listOf(
     Screen.OfflineConfig,
     Screen.CustomDictionary,
     Screen.Permissions,
+    Screen.PrivacyExclusions,
     Screen.About
 )
 
@@ -134,6 +136,9 @@ fun FluenceNavHost(
                 onNavigateBack = { navigateBack() }
             )
             Screen.Permissions -> PermissionsScreen(
+                onNavigateBack = { navigateBack() }
+            )
+            Screen.PrivacyExclusions -> PrivacyExclusionsScreen(
                 onNavigateBack = { navigateBack() }
             )
             Screen.CustomDictionary -> DictionaryScreen(

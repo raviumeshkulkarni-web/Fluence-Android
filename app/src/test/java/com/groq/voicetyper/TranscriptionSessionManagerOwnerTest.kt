@@ -59,6 +59,7 @@ class TranscriptionSessionManagerOwnerTest {
         coEvery { OfflinePipelineProvider.getInstance(any(), any()) } returns pipeline
 
         context = mockk(relaxed = true)
+        every { context.packageName } returns "com.example.normal"
     }
 
     @After
@@ -73,7 +74,7 @@ class TranscriptionSessionManagerOwnerTest {
     @Test
     fun bubbleSession_isNotTornDownByImeDestroy() {
         val listener = mockk<SessionListener>(relaxed = true)
-        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, listener)
+        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.destroy()
@@ -89,7 +90,7 @@ class TranscriptionSessionManagerOwnerTest {
     @Test
     fun imeSession_isNotCancelledByBubbleCancel() {
         val listener = mockk<SessionListener>(relaxed = true)
-        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener)
+        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.cancelRecording(context)
@@ -102,7 +103,7 @@ class TranscriptionSessionManagerOwnerTest {
     @Test
     fun onTrimMemory_doesNotReleasePipelineWhileSessionActive() {
         val listener = mockk<SessionListener>(relaxed = true)
-        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener)
+        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
@@ -118,10 +119,10 @@ class TranscriptionSessionManagerOwnerTest {
     @Test
     fun secondStart_isRejectedWhileAlreadyRecording() {
         val listener = mockk<SessionListener>(relaxed = true)
-        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener)
+        TranscriptionSessionManager.startImeRecording(context, isOffline = true, agentMode = false, listener, targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
-        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, mockk(relaxed = true))
+        TranscriptionSessionManager.startRecording(context, isOffline = true, agentMode = false, mockk(relaxed = true), targetPackage = context.packageName)
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
 
         TranscriptionSessionManager.cancelImeRecording(context)

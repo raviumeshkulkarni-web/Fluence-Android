@@ -3,6 +3,7 @@ package com.groq.voicetyper.autolearn.domain
 import android.content.Context
 import android.util.Log
 import android.view.inputmethod.EditorInfo
+import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.autolearn.SuggestionRepository
 import kotlinx.coroutines.CoroutineScope
@@ -22,9 +23,15 @@ object AutoLearnSessionManager {
     @Volatile
     private var isPrivacyAllowed: Boolean = false
 
+    @Volatile
+    private var targetPackage: String? = null
+
     fun onStartInput(info: EditorInfo?, context: Context) {
+        targetPackage = info?.packageName?.toString()
         val masterEnabled = AutoLearnPreferences.isAutoLearnEnabled(context)
-        isPrivacyAllowed = masterEnabled && AutoLearnPrivacyHelper.isAutoLearnAllowed(info)
+        isPrivacyAllowed = masterEnabled &&
+            AutoLearnPrivacyHelper.isAutoLearnAllowed(info) &&
+            !PrivacyPreferences.isPackageExcluded(context, targetPackage)
 
         if (!isPrivacyAllowed) {
             endSession()
@@ -42,6 +49,12 @@ object AutoLearnSessionManager {
     }
 
     fun onTextUpdated(currentTextAroundCursor: String, context: Context) {
+        if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
+            endSession()
+            isPrivacyAllowed = false
+            return
+        }
+
         val committed = activeCommittedText ?: return
         if (!isPrivacyAllowed || currentTextAroundCursor.isBlank()) return
 
@@ -67,5 +80,7 @@ object AutoLearnSessionManager {
             Log.d(TAG, "Ended observation session")
             activeCommittedText = null
         }
+        targetPackage = null
+        isPrivacyAllowed = false
     }
 }
