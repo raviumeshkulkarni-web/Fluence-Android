@@ -6,7 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,11 +23,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -55,8 +54,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsTopBar
+import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.Canvas
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
@@ -78,7 +79,8 @@ private data class LaunchableApp(
 
 @Composable
 fun PrivacyExclusionsScreen(
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<LaunchableApp>>(emptyList()) }
@@ -105,7 +107,7 @@ fun PrivacyExclusionsScreen(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(Canvas)
             .statusBarsPadding()
@@ -140,7 +142,7 @@ fun PrivacyExclusionsScreen(
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
+                        contentDescription = null,
                         tint = TextSecondary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -149,7 +151,9 @@ fun PrivacyExclusionsScreen(
                     if (searchQuery.isNotEmpty()) {
                         IconButton(
                             onClick = { searchQuery = "" },
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier
+                                .size(44.dp)
+                                .pressScale(remember { MutableInteractionSource() })
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -183,21 +187,28 @@ fun PrivacyExclusionsScreen(
             when {
                 isLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = TextPrimary)
+                        CircularProgressIndicator(color = TextSecondary)
                     }
                 }
                 filteredApps.isEmpty() -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("No launchable apps found", color = TextPrimary, style = FluenceTypography.titleMedium)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Try a different search.", color = TextSecondary, style = FluenceTypography.bodySmall)
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        FluenceEmptyState(
+                            icon = if (apps.isEmpty()) {
+                                Icons.Default.PhoneAndroid
+                            } else {
+                                Icons.Default.Search
+                            },
+                            title = if (apps.isEmpty()) {
+                                "No launchable apps found"
+                            } else {
+                                "No apps match your search"
+                            },
+                            description = if (apps.isEmpty()) {
+                                "No apps installed that can be excluded."
+                            } else {
+                                "Try a different word or app name."
+                            }
+                        )
                     }
                 }
                 else -> {
@@ -241,7 +252,7 @@ private fun AppExclusionRow(
     ) {
         Image(
             bitmap = iconBitmap,
-            contentDescription = "${app.label} icon",
+            contentDescription = null,
             modifier = Modifier
                 .size(44.dp)
                 .background(Panel, RoundedCornerShape(10.dp))
@@ -260,12 +271,10 @@ private fun AppExclusionRow(
             checked = isExcluded,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Canvas,
+                checkedThumbColor = Panel,
                 checkedTrackColor = TextPrimary,
-                checkedBorderColor = TextPrimary,
-                uncheckedThumbColor = TextSecondary,
-                uncheckedTrackColor = PanelElevated,
-                uncheckedBorderColor = OutlineSubtle
+                uncheckedThumbColor = TextPrimary,
+                uncheckedTrackColor = PanelElevated
             ),
             modifier = Modifier.semantics {
                 role = Role.Switch

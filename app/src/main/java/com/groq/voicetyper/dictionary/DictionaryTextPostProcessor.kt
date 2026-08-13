@@ -10,16 +10,20 @@ object DictionaryTextPostProcessor {
      * Applies custom dictionary replacements to [rawText].
      * Zero DB queries and zero Regex allocation during transcription.
      * Pre-compiled Regex rules are fetched from in-memory AtomicReference cache.
+     *
+     * Voice Snippets are applied AFTER dictionary rules, so dictionary
+     * corrections can never block a user snippet. The SnippetProcessor is
+     * fail-safe: on any failure it returns its input unchanged, so this
+     * function keeps returning a deliverable transcript in every case.
      */
     fun process(context: Context, rawText: String): String {
         if (rawText.isBlank()) return rawText
 
-        if (!DictionaryPreferences.isDictionaryEnabled(context)) {
-            return rawText
+        var text = rawText
+        if (DictionaryPreferences.isDictionaryEnabled(context)) {
+            text = processWithCompiledRules(text, DictionaryRepository.getCompiledRules(context))
         }
-
-        val compiledRules = DictionaryRepository.getCompiledRules(context)
-        return processWithCompiledRules(rawText, compiledRules)
+        return com.groq.voicetyper.snippets.SnippetProcessor.process(context, text)
     }
 
     /**

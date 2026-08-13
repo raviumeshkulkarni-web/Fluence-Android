@@ -9,6 +9,7 @@ sealed interface Screen {
     data object Permissions : Screen
     data object PrivacyExclusions : Screen
     data object CustomDictionary : Screen
+    data object Snippets : Screen
     data object About : Screen
     data class TranscriptionDetail(val entryId: Long) : Screen
 }

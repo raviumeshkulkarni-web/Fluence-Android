@@ -15,8 +15,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
@@ -27,14 +29,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.AudioFocusPreferences
+import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.pressScale
+import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -137,6 +145,7 @@ fun SettingsScreen(
     val offlineEnabled = remember { mutableStateOf(false) }
     val modelReady = remember { mutableStateOf(false) }
     val duckingEnabled = remember { mutableStateOf(false) }
+    val excludedAppCount = remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -147,6 +156,7 @@ fun SettingsScreen(
             offlineEnabled.value = OfflinePreferences.isOfflineModeEnabled(context)
             modelReady.value = ModelAssetManager.isModelReadySync(context)
             duckingEnabled.value = AudioFocusPreferences.isDuckingEnabled(context)
+            excludedAppCount.value = PrivacyPreferences.getExcludedPackages(context).size
         }
     }
 
@@ -233,8 +243,20 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Permissions & Services
+            // Voice Snippets
             EntranceRow(4) {
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.TextSnippet,
+                    title = "Voice Snippets",
+                    summary = if (SnippetPreferences.isSnippetsEnabled(context)) "Active \u00b7 Text expansion" else "Disabled",
+                    onClick = { onNavigateTo(Screen.Snippets) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Permissions & Services
+            EntranceRow(5) {
                 SettingsRow(
                     icon = Icons.Default.Security,
                     title = "Permissions & Services",
@@ -245,12 +267,16 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Privacy & App Exclusions
-            EntranceRow(5) {
+// Privacy & App Exclusions
+            EntranceRow(6) {
                 SettingsRow(
-                    icon = Icons.Default.Security,
+                    icon = Icons.Default.Lock,
                     title = "Privacy & App Exclusions",
-                    summary = "Choose apps where Fluence stays unavailable",
+                    summary = when (excludedAppCount.value) {
+                        0 -> "Disabled"
+                        1 -> "Active \u00b7 1 app excluded"
+                        else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
+                    },
                     onClick = { onNavigateTo(Screen.PrivacyExclusions) }
                 )
             }
@@ -258,7 +284,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Audio Focus Ducking
-            EntranceRow(6) {
+            EntranceRow(7) {
                 Surface(
                     color = Panel,
                     shape = FluenceShapes.Medium,
@@ -297,11 +323,15 @@ fun SettingsScreen(
                             )
                         }
 
-                        Switch(
+Switch(
                             checked = duckingEnabled.value,
                             onCheckedChange = { checked ->
                                 duckingEnabled.value = checked
                                 AudioFocusPreferences.setDuckingEnabled(context, checked)
+                            },
+                            modifier = Modifier.semantics {
+                                role = Role.Switch
+                                stateDescription = if (duckingEnabled.value) "On" else "Off"
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Panel,
@@ -316,8 +346,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // About
-            EntranceRow(7) {
+// About
+            EntranceRow(8) {
                 SettingsRow(
                     icon = Icons.Default.Info,
                     title = "About",
