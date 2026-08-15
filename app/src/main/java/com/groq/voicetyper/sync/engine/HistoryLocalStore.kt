@@ -21,6 +21,10 @@ internal object SyncMutationGate {
     val mutex: Mutex = Mutex()
 }
 
+/** Wire `mode` for `history` records (spec §30.1). */
+private const val WIRE_MODE_TRANSCRIPTION = "transcription"
+private const val WIRE_MODE_AGENT = "agent"
+
 /**
  * Room-backed LocalStore for the history kind (§30.5, §30.4 Android).
  *
@@ -28,8 +32,11 @@ internal object SyncMutationGate {
  * engine rows. Rows created before sync have `syncId = NULL`; the store
  * assigns each a UUID on first mapping (like Windows `HistorySyncStore`),
  * so the wire identity always exists before the engine sees a row. There is
- * no `mode` column on Android — the wire mode is always "" (history fixtures
- * carry it empty).
+ * no `mode` column on Android, so the wire `mode` (`transcription` |
+ * `agent`) maps onto the existing `isAgentMode` column: `agent` ⇔ true,
+ * `transcription` ⇔ false. The bijection preserves the mode through the
+ * local round-trip, so imported records re-export the same mode they came
+ * in with.
  */
 class HistoryLocalStore(
     private val db: FluenceDatabase,
@@ -106,7 +113,7 @@ class HistoryLocalStore(
             uuid = uuid,
             timestampMs = entry.timestamp,
             text = entry.text,
-            mode = "",
+            mode = if (entry.isAgentMode) WIRE_MODE_AGENT else WIRE_MODE_TRANSCRIPTION,
             durationMs = entry.durationMs,
             provider = entry.provider,
             model = entry.model,
@@ -128,7 +135,7 @@ class HistoryLocalStore(
             model = row.model,
             language = row.language,
             durationMs = row.durationMs,
-            isAgentMode = false, // no wire field; Android-only flag stays false
+            isAgentMode = row.mode == WIRE_MODE_AGENT,
             timestamp = row.timestampMs,
             syncId = row.uuid,
             deletedAt = row.deletedAt,

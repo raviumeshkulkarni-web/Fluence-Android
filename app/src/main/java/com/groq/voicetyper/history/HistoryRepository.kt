@@ -30,6 +30,19 @@ object HistoryRepository {
 
     fun getStats(): Flow<List<DailyStat>> = statsDao?.getAll() ?: emptyFlow()
 
+    /** Rebuilds `stats_daily` from all live rows. Sync imports bypass `save()`,
+     *  so the pass calls this after the history phase to keep stats in line
+     *  with Windows, which derives stats from its full history live. */
+    suspend fun refreshStats(context: Context) {
+        if (db == null || dao == null || statsDao == null) {
+            init(context.applicationContext)
+        }
+        val database = db ?: return
+        val historyDao = dao ?: return
+        val stats = statsDao ?: return
+        database.withTransaction { rebuildStats(stats, historyDao) }
+    }
+
     suspend fun save(context: Context, text: String, provider: String, model: String, language: String, durationMs: Long, isAgentMode: Boolean) {
         if (dao == null || statsDao == null) {
             init(context.applicationContext)

@@ -159,7 +159,7 @@ class GoogleDriveStore(
                     .toRequestBody("application/octet-stream".toMediaType()),
             )
             .build()
-        call(bearer("$apiBase/files?uploadType=multipart&fields=id").post(multipart)).use { response ->
+        call(bearer("$UPLOAD_BASE/files?uploadType=multipart&fields=id").post(multipart)).use { response ->
             classify(response.code)
             val body = response.body?.string().orEmpty()
             return parseId(body) ?: throw SyncError.Retryable("create response missing id")
@@ -204,5 +204,6 @@ class GoogleDriveStore(
         const val FOLDER_NAME = "Fluence Transcribe"
         const val FOLDER_MIME = "application/vnd.google-apps.folder"
         const val API_BASE = "https://www.googleapis.com/drive/v3"
+        const val UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
     }
 }

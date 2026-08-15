@@ -1,6 +1,7 @@
 package com.groq.voicetyper.sync
 
 import android.content.Context
+import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.sync.drive.GoogleDriveStore
@@ -130,6 +131,11 @@ class SyncManager(
                 for (kind in SYNC_KINDS) {
                     val local = LocalStores.forKind(context, kind)
                     SyncEngine.run(kind, account, local, drive, auth)
+                    if (kind == RecordType.History) {
+                        // Imports bypass HistoryRepository.save, so stats are
+                        // rebuilt after the history phase (§30.3 parity).
+                        HistoryRepository.refreshStats(context)
+                    }
                     if (kind == RecordType.Settings) {
                         // §30.3 mirror: the synced toggle becomes the local flag.
                         (local as com.groq.voicetyper.sync.engine.SettingsStore)
