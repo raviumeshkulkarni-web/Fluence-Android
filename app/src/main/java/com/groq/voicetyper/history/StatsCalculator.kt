@@ -2,26 +2,65 @@ package com.groq.voicetyper.history
 
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 object StatsCalculator {
-    private val splitRegex = Regex("\\s+")
+    private val utc: TimeZone = TimeZone.getTimeZone("UTC")
 
-    fun wordCountOf(text: String): Int =
-        text.split(splitRegex).filter { it.isNotBlank() }.size
-
-    fun effectiveDurationMs(text: String, durationMs: Long): Long {
-        if (durationMs > 0L) return durationMs
-        val wordCount = wordCountOf(text)
-        if (wordCount == 0) return 0L
-        return ((wordCount / 140.0) * 60_000.0).toLong().coerceAtLeast(1_000L)
+    fun wordCountOf(text: String): Int {
+        var count = 0
+        var inWord = false
+        for (c in text) {
+            if (c.isWhitespace()) {
+                inWord = false
+            } else if (!inWord) {
+                inWord = true
+                count++
+            }
+        }
+        return count
     }
 
-    fun localDateOf(timestampMs: Long): String {
-        val cal = Calendar.getInstance()
+    fun utcDateOf(timestampMs: Long): String {
+        val cal = Calendar.getInstance(utc)
         cal.timeInMillis = timestampMs
-        val year = cal.get(Calendar.YEAR)
-        val month = cal.get(Calendar.MONTH) + 1
-        val day = cal.get(Calendar.DAY_OF_MONTH)
-        return String.format(Locale.US, "%04d-%02d-%02d", year, month, day)
+        return String.format(
+            Locale.US, "%04d-%02d-%02d",
+            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
+        )
+    }
+
+    fun utcWeekStartMs(nowMs: Long): Long {
+        val cal = Calendar.getInstance(utc)
+        cal.timeInMillis = nowMs
+        val daysSinceMonday = (cal.get(Calendar.DAY_OF_WEEK) - Calendar.MONDAY + 7) % 7
+        cal.add(Calendar.DAY_OF_MONTH, -daysSinceMonday)
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    fun utcMonthStartMs(nowMs: Long): Long {
+        val cal = Calendar.getInstance(utc)
+        cal.timeInMillis = nowMs
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    fun dailyAggregates(rows: List<TranscriptionEntry>): List<DailyStat> {
+        val perDay = LinkedHashMap<String, LongArray>()
+        for (row in rows) {
+            val day = utcDateOf(row.timestamp)
+            val agg = perDay.getOrPut(day) { longArrayOf(0L, 0L) }
+            agg[0] += wordCountOf(row.text).toLong()
+            agg[1] += row.durationMs
+        }
+        return perDay.map { (day, agg) -> DailyStat(day = day, wordCount = agg[0], dictationMs = agg[1]) }
     }
 }

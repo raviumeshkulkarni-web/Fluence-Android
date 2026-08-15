@@ -1,28 +1,29 @@
 package com.groq.voicetyper.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.TextSnippet
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,13 +39,16 @@ import com.groq.voicetyper.AudioFocusPreferences
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
+import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflinePreferences
-import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.snippets.SnippetPreferences
+import com.groq.voicetyper.sync.SyncManager
+import com.groq.voicetyper.sync.SyncStatus
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -110,15 +114,6 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun SectionDivider() {
-    HorizontalDivider(
-        color = OutlineSubtle,
-        thickness = 1.dp,
-        modifier = Modifier.padding(horizontal = 58.dp)
-    )
-}
-
-@Composable
 private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
     val state = remember { MutableTransitionState(false).apply { targetState = true } }
     AnimatedVisibility(
@@ -134,7 +129,9 @@ private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateTo: (Screen) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    syncManager: SyncManager? = null,
+    syncSection: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -255,8 +252,27 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Permissions & Services
+            // Google Drive Sync
             EntranceRow(5) {
+                val syncStatus by (syncManager?.status ?: remember { MutableStateFlow(SyncStatus()) }).collectAsState()
+                SettingsRow(
+                    icon = Icons.Default.CloudSync,
+                    title = "Google Drive Sync",
+                    summary = when {
+                        !syncStatus.signedIn -> "Not configured"
+                        !syncStatus.syncEnabled -> "Paused \u00b7 ${syncStatus.account ?: "Signed in"}"
+                        syncStatus.running -> "Syncing\u2026"
+                        syncStatus.lastError != null -> "Attention required \u00b7 ${syncStatus.account ?: "Signed in"}"
+                        else -> "Active \u00b7 ${syncStatus.account ?: "Signed in"}"
+                    },
+                    onClick = { onNavigateTo(Screen.SyncConfig) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Permissions & Services
+            EntranceRow(6) {
                 SettingsRow(
                     icon = Icons.Default.Security,
                     title = "Permissions & Services",
@@ -267,8 +283,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-// Privacy & App Exclusions
-            EntranceRow(6) {
+            // Privacy & App Exclusions
+            EntranceRow(7) {
                 SettingsRow(
                     icon = Icons.Default.Lock,
                     title = "Privacy & App Exclusions",
@@ -284,7 +300,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Audio Focus Ducking
-            EntranceRow(7) {
+            EntranceRow(8) {
                 Surface(
                     color = Panel,
                     shape = FluenceShapes.Medium,
@@ -323,7 +339,7 @@ fun SettingsScreen(
                             )
                         }
 
-Switch(
+                        Switch(
                             checked = duckingEnabled.value,
                             onCheckedChange = { checked ->
                                 duckingEnabled.value = checked
@@ -346,8 +362,8 @@ Switch(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-// About
-            EntranceRow(8) {
+            // About
+            EntranceRow(9) {
                 SettingsRow(
                     icon = Icons.Default.Info,
                     title = "About",

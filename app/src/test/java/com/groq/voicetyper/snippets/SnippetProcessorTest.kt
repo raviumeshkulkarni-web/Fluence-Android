@@ -300,7 +300,8 @@ class SnippetProcessorTest {
         val snippets = SnippetPreferences.loadSnippets(context)
         assertEquals(2, snippets.size)
         assertEquals(listOf("my linkedin", "my GitHub"), snippets.map { it.trigger })
-        assertEquals("hub", snippets.first { it.id == 2L }.expansion)
+        assertEquals("hub", snippets.first { it.trigger == "my GitHub" }.expansion)
+        assertEquals(3L, snippets.first { it.trigger == "my GitHub" }.id)
     }
 
     @Test

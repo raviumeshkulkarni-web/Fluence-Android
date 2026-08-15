@@ -20,6 +20,10 @@ val hasReleaseSigning = localProperties.getProperty("release.keystore.path") != 
         localProperties.getProperty("release.key.alias") != null &&
         localProperties.getProperty("release.key.password") != null
 
+val oauthWebClientId = localProperties.getProperty("oauth.web.client.id")
+    ?: "236666538373-tbrh4i5jsevh3j5bspdhrspf7hrdeh7r.apps.googleusercontent.com"
+val oauthWebClientSecret = localProperties.getProperty("oauth.web.client.secret") ?: ""
+
 android {
     namespace = "com.groq.voicetyper"
     compileSdk = 34
@@ -30,6 +34,9 @@ android {
         targetSdk = 34
         versionCode = 34
         versionName = "1.11.0"
+
+        buildConfigField("String", "OAUTH_WEB_CLIENT_ID", "\"$oauthWebClientId\"")
+        buildConfigField("String", "OAUTH_WEB_CLIENT_SECRET", "\"$oauthWebClientSecret\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -44,6 +51,15 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            val userDebugKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            if (userDebugKeystore.exists()) {
+                storeFile = userDebugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         create("release") {
             if (hasReleaseSigning) {
                 storeFile = file(localProperties.getProperty("release.keystore.path"))
@@ -119,6 +135,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.play.services.auth)
     kapt(libs.androidx.room.compiler)
     
     // Offline speech-to-text engine (SenseVoice-Small via sherpa-onnx)
@@ -135,4 +152,9 @@ dependencies {
     // "Stub!" throwers, but the streaming transcriber parses server frames with it
     // in production, so the transport tests need the real classes.
     testImplementation("org.json:json:20231013")
+
+    // Instrumentation Testing
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
 }

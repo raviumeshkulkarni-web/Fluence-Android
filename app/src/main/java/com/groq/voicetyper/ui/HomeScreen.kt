@@ -97,9 +97,6 @@ enum class SortOption(val displayName: String) {
 private const val AVG_WPM = 40.0
 private const val PREVIEW_COUNT = 5
 
-private fun getEffectiveDurationMs(entry: TranscriptionEntry): Long =
-    StatsCalculator.effectiveDurationMs(entry.text, entry.durationMs)
-
 private data class DashboardStats(
     val totalWords: String,
     val timeSaved: String,
@@ -131,34 +128,11 @@ private fun computeDashboardStats(dailyStats: List<DailyStat>): DashboardStats {
         else -> n.toString()
     }
 
-    fun dayDate(offsetDays: Int): String {
-        val dayCal = java.util.Calendar.getInstance()
-        dayCal.add(java.util.Calendar.DAY_OF_YEAR, -offsetDays)
-        return StatsCalculator.localDateOf(dayCal.timeInMillis)
-    }
-
-    val monthStartDate = dayDate(30)
-    val monthWords = dailyStats.filter { it.day >= monthStartDate }.sumOf { it.wordCount }.toInt()
-    val monthSavedHours = monthWords / AVG_WPM / 60.0
-    val monthlySaved = if (monthSavedHours < 1.0) "${(monthSavedHours * 60).toInt()}m"
-        else String.format(Locale.US, "%.1fh", monthSavedHours)
-
-    val weekStartDate = dayDate(6)
-    val weekRows = dailyStats.filter { it.day >= weekStartDate }
-    val weekWords = weekRows.sumOf { it.wordCount }.toInt()
-    val weekSavedHours = weekWords / AVG_WPM / 60.0
-    val weekDictMs = weekRows.sumOf { it.dictationMs }
-    val weekSpokenHours = weekDictMs / 3_600_000.0
-
-    val dayWordCounts = (6 downTo 0).map { i ->
-        val day = dayDate(i)
-        dailyStats.firstOrNull { it.day == day }?.wordCount?.toInt() ?: 0
-    }
-
-    val dayLabels = (6 downTo 0).map { i ->
-        val dayCal = java.util.Calendar.getInstance()
-        dayCal.add(java.util.Calendar.DAY_OF_YEAR, -i)
-        when (dayCal.get(java.util.Calendar.DAY_OF_WEEK)) {
+    fun dayLabel(offsetDays: Int): String {
+        val dayCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        dayCal.timeInMillis = StatsCalculator.utcWeekStartMs(System.currentTimeMillis()) +
+            offsetDays * TimeUnit.DAYS.toMillis(1)
+        return when (dayCal.get(java.util.Calendar.DAY_OF_WEEK)) {
             java.util.Calendar.MONDAY -> "Mon"
             java.util.Calendar.TUESDAY -> "Tue"
             java.util.Calendar.WEDNESDAY -> "Wed"
@@ -169,6 +143,27 @@ private fun computeDashboardStats(dailyStats: List<DailyStat>): DashboardStats {
             else -> ""
         }
     }
+
+    val monthStartDate = StatsCalculator.utcDateOf(StatsCalculator.utcMonthStartMs(System.currentTimeMillis()))
+    val monthWords = dailyStats.filter { it.day >= monthStartDate }.sumOf { it.wordCount }.toInt()
+    val monthSavedHours = monthWords / AVG_WPM / 60.0
+    val monthlySaved = if (monthSavedHours < 1.0) "${(monthSavedHours * 60).toInt()}m"
+        else String.format(Locale.US, "%.1fh", monthSavedHours)
+
+    val weekStartDate = StatsCalculator.utcDateOf(StatsCalculator.utcWeekStartMs(System.currentTimeMillis()))
+    val weekRows = dailyStats.filter { it.day >= weekStartDate }
+    val weekWords = weekRows.sumOf { it.wordCount }.toInt()
+    val weekSavedHours = weekWords / AVG_WPM / 60.0
+    val weekDictMs = weekRows.sumOf { it.dictationMs }
+    val weekSpokenHours = weekDictMs / 3_600_000.0
+
+    val dayWordCounts = (0..6).map { i ->
+        val day = StatsCalculator.utcDateOf(StatsCalculator.utcWeekStartMs(System.currentTimeMillis()) +
+            i * TimeUnit.DAYS.toMillis(1))
+        dailyStats.firstOrNull { it.day == day }?.wordCount?.toInt() ?: 0
+    }
+
+    val dayLabels = (0..6).map { i -> dayLabel(i) }
 
     return DashboardStats(
         totalWords = abbreviate(totalWords),
@@ -318,8 +313,8 @@ fun HomeScreen(
         when (currentSortOption) {
             SortOption.NEWEST -> filtered.sortedByDescending { it.timestamp }
             SortOption.OLDEST -> filtered.sortedBy { it.timestamp }
-            SortOption.DURATION_DESC -> filtered.sortedByDescending { getEffectiveDurationMs(it) }
-            SortOption.DURATION_ASC -> filtered.sortedBy { getEffectiveDurationMs(it) }
+            SortOption.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
+            SortOption.DURATION_ASC -> filtered.sortedBy { it.durationMs }
         }
     }
     
@@ -1022,6 +1017,8 @@ private fun TranscriptRow(
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    // §29 #3b: rows synced by another account are read-only (greyed + badge).
+    val foreign = com.groq.voicetyper.sync.SyncAccounts.isForeign(entry.syncAccount)
     val bgColor = if (isSelected) TextPrimary.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -1065,8 +1062,24 @@ private fun TranscriptRow(
                 Spacer(modifier = Modifier.width(FluenceSpacing.Md))
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(entry.text, color = TextPrimary, style = FluenceTypography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(formatTimestamp(entry.timestamp), color = TextTertiary, style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont))
+                Text(
+                    entry.text,
+                    color = if (foreign) TextSecondary else TextPrimary,
+                    style = FluenceTypography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatTimestamp(entry.timestamp), color = TextTertiary, style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont))
+                    if (foreign) {
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+                        Text(
+                            "Synced to another account",
+                            color = TextTertiary,
+                            style = FluenceTypography.labelSmall
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Box {
@@ -1084,11 +1097,13 @@ private fun TranscriptRow(
                         leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
                         onClick = { onCopy(); showMenu = false }
                     )
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = Error, style = FluenceTypography.bodySmall) },
-                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Error, modifier = Modifier.size(16.dp)) },
-                        onClick = { onDelete(); showMenu = false }
-                    )
+                    if (!foreign) {
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = Error, style = FluenceTypography.bodySmall) },
+                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = Error, modifier = Modifier.size(16.dp)) },
+                            onClick = { onDelete(); showMenu = false }
+                        )
+                    }
                 }
             }
         }

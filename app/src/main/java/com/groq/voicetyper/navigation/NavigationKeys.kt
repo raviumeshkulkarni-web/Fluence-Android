@@ -1,5 +1,5 @@
 package com.groq.voicetyper.navigation
-
+ 
 sealed interface Screen {
     data object Home : Screen
     data object SettingsHub : Screen
@@ -10,6 +10,7 @@ sealed interface Screen {
     data object PrivacyExclusions : Screen
     data object CustomDictionary : Screen
     data object Snippets : Screen
+    data object SyncConfig : Screen
     data object About : Screen
     data class TranscriptionDetail(val entryId: Long) : Screen
 }

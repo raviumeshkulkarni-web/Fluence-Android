@@ -31,6 +31,7 @@ hs_err_pid*.log
 replay_pid*.log
 screenshot_*.png
 .sisyphus/
+.impeccable/
 RELEASE_KEYSTORE_BASE64.txt
 *.keystore
 *.jks

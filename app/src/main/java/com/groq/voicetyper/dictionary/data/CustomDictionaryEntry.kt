@@ -1,12 +1,20 @@
 package com.groq.voicetyper.dictionary.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "custom_dictionary",
-    indices = [Index(value = ["spokenText"], unique = true)]
+    indices = [
+        // User-facing uniqueness (spec §30.4: "user-adds only"); sync imports
+        // must not collide against it — the dictionary LocalStore absorbs
+        // duplicate-identical rows per spec §10.
+        Index(value = ["spokenText"], unique = true),
+        // One sync identity per row (§5-style; mirrors transcription_history).
+        Index(value = ["syncId"], unique = true)
+    ]
 )
 data class CustomDictionaryEntry(
     @PrimaryKey(autoGenerate = true)
@@ -19,5 +27,24 @@ data class CustomDictionaryEntry(
     val replacementText: String,
 
     /** Allows users to temporarily pause a rule without deleting it */
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+
+    // §30.4 sync columns (migration 5 -> 6, non-destructive). `syncId` is the
+    // wire UUID, assigned lazily like `transcription_history.syncId`; the
+    // other columns mirror the §6 sync_state table shadow of the Windows
+    // dictionary.json metadata.
+    val syncId: String? = null,
+
+    val createdAt: Long? = null,
+
+    val deletedAt: Long? = null,
+
+    @ColumnInfo(defaultValue = "local")
+    val syncState: String = "local",
+
+    val serverFileId: String? = null,
+
+    val syncAccount: String? = null,
+
+    val quarantineReason: String? = null
 )

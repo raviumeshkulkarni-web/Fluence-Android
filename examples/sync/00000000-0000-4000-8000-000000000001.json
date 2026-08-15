@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "created_at": 1713456000123,
+  "deleted_at": null,
+  "text": "Meeting notes: rename the module before the demo.",
+  "mode": "transcription",
+  "duration_ms": 8400,
+  "provider": "groq",
+  "model": "whisper-large-v3",
+  "language": "en"
+}

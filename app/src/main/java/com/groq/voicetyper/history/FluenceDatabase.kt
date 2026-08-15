@@ -13,7 +13,7 @@ import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 
 @Database(
     entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class FluenceDatabase : RoomDatabase() {
@@ -75,11 +75,10 @@ abstract class FluenceDatabase : RoomDatabase() {
                         val durationMs = cursor.getLong(1)
                         val timestamp = cursor.getLong(2)
                         val words = StatsCalculator.wordCountOf(text).toLong()
-                        val ms = StatsCalculator.effectiveDurationMs(text, durationMs)
-                        val day = StatsCalculator.localDateOf(timestamp)
+                        val day = StatsCalculator.utcDateOf(timestamp)
                         val agg = perDay.getOrPut(day) { longArrayOf(0L, 0L) }
                         agg[0] += words
-                        agg[1] += ms
+                        agg[1] += durationMs
                     }
                 }
                 perDay.forEach { (day, agg) ->
@@ -91,6 +90,55 @@ abstract class FluenceDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `transcription_history_new` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`text` TEXT NOT NULL, " +
+                    "`provider` TEXT NOT NULL, " +
+                    "`model` TEXT, " +
+                    "`language` TEXT, " +
+                    "`durationMs` INTEGER NOT NULL, " +
+                    "`isAgentMode` INTEGER NOT NULL, " +
+                    "`timestamp` INTEGER NOT NULL, " +
+                    "`syncId` TEXT, " +
+                    "`deletedAt` INTEGER, " +
+                    "`syncState` TEXT NOT NULL DEFAULT 'local', " +
+                    "`serverFileId` TEXT, " +
+                    "`syncAccount` TEXT, " +
+                    "`quarantineReason` TEXT)"
+                )
+                db.execSQL(
+                    "INSERT INTO `transcription_history_new` (`id`, `text`, `provider`, `model`, `language`, `durationMs`, `isAgentMode`, `timestamp`, `syncId`, `deletedAt`, `syncState`, `serverFileId`, `syncAccount`, `quarantineReason`) " +
+                    "SELECT `id`, `text`, `provider`, `model`, `language`, `durationMs`, `isAgentMode`, `timestamp`, NULL, NULL, 'local', NULL, NULL, NULL FROM `transcription_history`"
+                )
+                db.execSQL("DROP TABLE `transcription_history`")
+                db.execSQL("ALTER TABLE `transcription_history_new` RENAME TO `transcription_history`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_transcription_history_syncId` ON `transcription_history` (`syncId`)"
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // §30.4: `custom_dictionary` gains the sync columns (non-destructive,
+                // mirrors §5). Existing rows keep their values; syncId stays NULL
+                // (assigned lazily on first sync mapping), syncState defaults 'local'.
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `syncId` TEXT")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `createdAt` INTEGER")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `deletedAt` INTEGER")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `syncState` TEXT NOT NULL DEFAULT 'local'")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `serverFileId` TEXT")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `syncAccount` TEXT")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `quarantineReason` TEXT")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_custom_dictionary_syncId` ON `custom_dictionary` (`syncId`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -98,7 +146,7 @@ abstract class FluenceDatabase : RoomDatabase() {
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }

@@ -125,6 +125,8 @@ fun TranscriptionDetailSheet(
                 ) {
                     val copyInteractionSource = remember { MutableInteractionSource() }
                     val deleteInteractionSource = remember { MutableInteractionSource() }
+                    // §29 #3b: rows synced by another account are read-only.
+                    val foreign = com.groq.voicetyper.sync.SyncAccounts.isForeign(item.syncAccount)
 
                     Button(
                         onClick = {
@@ -149,24 +151,26 @@ fun TranscriptionDetailSheet(
                         Text(text = "Copy", color = TextPrimary, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
                     }
 
-                    Button(
-                        onClick = {
-                            showDeleteConfirmation = true
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier
-                            .weight(1f)
-                            .pressScale(deleteInteractionSource)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            tint = Error,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                    if (!foreign) {
+                        Button(
+                            onClick = {
+                                showDeleteConfirmation = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier
+                                .weight(1f)
+                                .pressScale(deleteInteractionSource)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = Error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                        }
                     }
                 }
 

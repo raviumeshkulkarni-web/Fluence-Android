@@ -13,6 +13,12 @@ interface StatsDao {
     @Insert
     suspend fun insert(stat: DailyStat)
 
+    @Insert
+    suspend fun insertAll(stats: List<DailyStat>)
+
+    @Query("DELETE FROM stats_daily")
+    suspend fun clear()
+
     @Query("SELECT * FROM stats_daily")
     fun getAll(): Flow<List<DailyStat>>
 }

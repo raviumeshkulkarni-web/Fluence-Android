@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "00000000-0000-4000-8000-000000000002",
+  "created_at": 1713457000123,
+  "deleted_at": null,
+  "text": "Dictated on Windows desktop.",
+  "mode": "transcription",
+  "duration_ms": 1200,
+  "provider": "openai",
+  "model": null,
+  "language": null
+}

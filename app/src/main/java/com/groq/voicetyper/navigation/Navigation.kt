@@ -16,17 +16,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.groq.voicetyper.dictionary.ui.DictionaryScreen
+import com.groq.voicetyper.snippets.ui.SnippetsScreen
+import com.groq.voicetyper.sync.SyncManager
+import com.groq.voicetyper.sync.ui.SyncScreen
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
 import com.groq.voicetyper.ui.HomeScreen
 import com.groq.voicetyper.ui.OfflineConfigScreen
-import com.groq.voicetyper.ui.SettingsScreen
 import com.groq.voicetyper.ui.PermissionsScreen
 import com.groq.voicetyper.ui.PrivacyExclusionsScreen
+import com.groq.voicetyper.ui.SettingsScreen
 import com.groq.voicetyper.ui.SttConfigScreen
-import com.groq.voicetyper.dictionary.ui.DictionaryScreen
-import com.groq.voicetyper.snippets.ui.SnippetsScreen
 import com.groq.voicetyper.ui.TranscriptionDetailSheet
 
 private val screenOrder = listOf(
@@ -37,6 +39,7 @@ private val screenOrder = listOf(
     Screen.OfflineConfig,
     Screen.CustomDictionary,
     Screen.Snippets,
+    Screen.SyncConfig,
     Screen.Permissions,
     Screen.PrivacyExclusions,
     Screen.About
@@ -44,8 +47,12 @@ private val screenOrder = listOf(
 
 @Composable
 fun FluenceNavHost(
+    syncManager: SyncManager,
     deepLinkToSettings: Boolean = false,
-    onRequestPermission: () -> Unit = {}
+    onRequestPermission: () -> Unit = {},
+    onSignInClick: () -> Unit = {},
+    onSignOutClick: () -> Unit = {},
+    syncSection: @Composable () -> Unit = {}
 ) {
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
     val current = backStack.lastOrNull() ?: Screen.Home
@@ -126,7 +133,9 @@ fun FluenceNavHost(
             )
             Screen.SettingsHub -> SettingsScreen(
                 onNavigateBack = { navigateBack() },
-                onNavigateTo = { navigateTo(it) }
+                onNavigateTo = { navigateTo(it) },
+                syncManager = syncManager,
+                syncSection = syncSection
             )
             Screen.SttConfig -> SttConfigScreen(
                 onNavigateBack = { navigateBack() }
@@ -148,6 +157,12 @@ fun FluenceNavHost(
             )
             Screen.Snippets -> SnippetsScreen(
                 onNavigateBack = { navigateBack() }
+            )
+            Screen.SyncConfig -> SyncScreen(
+                onNavigateBack = { navigateBack() },
+                manager = syncManager,
+                onSignInClick = onSignInClick,
+                onSignOutClick = onSignOutClick
             )
             Screen.About -> AboutScreen(
                 onNavigateBack = { navigateBack() }

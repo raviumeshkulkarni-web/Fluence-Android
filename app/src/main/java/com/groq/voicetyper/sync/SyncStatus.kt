@@ -1,0 +1,15 @@
+package com.groq.voicetyper.sync
+
+/**
+ * The sync feature's user-visible state (mirror of Windows `SyncStatus`).
+ * Exposed as a [kotlinx.coroutines.flow.StateFlow] by [SyncManager] and shown
+ * by the SettingsScreen sync section.
+ */
+data class SyncStatus(
+    val signedIn: Boolean = false,
+    val account: String? = null,
+    val syncEnabled: Boolean = false,
+    val running: Boolean = false,
+    val lastSyncAtMs: Long? = null,
+    val lastError: String? = null,
+)
