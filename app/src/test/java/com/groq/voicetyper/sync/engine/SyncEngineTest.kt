@@ -6,6 +6,7 @@ import com.groq.voicetyper.sync.wire.WireRecord
 import com.groq.voicetyper.sync.wire.parse
 import com.groq.voicetyper.sync.wire.tombstone
 import com.groq.voicetyper.sync.wire.uuidBasename
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -210,7 +211,13 @@ class SyncEngineTest {
         var name: String,
         var bytes: String,
         var trashed: Boolean,
-    )
+    ) {
+        /** Fake Drive `md5Checksum` change-detection token (§31). */
+        val md5: String
+            get() = MessageDigest.getInstance("MD5")
+                .digest(bytes.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+    }
 
     private class FakeDrive(
         val files: MutableList<FakeFile> = mutableListOf(),
@@ -222,6 +229,7 @@ class SyncEngineTest {
         var patchOk: Int = 0,
         var hideOnce: String? = null,
         var missingContent: String? = null,
+        var listMd5: Boolean = true,
         val ops: MutableList<String> = mutableListOf(),
     ) : DriveStore {
         fun addFile(name: String, record: WireRecord): String {
@@ -288,7 +296,7 @@ class SyncEngineTest {
             hideOnce = null
             val out = files
                 .filter { !it.trashed && it.fileId != hidden }
-                .map { FileMeta(it.fileId, it.name) }
+                .map { FileMeta(it.fileId, it.name, if (listMd5) it.md5 else null) }
                 .sortedBy { it.fileId }
             ops.add("list#$listCalls")
             return out
@@ -322,11 +330,20 @@ class SyncEngineTest {
         override fun hasValidToken(): Boolean = valid
     }
 
-    private fun runPass(local: FakeLocalStore, drive: FakeDrive): SyncOutcome =
-        SyncEngine.run(RecordType.History, ACCOUNT, local, drive, FakeToken(true))
+    private fun runPass(
+        local: FakeLocalStore,
+        drive: FakeDrive,
+        cache: FileCacheStore = FakeCache(),
+    ): SyncOutcome =
+        SyncEngine.run(RecordType.History, ACCOUNT, local, drive, FakeToken(true), cache)
 
-    private fun runPassKind(kind: RecordType, local: FakeLocalStore, drive: FakeDrive): SyncOutcome =
-        SyncEngine.run(kind, ACCOUNT, local, drive, FakeToken(true))
+    private fun runPassKind(
+        kind: RecordType,
+        local: FakeLocalStore,
+        drive: FakeDrive,
+        cache: FileCacheStore = FakeCache(),
+    ): SyncOutcome =
+        SyncEngine.run(kind, ACCOUNT, local, drive, FakeToken(true), cache)
 
     private fun driveParsedTombstoned(file: FakeFile): Boolean {
         val uuid = uuidBasename(file.name) ?: return false
@@ -368,8 +385,8 @@ class SyncEngineTest {
         val r = rows[0]
         assertEquals(UUID_A, r.uuid)
         assertEquals(ACCOUNT, r.syncAccount)
-        assertEquals(SYNC_STATE_LOCAL, r.syncState)
-        assertNull(r.serverFileId)
+        assertEquals(SYNC_STATE_CLEAN, r.syncState)
+        assertEquals(f1, r.serverFileId)
         assertFalse(r.isTombstoned())
         assertEquals(TEXT, r.text)
         assertEquals(CREATED_AT, r.timestampMs)
@@ -379,6 +396,71 @@ class SyncEngineTest {
         assertEquals(1, local.rows.size)
         assertTrue(local.ops.any { it == "import:$UUID_A" })
         assertEquals("$UUID_A.json", drive.file(f1).name)
+    }
+
+    @Test
+    fun importLiveRow_stampsServerFileId() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        val local = FakeLocalStore()
+
+        val o = runPass(local, drive)
+        assertEquals(1, o.imported)
+        val r = checkNotNull(local.row(UUID_A))
+        assertEquals("imported row receives exact Drive file ID", f1, r.serverFileId)
+        assertEquals("sync account is preserved", ACCOUNT, r.syncAccount)
+        assertEquals(SYNC_STATE_CLEAN, r.syncState)
+        assertFalse(r.isTombstoned())
+        assertEquals(TEXT, r.text)
+        assertEquals(CREATED_AT, r.timestampMs)
+    }
+
+    @Test
+    fun importTombstoneRow_stampsServerFileId() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", tombstone(wireA(), DELETED_AT))
+        val local = FakeLocalStore()
+
+        val o = runPass(local, drive)
+        assertEquals(1, o.imported)
+        val r = checkNotNull(local.row(UUID_A))
+        assertEquals("imported tombstone receives exact Drive file ID", f1, r.serverFileId)
+        assertEquals("sync account is preserved", ACCOUNT, r.syncAccount)
+        assertEquals(SYNC_STATE_CLEAN, r.syncState)
+        assertTrue(r.isTombstoned())
+        assertEquals(DELETED_AT, r.deletedAt)
+    }
+
+    @Test
+    fun importedRow_deleteDoesNotResurrect() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        val local = FakeLocalStore()
+
+        // 1. Initial import from Drive
+        val o1 = runPass(local, drive)
+        assertEquals(1, o1.imported)
+        val imported = checkNotNull(local.row(UUID_A))
+        assertEquals(f1, imported.serverFileId)
+        assertEquals(SYNC_STATE_CLEAN, imported.syncState)
+
+        // 2. User deletes the row locally. Because serverFileId is set,
+        // it generates a tombstone rather than being silently hard-deleted.
+        local.markTombstoned(UUID_A, DELETED_AT)
+        assertEquals(SYNC_STATE_DIRTY, local.row(UUID_A)?.syncState)
+        assertTrue(local.row(UUID_A)?.isTombstoned() == true)
+
+        // 3. Sync pass pushes tombstone to Drive
+        val o2 = runPass(local, drive)
+        assertEquals(1, o2.patches)
+        assertEquals(0, o2.imported)
+        assertEquals("Drive file is patched with tombstone", DELETED_AT, drive.parsed(f1).deletedAt)
+        assertEquals(SYNC_STATE_CLEAN, local.row(UUID_A)?.syncState)
+
+        // 4. Subsequent sync pass converges to steady state — NO resurrection
+        val o3 = runPass(local, drive)
+        assertEquals(SyncOutcome(), o3)
+        assertTrue("Row remains tombstoned without resurrecting", local.row(UUID_A)?.isTombstoned() == true)
     }
 
     @Test
@@ -603,7 +685,7 @@ class SyncEngineTest {
         val drive = FakeDrive()
         val local = FakeLocalStore()
         assertThrows(SyncError.AuthRequired::class.java) {
-            SyncEngine.run(RecordType.History, ACCOUNT, local, drive, FakeToken(false))
+            SyncEngine.run(RecordType.History, ACCOUNT, local, drive, FakeToken(false), FakeCache())
         }
         assertFalse(drive.folderCreated)
         assertTrue(local.rows.isEmpty())
@@ -710,7 +792,7 @@ class SyncEngineTest {
         assertEquals(1, o.imported)
         val r = checkNotNull(local.row(UUID_A))
         assertFalse(r.isTombstoned())
-        assertEquals(SYNC_STATE_LOCAL, r.syncState)
+        assertEquals(SYNC_STATE_CLEAN, r.syncState)
     }
 
     @Test
@@ -955,7 +1037,7 @@ class SyncEngineTest {
         assertEquals("addr", b.trigger)
         val c = checkNotNull(local.row(UUID_C))
         assertFalse(c.isTombstoned())
-        assertEquals(SYNC_STATE_LOCAL, c.syncState)
+        assertEquals(SYNC_STATE_CLEAN, c.syncState)
         assertEquals("456 Oak Ave", c.expansion)
 
         assertEquals(SyncOutcome(), runPassKind(RecordType.Snippet, local, drive))
@@ -1002,7 +1084,7 @@ class SyncEngineTest {
         val c = checkNotNull(localB.row(UUID_C))
         assertFalse(c.isTombstoned())
         assertEquals("456 Oak Ave", c.expansion)
-        assertEquals(SYNC_STATE_LOCAL, c.syncState)
+        assertEquals(SYNC_STATE_CLEAN, c.syncState)
         val e = checkNotNull(localB.row(UUID_E))
         assertFalse(e.isTombstoned())
         assertEquals("789 Elm St", e.expansion)
@@ -1016,7 +1098,7 @@ class SyncEngineTest {
         val eA = checkNotNull(localA.row(UUID_E))
         assertFalse(eA.isTombstoned())
         assertEquals("789 Elm St", eA.expansion)
-        assertEquals(SYNC_STATE_LOCAL, eA.syncState)
+        assertEquals(SYNC_STATE_CLEAN, eA.syncState)
         assertEquals(SyncOutcome(), runPassKind(RecordType.Snippet, localB, drive))
     }
 
@@ -1107,5 +1189,101 @@ class SyncEngineTest {
         assertEquals("false", c2.settingsValue)
 
         assertEquals(SyncOutcome(), runPassKind(RecordType.Settings, local, drive))
+    }
+
+    // ---------------------------------------------------------------------
+    // Layer 6 — §31 incremental sync (change-detection cache)
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun unchanged_files_are_not_redownloaded() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        drive.addFile("$UUID_B.json", wireA().copy(id = UUID_B, createdAt = CREATED_AT + 1))
+        val local = FakeLocalStore()
+        val cache = FakeCache()
+
+        val o1 = runPass(local, drive, cache)
+        assertEquals(2, o1.imported)
+        assertEquals("cold cache downloads every file", 2, drive.ops.count { it.startsWith("get:") })
+        assertEquals(2, cache.entries.size)
+
+        drive.ops.clear()
+        val o2 = runPass(local, drive, cache)
+        assertEquals(SyncOutcome(), o2)
+        assertTrue(
+            "unchanged files must be served from cache, not re-downloaded",
+            drive.ops.none { it.startsWith("get:") }
+        )
+        assertEquals(2, local.rows.size)
+    }
+
+    @Test
+    fun changed_file_is_redownloaded_but_unchanged_ones_are_not() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        val f2 = drive.addFile("$UUID_B.json", wireA().copy(id = UUID_B, createdAt = CREATED_AT + 1))
+        val local = FakeLocalStore()
+        val cache = FakeCache()
+        runPass(local, drive, cache)
+
+        // Remote content of f1 changes (edited on another device → new token).
+        drive.file(f1).bytes = wireA().copy(text = "Edited remotely.").toJson()
+
+        drive.ops.clear()
+        runPass(local, drive, cache)
+        assertEquals(1, drive.ops.count { it == "get:$f1" })
+        assertTrue("unchanged f2 is still served from cache", drive.ops.none { it == "get:$f2" })
+    }
+
+    @Test
+    fun corrupt_cache_row_triggers_redownload_not_quarantine() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        val local = FakeLocalStore()
+        val cache = FakeCache()
+        runPass(local, drive, cache)
+
+        // Poison the cache row while the remote token stays the same.
+        cache.put(f1, drive.file(f1).md5, "{not json")
+
+        drive.ops.clear()
+        val o = runPass(local, drive, cache)
+        assertEquals(SyncOutcome(), o)
+        assertEquals(1, drive.ops.count { it == "get:$f1" })
+        assertEquals("cache re-populated from a fresh download", 1, cache.entries.size)
+        assertTrue(local.rows.none { it.quarantineReason != null })
+    }
+
+    @Test
+    fun files_without_a_token_are_always_downloaded() {
+        val drive = FakeDrive()
+        val f1 = drive.addFile("$UUID_A.json", wireA())
+        val local = FakeLocalStore()
+        val cache = FakeCache()
+        runPass(local, drive, cache)
+        assertEquals(1, cache.entries.size)
+
+        // Listing stops carrying tokens (e.g. API edge case): the engine must
+        // degrade to a full download, never reuse blindly.
+        drive.listMd5 = false
+        drive.ops.clear()
+        runPass(local, drive, cache)
+        assertEquals(1, drive.ops.count { it == "get:$f1" })
+    }
+
+    @Test
+    fun cache_prunes_files_removed_from_folder() {
+        val drive = FakeDrive()
+        drive.addFile("$UUID_A.json", wireA())
+        val f2 = drive.addFile("$UUID_B.json", wireA().copy(id = UUID_B, createdAt = CREATED_AT + 1))
+        val local = FakeLocalStore()
+        val cache = FakeCache()
+        runPass(local, drive, cache)
+        assertEquals(2, cache.entries.size)
+
+        drive.remove("F1")
+        runPass(local, drive, cache)
+        assertEquals("pruned to the surviving folder contents", setOf(f2), cache.entries.keys)
     }
 }

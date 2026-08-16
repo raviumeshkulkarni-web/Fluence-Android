@@ -23,6 +23,7 @@ object SyncEngine {
         local: LocalStore,
         drive: DriveStore,
         token: TokenProvider,
+        cache: FileCacheStore,
     ): SyncOutcome {
         if (!token.hasValidToken()) {
             throw SyncError.AuthRequired
@@ -33,23 +34,7 @@ object SyncEngine {
         val listing = drive.listFiles()
         val listedNames: Map<String, String> = listing.associate { it.fileId to it.name }
 
-        val groups = TreeMap<String, Group>()
-        for (file in listing) {
-            val uuid = uuidBasename(file.name) ?: continue
-            val content = drive.getContent(file.fileId) ?: continue
-            when (val parsed = parse(content, uuid)) {
-                is ParseResult.Ok -> groups.getOrPut(uuid) { Group() }.files.add(
-                    GroupedFile(file.fileId, file.name, parsed.record)
-                )
-                is ParseResult.Err -> groups.getOrPut(uuid) { Group() }.invalid.add(
-                    file.fileId to parsed.reason
-                )
-            }
-        }
-        for (group in groups.values) {
-            group.files.sortBy { it.fileId }
-            group.invalid.sortBy { it.first }
-        }
+        val groups = groupFiles(drive, cache, listing)
 
         val rows = local.listRows(account).sortedBy { it.uuid }
         val known: Set<String> = rows.map { it.uuid }.toSet()
@@ -105,12 +90,12 @@ object SyncEngine {
             if (firstFile != null && firstFile.record.rtype != kind) continue
             when (classify(group, null)) {
                 GroupVerdict.HealthyLive -> {
-                    val record = group.files[0].record
-                    localActions.add(SyncAction.ImportLive(importLiveRow(record, account)))
+                    val file = group.files[0]
+                    localActions.add(SyncAction.ImportLive(importLiveRow(file.record, file.fileId, account)))
                 }
                 GroupVerdict.HealthyDeleted -> {
-                    val record = group.files[0].record
-                    val row = importTombstoneRow(record, groupDeletedAt(group), account)
+                    val file = group.files[0]
+                    val row = importTombstoneRow(file.record, file.fileId, groupDeletedAt(group), account)
                     pushActions.addAll(patchLiveFiles(group, row.toWire()))
                     localActions.add(SyncAction.ImportTombstone(row))
                 }
@@ -214,6 +199,10 @@ object SyncEngine {
                 is SyncAction.PatchTombstone -> {
                     try {
                         drive.updateContent(action.fileId, action.record)
+                        // Remote content just changed under this fileId; its
+                        // cached token is stale, so the next pass re-downloads
+                        // once and re-learns it (§31).
+                        cache.remove(action.fileId)
                     } catch (e: SyncError) {
                         when (e) {
                             // AuthRequired/Fatal abort the pass (§23).
@@ -265,7 +254,70 @@ object SyncEngine {
             assert(row.syncState == derived) { "sync_state invariant violated for row ${row.uuid}" }
         }
 
+        // Drop cache rows for files no longer in the folder so the cache stays
+        // bounded and never resurrects a file that was deleted remotely (§31).
+        cache.prune(listing.map { it.fileId }.toSet())
+
         return outcome
+    }
+
+    /**
+     * Build per-uuid file groups from the listing (§31 incremental sync).
+     *
+     * A file whose listed `md5Checksum` token equals the cached token is reused
+     * from the cache (canonical record JSON) instead of a `getContent` round
+     * trip — same content, same classification, no download. New or changed
+     * files are downloaded, parsed once, and cached as canonical JSON.
+     * Files without a token, with a token mismatch, or that fail to parse from
+     * the cache are always re-fetched, so a stale/corrupt cache can never
+     * change verdicts.
+     */
+    private fun groupFiles(
+        drive: DriveStore,
+        cache: FileCacheStore,
+        listing: List<FileMeta>,
+    ): TreeMap<String, Group> {
+        val cached = cache.all()
+        val groups = TreeMap<String, Group>()
+        for (file in listing) {
+            val uuid = uuidBasename(file.name) ?: continue
+            val cachedRow = cached[file.fileId]
+            val reusable = file.md5 != null && cachedRow != null && cachedRow.md5 == file.md5
+
+            var content: ByteArray? = null
+            var record: WireRecord? = null
+            if (reusable) {
+                val bytes = cachedRow!!.recordJson.toByteArray(Charsets.UTF_8)
+                when (val parsed = parse(bytes, uuid)) {
+                    is ParseResult.Ok -> {
+                        content = bytes
+                        record = parsed.record
+                    }
+                    // Corrupt cache row: drop it and fetch fresh below.
+                    is ParseResult.Err -> cache.remove(file.fileId)
+                }
+            }
+            if (content == null) {
+                val fresh = drive.getContent(file.fileId) ?: continue
+                when (val parsed = parse(fresh, uuid)) {
+                    is ParseResult.Ok -> {
+                        record = parsed.record
+                        cache.put(file.fileId, file.md5, parsed.record.toJson())
+                    }
+                    is ParseResult.Err -> groups.getOrPut(uuid) { Group() }.invalid.add(
+                        file.fileId to parsed.reason
+                    )
+                }
+            }
+            record?.let {
+                groups.getOrPut(uuid) { Group() }.files.add(GroupedFile(file.fileId, file.name, it))
+            }
+        }
+        for (group in groups.values) {
+            group.files.sortBy { it.fileId }
+            group.invalid.sortBy { it.first }
+        }
+        return groups
     }
 
     fun derivedSyncState(
@@ -361,7 +413,11 @@ private fun patchLiveFiles(group: Group, record: WireRecord): List<SyncAction> =
 
 private fun fileName(uuid: String): String = "$uuid.json"
 
-private fun importLiveRow(record: WireRecord, account: String?): LocalRow = LocalRow(
+private fun importLiveRow(
+    record: WireRecord,
+    serverFileId: String,
+    account: String?,
+): LocalRow = LocalRow(
     uuid = record.id,
     timestampMs = record.createdAt,
     text = record.text,
@@ -371,9 +427,9 @@ private fun importLiveRow(record: WireRecord, account: String?): LocalRow = Loca
     model = record.model,
     language = record.language,
     deletedAt = null,
-    serverFileId = null,
+    serverFileId = serverFileId,
     syncAccount = account,
-    syncState = SYNC_STATE_LOCAL,
+    syncState = SYNC_STATE_CLEAN,
     quarantineReason = null,
     rtype = record.rtype,
     spoken = record.spoken,
@@ -387,10 +443,11 @@ private fun importLiveRow(record: WireRecord, account: String?): LocalRow = Loca
 
 private fun importTombstoneRow(
     record: WireRecord,
+    serverFileId: String,
     deletedAt: Long,
     account: String?,
 ): LocalRow {
-    val row = importLiveRow(record, account)
+    val row = importLiveRow(record, serverFileId, account)
     return row.copy(deletedAt = deletedAt, syncState = SYNC_STATE_CLEAN)
 }
 
