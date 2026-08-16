@@ -143,10 +143,15 @@ data class SyncOutcome(
     var quarantined: Int = 0,
     var hardDeleted: Int = 0,
     var retryableFailures: Int = 0,
+    // Permanent client rejections (e.g. HTTP 400/4xx outside op-level
+    // handling). Counted in PUSH; surfaced non-success, never backoff-
+    // escalated (§23 / Phase 0 remediation).
+    var rejectedFailures: Int = 0,
 )
 
 sealed class SyncError(message: String? = null) : Exception(message) {
     class Retryable(message: String) : SyncError(message)
     class Fatal(message: String) : SyncError(message)
+    class Rejected(message: String) : SyncError(message)
     object AuthRequired : SyncError("authentication required")
 }

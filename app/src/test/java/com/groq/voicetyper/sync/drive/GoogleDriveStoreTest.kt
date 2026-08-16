@@ -32,7 +32,12 @@ class GoogleDriveStoreTest {
     }
 
     private fun store(accessToken: String = "at-test"): GoogleDriveStore =
-        GoogleDriveStore(accessToken, client, server.url("/drive/v3").toString())
+        GoogleDriveStore(
+            accessToken,
+            client,
+            server.url("/drive/v3").toString(),
+            server.url("/upload/drive/v3").toString(),
+        )
 
     private fun wireRecord(id: String): WireRecord = WireRecord(
         v = 1,
@@ -130,14 +135,42 @@ class GoogleDriveStoreTest {
     }
 
     @Test
-    fun listFiles_returnsEmptyOnForbiddenScope() {
+    fun listFiles_403AbortsBeforeAbsence() {
         server.enqueue(
             MockResponse()
                 .setResponseCode(200)
                 .setBody("""{"files":[{"id":"folder-1","name":"Fluence Transcribe"}]}""")
         )
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":"forbidden"}"""))
-        assertEquals(emptyList<FileMeta>(), store().listFiles())
+        // A 403 on LIST must abort the pass (ABSENCE never runs on an
+        // unconfirmed listing) — NOT silently return an empty listing.
+        assertThrows(SyncError.Fatal::class.java) { store().listFiles() }
+    }
+
+    @Test
+    fun listFiles_partialListingAborts() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"files":[{"id":"folder-1","name":"Fluence Transcribe"}]}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"files":[{"id":"f1"},{"id":"f2","name":"b.json"}]}""")
+        )
+        assertThrows(SyncError.Rejected::class.java) { store().listFiles() }
+    }
+
+    @Test
+    fun listFiles_corruptListingAborts() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"files":[{"id":"folder-1","name":"Fluence Transcribe"}]}""")
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("not json"))
+        assertThrows(SyncError.Rejected::class.java) { store().listFiles() }
     }
 
     @Test
@@ -205,20 +238,72 @@ class GoogleDriveStoreTest {
 
         server.takeRequest() // folder listing
         val create = server.takeRequest()
-        assertTrue(create.path!!.contains("uploadType=multipart"))
+        assertTrue(create.path!!.contains("/upload/drive/v3/files?uploadType=multipart"))
         val body = create.body.readUtf8()
         assertTrue(body.contains("history-abc.json"))
         assertTrue(body.contains("\"v\":1"))
     }
 
     @Test
-    fun updateContent_patchesMedia() {
+    fun createFile_surfacesRejectedOn400_notRetryable() {
+        // A 400 (permanent client rejection) must NOT be classified as a
+        // retryable missing-id: the error body is never parsed, and the pass
+        // surfaces non-success without backoff escalation (§23).
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"files":[{"id":"folder-1","name":"Fluence Transcribe"}]}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setBody("""{"error":{"code":400,"message":"Bad Request"}}""")
+        )
+        assertThrows(SyncError.Rejected::class.java) {
+            store().createFile("history-abc.json", wireRecord("abc"))
+        }
+    }
+
+    @Test
+    fun createFile_retryableOnMissingId() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"files":[{"id":"folder-1","name":"Fluence Transcribe"}]}""")
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""{"name":"oops"}""") // no id
+        )
+        assertThrows(SyncError.Retryable::class.java) {
+            store().createFile("history-abc.json", wireRecord("abc"))
+        }
+    }
+
+    @Test
+    fun updateContent_patchesMediaOnUploadHost() {
         server.enqueue(MockResponse().setResponseCode(200))
         store().updateContent("f1", wireRecord("abc"))
         val request = server.takeRequest()
         assertEquals("PATCH", request.method)
-        assertTrue(request.path!!.contains("/drive/v3/files/f1?uploadType=media"))
+        assertTrue(request.path!!.contains("/upload/drive/v3/files/f1?uploadType=media"))
         assertTrue(request.body.readUtf8().contains("hello"))
+    }
+
+    @Test
+    fun updateContent_404IsIdempotent() {
+        server.enqueue(MockResponse().setResponseCode(404))
+        store().updateContent("f1", wireRecord("abc")) // must not throw
+        val request = server.takeRequest()
+        assertEquals("PATCH", request.method)
+        assertTrue(request.path!!.contains("/upload/drive/v3/files/f1?uploadType=media"))
+    }
+
+    @Test
+    fun updateContent_surfacesRejectedOn400() {
+        server.enqueue(MockResponse().setResponseCode(400))
+        assertThrows(SyncError.Rejected::class.java) { store().updateContent("f1", wireRecord("abc")) }
     }
 
     @Test

@@ -176,7 +176,15 @@ object SyncEngine {
                     val fileId = try {
                         drive.createFile(fileName(action.uuid), action.record)
                     } catch (e: SyncError) {
-                        outcome.retryableFailures += 1
+                        when (e) {
+                            // AuthRequired/Fatal abort the pass (§23).
+                            is SyncError.AuthRequired, is SyncError.Fatal -> throw e
+                            // Rejected: permanent client rejection, counted;
+                            // the pass continues and surfaces non-success.
+                            is SyncError.Rejected -> outcome.rejectedFailures += 1
+                            // Retryable: counted, pass continues (§7).
+                            is SyncError.Retryable -> outcome.retryableFailures += 1
+                        }
                         continue
                     }
                     local.setServerFileId(action.uuid, fileId)
@@ -187,7 +195,15 @@ object SyncEngine {
                     val fileId = try {
                         drive.createFile(fileName(action.uuid), action.record)
                     } catch (e: SyncError) {
-                        outcome.retryableFailures += 1
+                        when (e) {
+                            // AuthRequired/Fatal abort the pass (§23).
+                            is SyncError.AuthRequired, is SyncError.Fatal -> throw e
+                            // Rejected: permanent client rejection, counted;
+                            // the pass continues and surfaces non-success.
+                            is SyncError.Rejected -> outcome.rejectedFailures += 1
+                            // Retryable: counted, pass continues (§7).
+                            is SyncError.Retryable -> outcome.retryableFailures += 1
+                        }
                         continue
                     }
                     local.setServerFileId(action.uuid, fileId)
@@ -199,7 +215,15 @@ object SyncEngine {
                     try {
                         drive.updateContent(action.fileId, action.record)
                     } catch (e: SyncError) {
-                        outcome.retryableFailures += 1
+                        when (e) {
+                            // AuthRequired/Fatal abort the pass (§23).
+                            is SyncError.AuthRequired, is SyncError.Fatal -> throw e
+                            // Rejected: permanent client rejection, counted;
+                            // the pass continues and surfaces non-success.
+                            is SyncError.Rejected -> outcome.rejectedFailures += 1
+                            // Retryable: counted, pass continues (§7).
+                            is SyncError.Retryable -> outcome.retryableFailures += 1
+                        }
                         continue
                     }
                     patchedFileIds.add(action.fileId)

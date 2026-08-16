@@ -47,9 +47,11 @@ class SyncWorker(
                 val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
                 val drive = GoogleDriveStore(token)
                 val account = auth.accountEmail
+                var retryable = false
                 for (k in kinds) {
                     val local = LocalStores.forKind(applicationContext, k)
-                    SyncEngine.run(k, account, local, drive, auth)
+                    val o = SyncEngine.run(k, account, local, drive, auth)
+                    retryable = retryable || o.retryableFailures > 0
                     if (k == RecordType.Settings) {
                         // §30.3 mirror: the synced toggle becomes the local flag.
                         (local as SettingsStore).mirrorEnabled {
@@ -57,12 +59,17 @@ class SyncWorker(
                         }
                     }
                 }
-                Result.success()
+                // Retryable failures get a WorkManager retry with backoff;
+                // rejected (permanent) failures wait for the next periodic run.
+                if (retryable) Result.retry() else Result.success()
             } catch (e: SyncError) {
                 when (e) {
-                    // Reauth or permission problems: wait for the next
-                    // periodic run — retrying would only re-fail.
-                    is SyncError.AuthRequired, is SyncError.Fatal -> Result.success()
+                    // Reauth, permission, or permanent-rejection problems:
+                    // wait for the next periodic run — retrying would only
+                    // re-fail (§23).
+                    is SyncError.AuthRequired,
+                    is SyncError.Fatal,
+                    is SyncError.Rejected -> Result.success()
                     is SyncError.Retryable -> Result.retry()
                 }
             } catch (e: Exception) {

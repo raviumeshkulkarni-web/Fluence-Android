@@ -4,7 +4,7 @@ package com.groq.voicetyper.sync.scheduler
  * How a sync pass ended — the scheduler's only input (mirror of Windows
  * `PassOutcomeKind`, scheduler.rs).
  */
-enum class PassOutcomeKind { SUCCESS, RETRYABLE, FATAL, AUTH_REQUIRED }
+enum class PassOutcomeKind { SUCCESS, RETRYABLE, REJECTED, FATAL, AUTH_REQUIRED }
 
 /**
  * Exponential backoff for retryable passes (mirror of Windows: 1000ms start,
@@ -40,6 +40,9 @@ class SyncBackoff(
  * - [completePass] applies the outcome schedule:
  *   - SUCCESS → next attempt at now + cadence, backoff reset
  *   - RETRYABLE → next attempt at now + backoff (1000 → 60s cap)
+ *   - REJECTED → next attempt at now + cadence, backoff reset; the pass is
+ *     surfaced non-success (lastSyncAtMs NOT advanced) but never backoff-
+ *     escalated (§23 / Phase 0 remediation)
  *   - FATAL → next attempt at now + cadence (skip this pass, keep schedule)
  *   - AUTH_REQUIRED → next attempt at now + idle poll (wait for reauth)
  */
@@ -78,6 +81,13 @@ class SyncSchedulerCore(
             }
             PassOutcomeKind.RETRYABLE -> {
                 nextAttemptMs = now + backoff.next()
+            }
+            PassOutcomeKind.REJECTED -> {
+                // Permanent rejections must NOT backoff-escalate: reset and let
+                // the next attempt run at the cadence. Non-success surfaced by
+                // NOT advancing lastSyncAtMs.
+                nextAttemptMs = now + cadenceMs
+                backoff.reset()
             }
             PassOutcomeKind.FATAL -> {
                 nextAttemptMs = now + cadenceMs

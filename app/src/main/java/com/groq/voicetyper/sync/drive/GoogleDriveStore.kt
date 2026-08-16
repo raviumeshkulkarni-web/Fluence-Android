@@ -34,6 +34,8 @@ class GoogleDriveStore(
     private val accessToken: String,
     private val client: OkHttpClient = GoogleOAuth.newHttpClient(),
     private val apiBase: String = API_BASE,
+    /** Upload host for create/media writes (§23) — injectable test seam. */
+    private val uploadBase: String = UPLOAD_BASE,
 ) : DriveStore {
 
     private var folderId: String? = null
@@ -56,13 +58,23 @@ class GoogleDriveStore(
         return response
     }
 
-    /** Classify a Drive HTTP status into engine error kinds (§23). */
+    /**
+     * Classify a Drive HTTP status into engine error kinds (§23).
+     *
+     * Strict: only 2xx is accepted. Every other 4xx (and 3xx) that is not
+     * already mapped to `AuthRequired`/`Fatal`/`Retryable` is a permanent
+     * client rejection → `Rejected`: surfaced non-success, never backoff-
+     * escalated. Op-level handling (e.g. fetch-404 → null) happens BEFORE
+     * this call.
+     */
     private fun classify(status: Int) {
         when (status) {
+            in 200..299 -> return
             401 -> throw SyncError.AuthRequired
             403 -> throw SyncError.Fatal("Drive access not permitted for this account")
             429 -> throw SyncError.Retryable("rate limited")
             in 500..599 -> throw SyncError.Retryable("Drive HTTP $status")
+            else -> throw SyncError.Rejected("Drive HTTP $status")
         }
     }
 
@@ -109,15 +121,12 @@ class GoogleDriveStore(
                 .append("&fields=files(id,name,trashed),nextPageToken")
                 .append("&pageSize=1000")
                 .append("&supportsAllDrives=false")
-            pageToken?.let { url.append("&pageToken=$it") }
+            // pageToken is opaque; always percent-encode it (Phase 2).
+            pageToken?.let { url.append("&pageToken=${URLEncoder.encode(it, "UTF-8")}") }
             call(bearer(url.toString())).use { response ->
-                try {
-                    classify(response.code)
-                } catch (e: SyncError) {
-                    // 403 drive.file scope: skip this pass entirely (§23).
-                    if (e is SyncError.Fatal) return emptyList()
-                    throw e
-                }
+                // A 403 (drive.file scope) on LIST aborts the whole pass —
+                // ABSENCE must never run on an unconfirmed listing (§23/Phase 2).
+                classify(response.code)
                 val body = response.body?.string().orEmpty()
                 val (files, next) = parseFileListing(body)
                 all += files
@@ -130,6 +139,9 @@ class GoogleDriveStore(
 
     override fun getContent(fileId: String): ByteArray? {
         call(bearer("$apiBase/files/$fileId?alt=media")).use { response ->
+            // fetch-404 during VALIDATE must be handled op-level BEFORE the
+            // strict transport classification (which maps 404 to Rejected).
+            if (response.code == 404) return null
             try {
                 classify(response.code)
             } catch (e: SyncError) {
@@ -137,7 +149,6 @@ class GoogleDriveStore(
                 if (e is SyncError.Fatal) return null
                 throw e
             }
-            if (response.code == 404) return null // fetch-404 during VALIDATE
             return response.body?.bytes()
         }
     }
@@ -159,7 +170,7 @@ class GoogleDriveStore(
                     .toRequestBody("application/octet-stream".toMediaType()),
             )
             .build()
-        call(bearer("$UPLOAD_BASE/files?uploadType=multipart&fields=id").post(multipart)).use { response ->
+        call(bearer("$uploadBase/files?uploadType=multipart&fields=id").post(multipart)).use { response ->
             classify(response.code)
             val body = response.body?.string().orEmpty()
             return parseId(body) ?: throw SyncError.Retryable("create response missing id")
@@ -169,7 +180,11 @@ class GoogleDriveStore(
     override fun updateContent(fileId: String, record: WireRecord) {
         val body = record.toJson().toByteArray(Charsets.UTF_8)
             .toRequestBody("application/octet-stream".toMediaType())
-        call(bearer("$apiBase/files/$fileId?uploadType=media").patch(body)).use { response ->
+        call(bearer("$uploadBase/files/$fileId?uploadType=media").patch(body)).use { response ->
+            // A 404 means the remote file is already gone — the tombstone is
+            // already satisfied, an idempotent success (§23 / Phase 1). Check
+            // before the strict transport classification.
+            if (response.code == 404) return
             classify(response.code)
         }
     }
@@ -180,25 +195,34 @@ class GoogleDriveStore(
 
     /**
      * Parse a `files(id,name,trashed)` listing page. A partial/corrupt page is
-     * a failure (empty list, no token) so the caller re-fetches (§23).
+     * a failure — never a silently-empty result — so the caller aborts the
+     * pass before any mutation (§23 / Phase 2).
      */
-    internal fun parseFileListing(json: String): Pair<List<FileMeta>, String?> = runCatching {
-        val root = JSONObject(json)
+    internal fun parseFileListing(json: String): Pair<List<FileMeta>, String?> {
+        val root = try {
+            JSONObject(json)
+        } catch (e: Exception) {
+            throw SyncError.Rejected("corrupt listing response")
+        }
         val next = if (root.has("nextPageToken") && !root.isNull("nextPageToken")) {
             root.optString("nextPageToken").ifEmpty { null }
         } else {
             null
         }
-        val array = root.optJSONArray("files") ?: return@runCatching emptyList<FileMeta>() to next
+        val array = root.optJSONArray("files")
+            ?: throw SyncError.Rejected("listing response missing files")
         val files = ArrayList<FileMeta>(array.length())
         for (i in 0 until array.length()) {
-            val item = array.optJSONObject(i) ?: return@runCatching emptyList<FileMeta>() to null
-            val id = item.optString("id", "").ifEmpty { return@runCatching emptyList<FileMeta>() to null }
-            val name = item.optString("name", "").ifEmpty { return@runCatching emptyList<FileMeta>() to null }
+            val item = array.optJSONObject(i)
+                ?: throw SyncError.Rejected("partial listing response")
+            val id = item.optString("id", "")
+                .ifEmpty { throw SyncError.Rejected("partial listing response") }
+            val name = item.optString("name", "")
+                .ifEmpty { throw SyncError.Rejected("partial listing response") }
             files.add(FileMeta(fileId = id, name = name))
         }
-        files to next
-    }.getOrDefault(emptyList<FileMeta>() to null)
+        return files to next
+    }
 
     private companion object {
         const val FOLDER_NAME = "Fluence Transcribe"

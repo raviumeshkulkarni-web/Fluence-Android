@@ -128,9 +128,13 @@ class SyncManager(
                 val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
                 val drive = GoogleDriveStore(token)
                 val account = auth.accountEmail
+                var retryableFailures = 0
+                var rejectedFailures = 0
                 for (kind in SYNC_KINDS) {
                     val local = LocalStores.forKind(context, kind)
-                    SyncEngine.run(kind, account, local, drive, auth)
+                    val o = SyncEngine.run(kind, account, local, drive, auth)
+                    retryableFailures += o.retryableFailures
+                    rejectedFailures += o.rejectedFailures
                     if (kind == RecordType.History) {
                         // Imports bypass HistoryRepository.save, so stats are
                         // rebuilt after the history phase (§30.3 parity).
@@ -142,12 +146,21 @@ class SyncManager(
                             .mirrorEnabled { SnippetPreferences.setSnippetsEnabled(context, it) }
                     }
                 }
+                // Windows parity (scheduler.rs classify_pass): retryable wins
+                // over rejected; either makes the pass non-success so the
+                // outcome is never recorded as synced.
+                outcome = when {
+                    retryableFailures > 0 -> PassOutcomeKind.RETRYABLE
+                    rejectedFailures > 0 -> PassOutcomeKind.REJECTED
+                    else -> PassOutcomeKind.SUCCESS
+                }
             } catch (e: SyncError) {
                 android.util.Log.e("FluenceSync", "Sync pass failed with SyncError: ${e::class.simpleName} - ${e.message}", e)
                 outcome = when (e) {
                     is SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
                     is SyncError.Retryable -> PassOutcomeKind.RETRYABLE
                     is SyncError.Fatal -> PassOutcomeKind.FATAL
+                    is SyncError.Rejected -> PassOutcomeKind.REJECTED
                 }
             } catch (e: Exception) {
                 android.util.Log.e("FluenceSync", "Sync pass failed with unexpected Exception: ${e::class.simpleName} - ${e.message}", e)
