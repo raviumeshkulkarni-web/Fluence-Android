@@ -26,7 +26,9 @@ object DictionaryRepository {
     @Volatile private var isObserving = false
 
     internal fun resolveSaveAction(existing: CustomDictionaryEntry?, id: Long): SaveAction = when {
-        existing != null && existing.id != id -> SaveAction.PRESERVE
+        existing != null && existing.id != id -> {
+            if (existing.deletedAt != null && id == 0L) SaveAction.UPDATE else SaveAction.PRESERVE
+        }
         id != 0L -> SaveAction.UPDATE
         else -> SaveAction.INSERT
     }
@@ -112,6 +114,7 @@ object DictionaryRepository {
 
         val dao = getDao(context)
         val existing = dao.getBySpokenText(trimmedSpoken)
+        val targetId = if (existing != null && existing.deletedAt != null && id == 0L) existing.id else id
         return when (resolveSaveAction(existing, id)) {
             SaveAction.INSERT -> {
                 val rowId = dao.insert(
@@ -119,7 +122,8 @@ object DictionaryRepository {
                         id = 0,
                         spokenText = trimmedSpoken,
                         replacementText = trimmedReplacement,
-                        isEnabled = isEnabled
+                        isEnabled = isEnabled,
+                        syncState = "local"
                     )
                 )
                 if (rowId != -1L) SaveResult.INSERTED
@@ -131,12 +135,15 @@ object DictionaryRepository {
             }
             SaveAction.UPDATE -> {
                 try {
+                    val base = if (targetId == existing?.id) existing else dao.getById(targetId)
                     dao.update(
-                        CustomDictionaryEntry(
-                            id = id,
+                        (base ?: CustomDictionaryEntry(id = targetId, spokenText = trimmedSpoken, replacementText = trimmedReplacement)).copy(
+                            id = targetId,
                             spokenText = trimmedSpoken,
                             replacementText = trimmedReplacement,
-                            isEnabled = isEnabled
+                            isEnabled = isEnabled,
+                            deletedAt = null,
+                            syncState = if (base?.serverFileId != null) "dirty" else base?.syncState ?: "local"
                         )
                     )
                     SaveResult.UPDATED
@@ -152,7 +159,12 @@ object DictionaryRepository {
     }
 
     suspend fun toggleEntryEnabled(context: Context, entry: CustomDictionaryEntry, isEnabled: Boolean) {
-        getDao(context).update(entry.copy(isEnabled = isEnabled))
+        getDao(context).update(
+            entry.copy(
+                isEnabled = isEnabled,
+                syncState = if (entry.serverFileId != null) "dirty" else entry.syncState
+            )
+        )
     }
 
     /**
@@ -163,16 +175,39 @@ object DictionaryRepository {
     suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
         val dao = getDao(context)
         val existing = dao.getBySpokenText(spokenText.trim()) ?: return
-        if (existing.replacementText != correctedText.trim()) {
-            dao.update(existing.copy(replacementText = correctedText.trim()))
+        if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
+            dao.update(
+                existing.copy(
+                    replacementText = correctedText.trim(),
+                    syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
+                )
+            )
         }
     }
 
+    internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry) {
+        if (entry.serverFileId != null) {
+            dao.update(
+                entry.copy(
+                    deletedAt = System.currentTimeMillis(),
+                    syncState = "dirty"
+                )
+            )
+        } else {
+            dao.delete(entry)
+        }
+    }
+
+    internal suspend fun deleteByIdResolved(dao: CustomDictionaryDao, id: Long) {
+        val entry = dao.getById(id) ?: return
+        deleteEntryResolved(dao, entry)
+    }
+
     suspend fun deleteEntry(context: Context, entry: CustomDictionaryEntry) {
-        getDao(context).delete(entry)
+        deleteEntryResolved(getDao(context), entry)
     }
 
     suspend fun deleteById(context: Context, id: Long) {
-        getDao(context).deleteById(id)
+        deleteByIdResolved(getDao(context), id)
     }
 }

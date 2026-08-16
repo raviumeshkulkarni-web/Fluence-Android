@@ -6,13 +6,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface CustomDictionaryDao {
 
-    @Query("SELECT * FROM custom_dictionary ORDER BY id DESC")
+    @Query("SELECT * FROM custom_dictionary WHERE deletedAt IS NULL ORDER BY id DESC")
     fun getAll(): Flow<List<CustomDictionaryEntry>>
 
-    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1")
+    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1 AND deletedAt IS NULL")
     fun getAllEnabledSync(): List<CustomDictionaryEntry>
 
-    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1")
+    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1 AND deletedAt IS NULL")
     fun getAllEnabled(): Flow<List<CustomDictionaryEntry>>
 
     @Query("SELECT * FROM custom_dictionary WHERE id = :id LIMIT 1")

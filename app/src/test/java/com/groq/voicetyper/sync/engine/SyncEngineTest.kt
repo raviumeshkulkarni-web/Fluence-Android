@@ -1286,4 +1286,55 @@ class SyncEngineTest {
         runPass(local, drive, cache)
         assertEquals("pruned to the surviving folder contents", setOf(f2), cache.entries.keys)
     }
+
+    @Test
+    fun synchronized_dictionary_entry_delete_does_not_resurrect() {
+        val drive = FakeDrive()
+        val local = FakeLocalStore()
+
+        // 1. Initial remote dictionary file exists on Drive
+        val dictWire = WireRecord(
+            v = 1,
+            id = UUID_A,
+            createdAt = CREATED_AT,
+            deletedAt = null,
+            rtype = RecordType.Dictionary,
+            spoken = "brb",
+            corrected = "be right back",
+            kind = "correction",
+        )
+        val fileId = drive.addFile("$UUID_A.json", dictWire)
+
+        // 2. Initial sync pass imports the live dictionary entry
+        val pass1 = runPassKind(RecordType.Dictionary, local, drive)
+        assertEquals(1, pass1.imported)
+        val imported = checkNotNull(local.row(UUID_A))
+        assertEquals(fileId, imported.serverFileId)
+        assertEquals(SYNC_STATE_CLEAN, imported.syncState)
+        assertEquals("brb", imported.spoken)
+        assertEquals("be right back", imported.corrected)
+
+        // 3. User deletes the entry locally -> tombstone is created
+        val deletedAt = CREATED_AT + 5000L
+        local.markTombstoned(UUID_A, deletedAt)
+        val tombstoned = checkNotNull(local.row(UUID_A))
+        assertTrue(tombstoned.isTombstoned())
+        assertEquals(deletedAt, tombstoned.deletedAt)
+
+        // 4. Next sync pass patches the remote Drive file with the tombstone
+        val pass2 = runPassKind(RecordType.Dictionary, local, drive)
+        assertEquals(1, pass2.patches)
+        val rowAfterPatch = checkNotNull(local.row(UUID_A))
+        assertEquals(SYNC_STATE_CLEAN, rowAfterPatch.syncState)
+        assertTrue(rowAfterPatch.isTombstoned())
+
+        // 5. Subsequent sync passes reach fixed point - NO resurrection!
+        val pass3 = runPassKind(RecordType.Dictionary, local, drive)
+        assertEquals(0, pass3.imported)
+        assertEquals(0, pass3.created)
+        assertEquals(0, pass3.patches)
+        val rowFinal = checkNotNull(local.row(UUID_A))
+        assertTrue(rowFinal.isTombstoned())
+        assertEquals(SYNC_STATE_CLEAN, rowFinal.syncState)
+    }
 }
