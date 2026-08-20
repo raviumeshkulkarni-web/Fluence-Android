@@ -98,6 +98,7 @@ data class LocalRow(
 data class FileMeta(
     val fileId: String,
     val name: String,
+    val md5: String? = null,
 )
 
 data class GroupedFile(

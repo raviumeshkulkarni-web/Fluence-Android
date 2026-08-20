@@ -13,6 +13,7 @@ import androidx.work.workDataOf
 import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.sync.drive.GoogleDriveStore
+import com.groq.voicetyper.sync.engine.InMemoryFileCacheStore
 import com.groq.voicetyper.sync.engine.SettingsStore
 import com.groq.voicetyper.sync.engine.SyncEngine
 import com.groq.voicetyper.sync.engine.SyncError
@@ -47,10 +48,11 @@ class SyncWorker(
                 val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
                 val drive = GoogleDriveStore(token)
                 val account = auth.accountEmail
+                val cache = InMemoryFileCacheStore()
                 var retryable = false
                 for (k in kinds) {
                     val local = LocalStores.forKind(applicationContext, k)
-                    val o = SyncEngine.run(k, account, local, drive, auth)
+                    val o = SyncEngine.run(k, account, local, drive, auth, cache)
                     retryable = retryable || o.retryableFailures > 0
                     if (k == RecordType.Settings) {
                         // §30.3 mirror: the synced toggle becomes the local flag.

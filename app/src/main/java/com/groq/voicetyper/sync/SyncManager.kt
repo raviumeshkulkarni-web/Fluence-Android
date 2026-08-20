@@ -5,6 +5,7 @@ import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.sync.drive.GoogleDriveStore
+import com.groq.voicetyper.sync.engine.InMemoryFileCacheStore
 import com.groq.voicetyper.sync.engine.SyncEngine
 import com.groq.voicetyper.sync.engine.SyncError
 import com.groq.voicetyper.sync.scheduler.PassOutcomeKind
@@ -130,9 +131,10 @@ class SyncManager(
                 val account = auth.accountEmail
                 var retryableFailures = 0
                 var rejectedFailures = 0
+                val cache = InMemoryFileCacheStore()
                 for (kind in SYNC_KINDS) {
                     val local = LocalStores.forKind(context, kind)
-                    val o = SyncEngine.run(kind, account, local, drive, auth)
+                    val o = SyncEngine.run(kind, account, local, drive, auth, cache)
                     retryableFailures += o.retryableFailures
                     rejectedFailures += o.rejectedFailures
                     if (kind == RecordType.History) {

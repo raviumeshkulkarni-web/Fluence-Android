@@ -136,7 +136,7 @@ class SettingsStoreTest {
         val store = memoryStore()
         store.toggle(KEY_SNIPPETS_ENABLED, "true")
 
-        val o = SyncEngine.run(RecordType.Settings, "account-a", store, drive, FakeToken(true))
+        val o = SyncEngine.run(RecordType.Settings, "account-a", store, drive, FakeToken(true), InMemoryFileCacheStore())
         assertEquals(
             SyncOutcome(created = 1),
             o
