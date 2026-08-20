@@ -124,19 +124,21 @@ class ApkDownloadWorker(
                     )
                 }
 
-                // 2. SHA-256 Integrity Check
+                // 2. SHA-256 Integrity Check — fail closed if missing (defense-in-depth).
                 if (expectedSha256.isBlank()) {
-                    android.util.Log.w("ApkDownloadWorker", "No SHA-256 hash provided in metadata — skipping integrity check")
-                } else {
-                    val computedHash = digest.digest().joinToString("") { "%02x".format(it) }
-                    if (!computedHash.equals(expectedSha256, ignoreCase = true)) {
-                        tempFile.delete()
-                        return@withContext Result.failure(
-                            workDataOf(
-                                KEY_ERROR to "SHA-256 hash validation failed. Expected: $expectedSha256, Computed: $computedHash"
-                            )
+                    tempFile.delete()
+                    return@withContext Result.failure(
+                        workDataOf(KEY_ERROR to "Missing SHA-256 hash in update metadata — install aborted")
+                    )
+                }
+                val computedHash = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!computedHash.equals(expectedSha256, ignoreCase = true)) {
+                    tempFile.delete()
+                    return@withContext Result.failure(
+                        workDataOf(
+                            KEY_ERROR to "SHA-256 hash validation failed. Expected: $expectedSha256, Computed: $computedHash"
                         )
-                    }
+                    )
                 }
 
                 // Rename temp file to final APK file

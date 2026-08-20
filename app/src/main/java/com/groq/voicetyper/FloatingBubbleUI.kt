@@ -144,7 +144,7 @@ fun FloatingBubbleUI(
                 // Gesture handling for Collapsed state (drag, instant tap, hold for agent mode)
                 .run {
                     if (!isExpanded) {
-                        this.pointerInput(isExpanded) {
+                        this.pointerInput(isExpanded, recordingState) {
                             awaitPointerEventScope {
                                 while (true) {
                                     val down = awaitFirstDown()

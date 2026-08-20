@@ -50,9 +50,10 @@ fun FluenceNavHost(
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
     val current = backStack.lastOrNull() ?: Screen.Home
     var previousSize by remember { mutableIntStateOf(1) }
-
     val isNavigatingForward = backStack.size >= previousSize
-    previousSize = backStack.size
+    androidx.compose.runtime.SideEffect {
+        previousSize = backStack.size
+    }
 
     LaunchedEffect(deepLinkToSettings) {
         if (deepLinkToSettings) {

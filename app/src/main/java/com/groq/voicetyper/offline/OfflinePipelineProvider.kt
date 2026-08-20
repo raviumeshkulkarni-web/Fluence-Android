@@ -24,30 +24,33 @@ object OfflinePipelineProvider {
         context: Context,
         engineType: OfflineEngineType = OfflineEngineType.SENSEVOICE
     ): OfflineTranscriptionPipeline {
-        return mutex.withLock {
+        var toRelease: OfflineTranscriptionPipeline? = null
+        val result: OfflineTranscriptionPipeline = mutex.withLock {
             val currentInstance = instance
             if (currentInstance != null && currentEngineType == engineType) {
                 return@withLock currentInstance
             }
-
-            // Engine type changed or first creation — release old instance if exists
-            if (currentInstance != null) {
+            toRelease = currentInstance
+            if (toRelease != null) {
                 Log.d(TAG, "Engine type changed ($currentEngineType -> $engineType). Releasing old pipeline.")
-                try {
-                    currentInstance.forceRelease()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error releasing old pipeline during engine switch", e)
-                }
                 instance = null
                 currentEngineType = null
             }
-
             Log.d(TAG, "Creating new OfflineTranscriptionPipeline instance (engine: $engineType)")
             val newInstance = OfflineTranscriptionPipeline(context.applicationContext, engineType)
             instance = newInstance
             currentEngineType = engineType
-            return@withLock newInstance
+            newInstance
         }
+        // Release heavy native resources outside the mutex so waiters are not blocked.
+        toRelease?.let { old ->
+            try {
+                old.forceRelease()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error releasing old pipeline during engine switch", e)
+            }
+        }
+        return result
     }
 
     suspend fun releaseInstance() {

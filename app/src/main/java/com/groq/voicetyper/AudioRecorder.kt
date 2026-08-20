@@ -34,7 +34,7 @@ class AudioRecorder(private val context: Context) {
             if (isRecording) return false
 
             // Use cache directory for privacy (files remain internal to the app)
-            val cacheFile = File(context.cacheDir, "groq_voice_record_${System.currentTimeMillis()}.m4a")
+            val cacheFile = File(context.cacheDir, "groq_voice_record_${System.currentTimeMillis()}_${java.util.UUID.randomUUID()}.m4a")
             outputFile = cacheFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
