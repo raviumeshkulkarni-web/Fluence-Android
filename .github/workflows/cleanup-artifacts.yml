@@ -1,0 +1,56 @@
+name: "Cleanup Old Actions Artifacts"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0' # Automatically runs every Sunday at midnight
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-artifacts:
+    name: Purge Old Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Artifacts via GitHub API
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            console.log(`Fetching artifacts for ${owner}/${repo}...`);
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner,
+                repo,
+                per_page: 100,
+              }
+            );
+
+            console.log(`Found ${artifacts.length} total artifact(s).`);
+
+            let deletedCount = 0;
+            let totalBytes = 0;
+
+            for (const artifact of artifacts) {
+              const sizeMB = (artifact.size_in_bytes / (1024 * 1024)).toFixed(2);
+              console.log(`Deleting: ${artifact.name} (ID: ${artifact.id}, Size: ${sizeMB} MB, Created: ${artifact.created_at})`);
+              
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id,
+                });
+                deletedCount++;
+                totalBytes += artifact.size_in_bytes;
+              } catch (err) {
+                console.error(`Failed to delete artifact ${artifact.id}: ${err.message}`);
+              }
+            }
+
+            const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+            console.log(`\nCleanup complete! Deleted ${deletedCount} artifact(s), freeing ~${totalMB} MB of Actions storage.`);
