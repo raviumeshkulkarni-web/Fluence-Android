@@ -57,10 +57,14 @@ object StatsCalculator {
         val perDay = LinkedHashMap<String, LongArray>()
         for (row in rows) {
             val day = utcDateOf(row.timestamp)
-            val agg = perDay.getOrPut(day) { longArrayOf(0L, 0L) }
-            agg[0] += wordCountOf(row.text).toLong()
-            agg[1] += row.durationMs
+            val agg = perDay.getOrPut(day) { longArrayOf(0L, 0L, 0L, 0L) }
+            agg[0] = agg[0] + wordCountOf(row.text).toLong()
+            agg[1] = agg[1] + 1L
+            agg[2] = agg[2] + row.text.length.toLong()
+            agg[3] = agg[3] + row.durationMs
         }
-        return perDay.map { (day, agg) -> DailyStat(day = day, wordCount = agg[0], dictationMs = agg[1]) }
+        return perDay.map { (day, agg) ->
+            DailyStat(day = day, wordCount = agg[0], count = agg[1], chars = agg[2], dictationMs = agg[3])
+        }
     }
 }

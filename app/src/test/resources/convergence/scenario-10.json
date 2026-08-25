@@ -1,0 +1,358 @@
+{
+  "name": "s10",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "75beea02-8b86-472e-b649-91b457287c26",
+        "spoken": "😀-test",
+        "corrected": "Corrected Text",
+        "isEnabled": true,
+        "updatedAt": 1713465101982,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "b73d598f-d313-4056-87c4-54680bc79b88",
+        "trigger": "sig ",
+        "expansion": "  preserve   spaces  ",
+        "isEnabled": false,
+        "updatedAt": 1713470893517,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "108fd7fa-27f6-49ad-a432-e20d6973ac7e",
+        "day": "2026-07-10",
+        "timestampMs": 1787184010000,
+        "words": 75,
+        "chars": 375,
+        "durationMs": 36073
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "formal",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a849c130-d1b4-44bb-b3ab-854b60cd6153",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465001000,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465001000
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "0fae2185-56ba-4468-a79b-37995a962952",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000100,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "db108e07-7608-45a9-94e9-8bd848c6a4da",
+        "spoken": "HELLO",
+        "corrected": "😀-test fixed",
+        "isEnabled": true,
+        "updatedAt": 1713469005110,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "4a0cb119-a5f0-4ebd-94b3-f5ceaad74028",
+        "spoken": " GITHUB ",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713468802248,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "e55f5cc0-de57-4f37-b595-837a7cafd90b",
+        "day": "2026-08-20",
+        "timestampMs": 1787269400787,
+        "words": 432,
+        "chars": 2592,
+        "durationMs": 65896
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "e2aacf6e-692b-4fec-bdfa-7ffece2dc5bb",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006000,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "8d27457e-8fb3-44d1-8747-7d25967ba4d6",
+        "spoken": " Thanks",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713467423654,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1790000003103,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "108fd7fa-27f6-49ad-a432-e20d6973ac7e",
+        "day": "2026-07-10",
+        "timestampMs": 1787184010000,
+        "words": 75,
+        "chars": 375,
+        "durationMs": 36073
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a782d674-db2c-4000-82a4-60473e3dd056",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000100,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000100
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "8222eefc-fd0b-4a06-a2c7-aeb81b1f0520",
+        "spoken": "HELLO",
+        "corrected": "GitHub",
+        "isEnabled": true,
+        "updatedAt": 1713469001130,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 1790000000178,
+        "deviceId": "dev-b"
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a55623d4-77fc-41a3-bebb-b8cf43379a7e",
+        "spoken": "नमस्ते",
+        "corrected": "  keep   internal spaces\tand tabs ",
+        "isEnabled": true,
+        "updatedAt": 1713465683144,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "727fc941-981e-40d8-a3ce-300d33351309",
+        "trigger": "привет",
+        "expansion": "Thanks!",
+        "isEnabled": true,
+        "updatedAt": 1713468004486,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 1789999992919,
+        "deviceId": "dev-c"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "50eac715-2dbb-4426-8da8-1f477c97b60c",
+        "spoken": "  HELLO  ",
+        "corrected": "example",
+        "isEnabled": true,
+        "updatedAt": 1713469006152,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "4a0cb119-a5f0-4ebd-94b3-f5ceaad74028",
+        "businessKey": "github",
+        "spoken": " GITHUB ",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713468802248,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "e2aacf6e-692b-4fec-bdfa-7ffece2dc5bb",
+        "businessKey": "gonna",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006000,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "50eac715-2dbb-4426-8da8-1f477c97b60c",
+        "businessKey": "hello",
+        "spoken": "  HELLO  ",
+        "corrected": "example",
+        "isEnabled": true,
+        "updatedAt": 1713469006152,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "a782d674-db2c-4000-82a4-60473e3dd056",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000100,
+        "deletedAt": 1713470000100,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "8d27457e-8fb3-44d1-8747-7d25967ba4d6",
+        "businessKey": "thanks",
+        "spoken": " Thanks",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713467423654,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "a55623d4-77fc-41a3-bebb-b8cf43379a7e",
+        "businessKey": "नमस्ते",
+        "spoken": "नमस्ते",
+        "corrected": "  keep   internal spaces\tand tabs ",
+        "isEnabled": true,
+        "updatedAt": 1713465683144,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "75beea02-8b86-472e-b649-91b457287c26",
+        "businessKey": "😀-test",
+        "spoken": "😀-test",
+        "corrected": "Corrected Text",
+        "isEnabled": true,
+        "updatedAt": 1713465101982,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "b73d598f-d313-4056-87c4-54680bc79b88",
+        "businessKey": "sig",
+        "trigger": "sig ",
+        "expansion": "  preserve   spaces  ",
+        "isEnabled": false,
+        "updatedAt": 1713470893517,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "727fc941-981e-40d8-a3ce-300d33351309",
+        "businessKey": "привет",
+        "trigger": "привет",
+        "expansion": "Thanks!",
+        "isEnabled": true,
+        "updatedAt": 1713468004486,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "settings": [
+      {
+        "key": "ai_polish_style",
+        "value": "formal",
+        "updatedAt": 1700000000000,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 1790000000178,
+        "deviceId": "dev-b"
+      },
+      {
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1790000003103,
+        "deviceId": "dev-b"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "108fd7fa-27f6-49ad-a432-e20d6973ac7e",
+        "day": "2026-07-10",
+        "timestampMs": 1787184010000,
+        "words": 75,
+        "chars": 375,
+        "durationMs": 36073
+      },
+      {
+        "eventId": "e55f5cc0-de57-4f37-b595-837a7cafd90b",
+        "day": "2026-08-20",
+        "timestampMs": 1787269400787,
+        "words": 432,
+        "chars": 2592,
+        "durationMs": 65896
+      }
+    ]
+  }
+}

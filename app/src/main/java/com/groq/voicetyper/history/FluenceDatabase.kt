@@ -10,10 +10,16 @@ import com.groq.voicetyper.autolearn.data.SuggestionDao
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
 import com.groq.voicetyper.dictionary.data.CustomDictionaryDao
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
+import com.groq.voicetyper.sync.cache.SyncFileCache
+import com.groq.voicetyper.sync.cache.SyncFileCacheDao
+import com.groq.voicetyper.sync.v1.StatSyncDao
+import com.groq.voicetyper.sync.v1.StatSyncEntry
+import com.groq.voicetyper.sync.v1.SyncMetadata
+import com.groq.voicetyper.sync.v1.SyncMetadataDao
 
 @Database(
-    entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class],
-    version = 6,
+    entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class, SyncFileCache::class, DictationIncrement::class, DeviceMetaEntry::class, AccountDailyStat::class, StatSyncEntry::class, SyncMetadata::class],
+    version = 12,
     exportSchema = false
 )
 abstract class FluenceDatabase : RoomDatabase() {
@@ -21,6 +27,12 @@ abstract class FluenceDatabase : RoomDatabase() {
     abstract fun customDictionaryDao(): CustomDictionaryDao
     abstract fun suggestionDao(): SuggestionDao
     abstract fun statsDao(): StatsDao
+    abstract fun syncFileCacheDao(): SyncFileCacheDao
+    abstract fun dictationIncrementDao(): DictationIncrementDao
+    abstract fun deviceMetaDao(): DeviceMetaDao
+    abstract fun accountDailyDao(): AccountDailyDao
+    abstract fun statSyncDao(): StatSyncDao
+    abstract fun syncMetadataDao(): SyncMetadataDao
 
     companion object {
         @Volatile
@@ -139,6 +151,126 @@ abstract class FluenceDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // §31: change-detection cache for incremental sync. Non-
+                // destructive; the table is empty on first upgrade and only
+                // populated by the engine's next pass.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_file_cache` (" +
+                    "`fileId` TEXT NOT NULL, " +
+                    "`md5` TEXT, " +
+                    "`recordJson` TEXT NOT NULL, " +
+                    "PRIMARY KEY(`fileId`))"
+                )
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Part C: `stats_daily` becomes monotonic and gains `count` /
+                // `chars` dimensions. Existing rows keep their values (never
+                // recomputed); the new columns default to 0 and only future
+                // dictations increment them.
+                db.execSQL("ALTER TABLE `stats_daily` ADD COLUMN `count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `stats_daily` ADD COLUMN `chars` INTEGER NOT NULL DEFAULT 0")
+                // Part C/V4: per-dictation counter rows keyed by the dictation
+                // UUID so a dictation's counters apply to `stats_daily` exactly
+                // once even if the history row is re-inserted or re-imported.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `dictation_increments` (" +
+                    "`dictationId` TEXT NOT NULL, " +
+                    "`day` TEXT NOT NULL, " +
+                    "`words` INTEGER NOT NULL, " +
+                    "`count` INTEGER NOT NULL, " +
+                    "`chars` INTEGER NOT NULL, " +
+                    "`ms` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`dictationId`))"
+                )
+                // Part C: device identity and sync state stored in the excluded
+                // `fluence_database` (never in SharedPreferences, which would be
+                // restored by auto-backup).
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `device_meta` (" +
+                    "`key` TEXT NOT NULL, " +
+                    "`value` TEXT NOT NULL, " +
+                    "PRIMARY KEY(`key`))"
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `account_stats_daily` (" +
+                    "`accountKey` TEXT NOT NULL, " +
+                    "`day` TEXT NOT NULL, " +
+                    "`wordCount` INTEGER NOT NULL DEFAULT 0, " +
+                    "`count` INTEGER NOT NULL DEFAULT 0, " +
+                    "`chars` INTEGER NOT NULL DEFAULT 0, " +
+                    "`dictationMs` INTEGER NOT NULL DEFAULT 0, " +
+                    "PRIMARY KEY(`accountKey`, `day`))"
+                )
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Frozen v1.2: account-level union-dedup stats events and
+                // per-account sync metadata. Non-destructive; both tables are
+                // empty on first upgrade and populated by the commit path /
+                // one-time backfill.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `stat_sync` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`eventId` TEXT NOT NULL, " +
+                    "`day` TEXT NOT NULL, " +
+                    "`wordCount` INTEGER NOT NULL, " +
+                    "`durationMs` INTEGER NOT NULL, " +
+                    "`updatedAt` INTEGER NOT NULL, " +
+                    "`deletedAt` INTEGER, " +
+                    "`deviceId` TEXT, " +
+                    "`accountHash` TEXT, " +
+                    "`dirty` INTEGER NOT NULL, " +
+                    "`everPushed` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_stat_sync_eventId` ON `stat_sync` (`eventId`)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_metadata` (" +
+                    "`accountHash` TEXT NOT NULL, " +
+                    "`deviceId` TEXT NOT NULL, " +
+                    "`maxSeen` INTEGER NOT NULL, " +
+                    "`backfillDone` INTEGER NOT NULL, " +
+                    "`lastRevDictionary` TEXT, " +
+                    "`lastRevSnippets` TEXT, " +
+                    "`lastRevStats` TEXT, " +
+                    "`lastRevSettings` TEXT, " +
+                    "PRIMARY KEY(`accountHash`))"
+                )
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Frozen v1.2: LWW metadata columns for custom_dictionary.
+                // Non-destructive; existing rows keep NULL/defaults and are
+                // stamped lazily by the sync engine's enrollment step.
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `updatedAt` INTEGER")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `deviceId` TEXT")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `dirty` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `custom_dictionary` ADD COLUMN `everPushed` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE stat_sync ADD COLUMN chars INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE stat_sync ADD COLUMN timestampMs INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -146,7 +278,7 @@ abstract class FluenceDatabase : RoomDatabase() {
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }

@@ -19,7 +19,7 @@ interface TranscriptionHistoryDao {
     fun search(query: String): Flow<List<TranscriptionEntry>>
 
     @Insert
-    suspend fun insert(entry: TranscriptionEntry)
+    suspend fun insert(entry: TranscriptionEntry): Long
 
     @Update
     suspend fun update(entry: TranscriptionEntry): Int
@@ -83,4 +83,10 @@ interface TranscriptionHistoryDao {
 
     @Query("UPDATE transcription_history SET syncId = :syncId WHERE id = :id AND syncId IS NULL")
     suspend fun assignSyncId(id: Long, syncId: String): Int
+
+    @Query("SELECT * FROM transcription_history WHERE syncAccount IS NULL AND serverFileId IS NULL AND deletedAt IS NULL")
+    suspend fun getAllNeverSyncedLive(): List<TranscriptionEntry>
+
+    @Query("UPDATE transcription_history SET syncAccount = :account WHERE syncId IN (:uuids) AND syncAccount IS NULL AND serverFileId IS NULL")
+    suspend fun stampSyncAccount(uuids: List<String>, account: String): Int
 }

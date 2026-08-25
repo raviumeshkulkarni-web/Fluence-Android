@@ -21,6 +21,14 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE spokenText = :spokenText LIMIT 1")
     suspend fun getBySpokenText(spokenText: String): CustomDictionaryEntry?
 
+    // Canonical dictionary identity (spec §30.4): spoken is matched after trim +
+    // case-folding, mirroring the case-insensitive application regex `(?i)\b…\b`
+    // and the Windows `spoken_collides` rule. Used wherever a collision against a
+    // *live* row must be detected so duplicate-identical rows absorb (§10) and
+    // genuine conflicts latch instead of silently diverging between platforms.
+    @Query("SELECT * FROM custom_dictionary WHERE deletedAt IS NULL AND LOWER(spokenText) = LOWER(:spokenText) LIMIT 1")
+    suspend fun getBySpokenTextIgnoreCase(spokenText: String): CustomDictionaryEntry?
+
     // IGNORE (not the default ABORT): a concurrent save of the same spokenText
     // (e.g. double-tap Add/Save) no longer throws SQLiteConstraintException;
     // the loser's insert is ignored and saveEntry re-queries the winning row.
@@ -76,4 +84,25 @@ interface CustomDictionaryDao {
 
     @Query("DELETE FROM custom_dictionary WHERE syncId = :syncId")
     suspend fun hardDeleteBySyncId(syncId: String): Int
+
+    // ── Frozen v1.2 store queries ────────────────────────────────────────
+
+    @Query("SELECT * FROM custom_dictionary WHERE syncAccount = :hash")
+    suspend fun getAllByAccount(hash: String): List<CustomDictionaryEntry>
+
+    @Query("UPDATE custom_dictionary SET syncAccount = :hash, dirty = 1, everPushed = 0 WHERE syncAccount IS NULL")
+    suspend fun stampAllUnstamped(hash: String): Int
+
+    @Query("SELECT * FROM custom_dictionary WHERE syncAccount = :hash AND dirty = 1")
+    suspend fun getDirtyByAccount(hash: String): List<CustomDictionaryEntry>
+
+    /** Business-key lookup; the key is always lower(trim(spokenText)). */
+    @Query("SELECT * FROM custom_dictionary WHERE lower(trim(spokenText)) = :businessKey AND syncAccount = :hash AND deletedAt IS NULL LIMIT 1")
+    suspend fun getByBusinessKey(businessKey: String, hash: String): CustomDictionaryEntry?
+
+    @Query("UPDATE custom_dictionary SET dirty = 0, everPushed = 1 WHERE syncAccount = :hash")
+    suspend fun clearDirtyByAccount(hash: String): Int
+
+    @Query("UPDATE custom_dictionary SET dirty = 0, everPushed = 1 WHERE syncAccount = :hash AND syncId IN (:ids)")
+    suspend fun clearDirtyBySyncIds(hash: String, ids: List<String>): Int
 }

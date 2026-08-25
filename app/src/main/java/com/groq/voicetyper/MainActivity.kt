@@ -35,6 +35,7 @@ import kotlinx.coroutines.withContext
 import com.groq.voicetyper.navigation.FluenceNavHost
 import com.groq.voicetyper.sync.SyncManager
 import com.groq.voicetyper.sync.SyncSchedule
+import com.groq.voicetyper.sync.auth.GoogleOAuth
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.theme.*
 
@@ -52,50 +53,6 @@ class MainActivity : ComponentActivity() {
             auth = SyncAuthSession(applicationContext),
             scope = lifecycleScope,
         )
-    }
-
-    private val googleSignInClient by lazy {
-        com.groq.voicetyper.sync.auth.GoogleOAuth.getGoogleSignInClient(this)
-    }
-
-    private val googleSignInLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        android.util.Log.i("FluenceAuth", "googleSignInLauncher result: resultCode=${result.resultCode}, data=${result.data}")
-        if (result.data != null) {
-            val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
-                val authCode = account?.serverAuthCode
-                android.util.Log.i("FluenceAuth", "Got account=${account?.email}, authCode=${if (authCode != null) "PRESENT" else "NULL"}")
-                if (authCode != null) {
-                    lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val email = syncManager.completeSignInWithAuthCode(authCode, account.email)
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                Toast.makeText(this@MainActivity, "Signed in as $email", Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("FluenceAuth", "completeSignInWithAuthCode failed", e)
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                Toast.makeText(this@MainActivity, "Sign-in failed: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                } else {
-                    android.util.Log.w("FluenceAuth", "Sign-in succeeded but serverAuthCode was null")
-                    Toast.makeText(this, "Sign-in failed: no server auth code", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: com.google.android.gms.common.api.ApiException) {
-                android.util.Log.e("FluenceAuth", "Google Sign-In ApiException: statusCode=${e.statusCode} (${com.google.android.gms.common.api.CommonStatusCodes.getStatusCodeString(e.statusCode)}) statusMessage=${e.statusMessage} message=${e.message}", e)
-                // StatusCode 12501 is SIGN_IN_CANCELLED by user, don't toast error if user just cancelled
-                if (e.statusCode != 12501) {
-                    Toast.makeText(this, "Sign-in failed: ${e.statusCode} ${e.statusMessage ?: ""}".trim(), Toast.LENGTH_SHORT).show()
-                }
-            }
-        } else {
-            android.util.Log.w("FluenceAuth", "googleSignInLauncher result.data is null")
-        }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -160,12 +117,24 @@ class MainActivity : ComponentActivity() {
                             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
                         onSignInClick = {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                try {
+                                    val tokens = GoogleOAuth.signInWithLoopback(applicationContext)
+                                    val email = GoogleOAuth.fetchAccountEmail(GoogleOAuth.newHttpClient(), tokens.accessToken)
+                                    syncManager.completeSignIn(tokens, email)
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(this@MainActivity, "Signed in as $email", Toast.LENGTH_SHORT).show()
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("FluenceAuth", "signInWithLoopback failed", e)
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(this@MainActivity, "Sign-in failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
                         },
                         onSignOutClick = {
-                            googleSignInClient.signOut().addOnCompleteListener {
-                                syncManager.signOut()
-                            }
+                            syncManager.signOut()
                         }
                     )
 

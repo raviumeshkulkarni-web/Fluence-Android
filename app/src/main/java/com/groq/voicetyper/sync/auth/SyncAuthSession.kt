@@ -4,21 +4,20 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.groq.voicetyper.sync.engine.SyncError
-import com.groq.voicetyper.sync.engine.TokenProvider
+import com.groq.voicetyper.sync.v1.SyncError
+import com.groq.voicetyper.sync.v1.TokenProvider
 import java.util.concurrent.atomic.AtomicLong
 import okhttp3.OkHttpClient
 
 /**
- * OAuth session for the sync worker (spec §24, native Google Sign-In).
+ * OAuth session for the sync worker (PKCE loopback).
  *
  * The access token lives in memory and nowhere else; the refresh token and the
  * account key (email) are persisted in encrypted prefs (Keystore-backed,
  * mirroring [com.groq.voicetyper.SecurityUtils]).
  *
- * Sign-in is completed via [completeSignInWithAuthCode], which exchanges the
- * server auth code from the native account chooser for refresh+access tokens,
- * persists the refresh token, and stores the account email.
+ * Sign-in is completed via [completeSignIn], which stores the token response
+ * from the PKCE loopback flow and persists the refresh token and account email.
  * [refreshAccessTokenIfNeeded] refreshes before each pass; a 400/401
  * from the token endpoint means the refresh token was revoked — the user must
  * sign in again (PassOutcomeKind.AuthRequired).
@@ -40,25 +39,14 @@ class SyncAuthSession(context: Context) : TokenProvider {
         private set
 
     /**
-     * Finish sign-in from a server auth code obtained via native Google Sign-In.
-     * Returns the signed-in account email. Throws [GoogleOAuth.AuthError] on failure.
+     * Finish sign-in from a PKCE loopback token response.
+     * Throws [GoogleOAuth.AuthError] on failure.
      */
-    fun completeSignInWithAuthCode(serverAuthCode: String, accountEmailHint: String? = null): String {
-        val tokens = GoogleOAuth.exchangeServerAuthCode(client, serverAuthCode)
+    fun completeSignIn(tokens: GoogleOAuth.TokenResponse, accountEmail: String) {
         storeTokens(tokens)
-        if (refreshToken == null) {
-            throw GoogleOAuth.AuthError.NoRefreshToken
-        }
+        if (refreshToken == null) throw GoogleOAuth.AuthError.NoRefreshToken
         persistRefreshToken()
-
-        val email = if (!accountEmailHint.isNullOrBlank()) {
-            accountEmailHint.trim()
-        } else {
-            GoogleOAuth.fetchAccountEmail(client, accessToken ?: "")
-        }
-        accountEmail = email
-        prefs.edit().putString(KEY_ACCOUNT_EMAIL, email).apply()
-        return email
+        accountEmail.let { this.accountEmail = it; prefs.edit().putString(KEY_ACCOUNT_EMAIL, it).apply() }
     }
 
     /**
@@ -70,8 +58,6 @@ class SyncAuthSession(context: Context) : TokenProvider {
         val refresh = refreshToken ?: throw SyncError.AuthRequired
         val tokens = try {
             GoogleOAuth.refreshAccessToken(client, refresh)
-        } catch (e: GoogleOAuth.AuthError.MissingClientSecret) {
-            throw SyncError.Fatal(e.message ?: "missing client secret")
         } catch (e: GoogleOAuth.AuthError.Http) {
             if (e.status == 400 || e.status == 401) throw SyncError.AuthRequired
             throw SyncError.Retryable("token refresh failed: ${e.message}")

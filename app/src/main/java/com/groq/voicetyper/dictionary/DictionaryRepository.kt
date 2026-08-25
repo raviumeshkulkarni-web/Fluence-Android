@@ -4,6 +4,7 @@ import android.content.Context
 import com.groq.voicetyper.dictionary.data.CustomDictionaryDao
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import com.groq.voicetyper.history.FluenceDatabase
+import com.groq.voicetyper.sync.v1.MutationClock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -113,16 +114,24 @@ object DictionaryRepository {
         if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return SaveResult.PRESERVED
 
         val dao = getDao(context)
-        val existing = dao.getBySpokenText(trimmedSpoken)
+        val existing = dao.getBySpokenTextIgnoreCase(trimmedSpoken)
         val targetId = if (existing != null && existing.deletedAt != null && id == 0L) existing.id else id
         return when (resolveSaveAction(existing, id)) {
             SaveAction.INSERT -> {
+                // Frozen v1.2: fresh wire identity + LWW metadata at creation.
+                val now = MutationClock.next(context)
                 val rowId = dao.insert(
                     CustomDictionaryEntry(
                         id = 0,
                         spokenText = trimmedSpoken,
                         replacementText = trimmedReplacement,
                         isEnabled = isEnabled,
+                        syncId = java.util.UUID.randomUUID().toString(),
+                        createdAt = now,
+                        updatedAt = now,
+                        deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                        dirty = true,
+                        everPushed = false,
                         syncState = "local"
                     )
                 )
@@ -143,6 +152,10 @@ object DictionaryRepository {
                             replacementText = trimmedReplacement,
                             isEnabled = isEnabled,
                             deletedAt = null,
+                            // Re-create after delete is a NEWER state than the
+                            // tombstone under pure LWW - bump updatedAt.
+                            updatedAt = MutationClock.next(context),
+                            dirty = true,
                             syncState = if (base?.serverFileId != null) "dirty" else base?.syncState ?: "local"
                         )
                     )
@@ -162,6 +175,8 @@ object DictionaryRepository {
         getDao(context).update(
             entry.copy(
                 isEnabled = isEnabled,
+                updatedAt = MutationClock.next(context),
+                dirty = true,
                 syncState = if (entry.serverFileId != null) "dirty" else entry.syncState
             )
         )
@@ -174,40 +189,48 @@ object DictionaryRepository {
      */
     suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
         val dao = getDao(context)
-        val existing = dao.getBySpokenText(spokenText.trim()) ?: return
+        val existing = dao.getBySpokenTextIgnoreCase(spokenText.trim()) ?: return
         if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
             dao.update(
                 existing.copy(
                     replacementText = correctedText.trim(),
+                    updatedAt = MutationClock.next(context),
+                    dirty = true,
                     syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
                 )
             )
         }
     }
 
-    internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry) {
-        if (entry.serverFileId != null) {
+    internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null) {
+        if (entry.everPushed || entry.serverFileId != null) {
+            // Pushed at least once → tombstone propagates the deletion.
+            val now = if (context != null) com.groq.voicetyper.sync.v1.MutationClock.next(context) else System.currentTimeMillis()
             dao.update(
                 entry.copy(
-                    deletedAt = System.currentTimeMillis(),
+                    deletedAt = now,
+                    updatedAt = now,
+                    dirty = true,
+                    everPushed = true,
                     syncState = "dirty"
                 )
             )
         } else {
+            // Never uploaded → nothing to propagate; remove locally.
             dao.delete(entry)
         }
     }
 
-    internal suspend fun deleteByIdResolved(dao: CustomDictionaryDao, id: Long) {
+    internal suspend fun deleteByIdResolved(dao: CustomDictionaryDao, id: Long, context: Context? = null) {
         val entry = dao.getById(id) ?: return
-        deleteEntryResolved(dao, entry)
+        deleteEntryResolved(dao, entry, context)
     }
 
     suspend fun deleteEntry(context: Context, entry: CustomDictionaryEntry) {
-        deleteEntryResolved(getDao(context), entry)
+        deleteEntryResolved(getDao(context), entry, context)
     }
 
     suspend fun deleteById(context: Context, id: Long) {
-        deleteByIdResolved(getDao(context), id)
+        deleteByIdResolved(getDao(context), id, context)
     }
 }

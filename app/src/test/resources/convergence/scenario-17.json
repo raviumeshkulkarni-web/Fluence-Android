@@ -1,0 +1,306 @@
+{
+  "name": "s17",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "113a98e9-48c0-450c-97ae-4f2df6038c58",
+        "spoken": "नमस्ते",
+        "corrected": "  keep   internal spaces\tand tabs ",
+        "isEnabled": true,
+        "updatedAt": 1713469001962,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "6411bd5b-9b9f-438f-a020-1f3823d7019a",
+        "spoken": " नमस्ते ",
+        "corrected": "thank you",
+        "isEnabled": false,
+        "updatedAt": 1713470651400,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "concise",
+        "updatedAt": 1789999935376,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "bdc0c7e4-1092-462c-be8b-f97f534fba38",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000170,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "language",
+        "value": "fr",
+        "updatedAt": 1789999956117,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "93192112-8bf7-4905-badd-33f780382c0c",
+        "day": "2026-06-15",
+        "timestampMs": 1787184017000,
+        "words": 85,
+        "chars": 425,
+        "durationMs": 23846
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "f91b425f-5055-4fc4-8dc6-c2c1693252c3",
+        "spoken": "thanks",
+        "corrected": "address",
+        "isEnabled": false,
+        "updatedAt": 1713467758197,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "b76b8067-701f-4cc2-9b73-563b4c7b829d",
+        "trigger": "नमस्ते",
+        "expansion": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713468003707,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "1103355d-cd4b-4262-9424-d3f442668ac0",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465001700,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465001700
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "language",
+        "value": "de",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "45ff75d2-2c45-4bef-b1ca-8ddfd5ca5ede",
+        "spoken": "ПРИВЕТ",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469856081,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "93192112-8bf7-4905-badd-33f780382c0c",
+        "day": "2026-06-15",
+        "timestampMs": 1787184017000,
+        "words": 85,
+        "chars": 425,
+        "durationMs": 23846
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "0cb06002-3684-43a4-a0a3-77d18b2080af",
+        "spoken": "नमस्ते",
+        "corrected": "afternoon",
+        "isEnabled": true,
+        "updatedAt": 1713469004560,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "edc89186-242a-41f3-9be2-6ba96144ac58",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000170,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000170
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "d98bd92b-430c-458c-8d34-50dea8568f24",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006700,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 1790000000110,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "04e2002a-b2fe-4b7f-9337-ab3eabaebe0d",
+        "day": "2026-08-21",
+        "timestampMs": 1787276495988,
+        "words": 496,
+        "chars": 2976,
+        "durationMs": 108136
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "2246e064-0147-4acf-81fe-dfe453682406",
+        "spoken": "  नमस्ते  ",
+        "corrected": "Corrected Text",
+        "isEnabled": true,
+        "updatedAt": 1713469001312,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "d98bd92b-430c-458c-8d34-50dea8568f24",
+        "businessKey": "gonna",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006700,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "edc89186-242a-41f3-9be2-6ba96144ac58",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000170,
+        "deletedAt": 1713470000170,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "f91b425f-5055-4fc4-8dc6-c2c1693252c3",
+        "businessKey": "thanks",
+        "spoken": "thanks",
+        "corrected": "address",
+        "isEnabled": false,
+        "updatedAt": 1713467758197,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "45ff75d2-2c45-4bef-b1ca-8ddfd5ca5ede",
+        "businessKey": "привет",
+        "spoken": "ПРИВЕТ",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469856081,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "6411bd5b-9b9f-438f-a020-1f3823d7019a",
+        "businessKey": "नमस्ते",
+        "spoken": " नमस्ते ",
+        "corrected": "thank you",
+        "isEnabled": false,
+        "updatedAt": 1713470651400,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "b76b8067-701f-4cc2-9b73-563b4c7b829d",
+        "businessKey": "नमस्ते",
+        "trigger": "नमस्ते",
+        "expansion": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713468003707,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      }
+    ],
+    "settings": [
+      {
+        "key": "ai_polish_style",
+        "value": "concise",
+        "updatedAt": 1789999935376,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "language",
+        "value": "fr",
+        "updatedAt": 1789999956117,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 1790000000110,
+        "deviceId": "dev-b"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "93192112-8bf7-4905-badd-33f780382c0c",
+        "day": "2026-06-15",
+        "timestampMs": 1787184017000,
+        "words": 85,
+        "chars": 425,
+        "durationMs": 23846
+      },
+      {
+        "eventId": "04e2002a-b2fe-4b7f-9337-ab3eabaebe0d",
+        "day": "2026-08-21",
+        "timestampMs": 1787276495988,
+        "words": 496,
+        "chars": 2976,
+        "durationMs": 108136
+      }
+    ]
+  }
+}

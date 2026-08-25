@@ -1,16 +1,15 @@
 package com.groq.voicetyper.sync
 
 import android.content.Context
-import com.groq.voicetyper.history.HistoryRepository
-import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.sync.auth.SyncAuthSession
-import com.groq.voicetyper.sync.drive.GoogleDriveStore
-import com.groq.voicetyper.sync.engine.InMemoryFileCacheStore
-import com.groq.voicetyper.sync.engine.SyncEngine
-import com.groq.voicetyper.sync.engine.SyncError
 import com.groq.voicetyper.sync.scheduler.PassOutcomeKind
 import com.groq.voicetyper.sync.scheduler.SyncSchedulerCore
-import com.groq.voicetyper.sync.wire.RecordType
+import com.groq.voicetyper.sync.v1.AccountHash
+import com.groq.voicetyper.sync.v1.AppDataDriveStore
+import com.groq.voicetyper.sync.v1.DomainFile
+import com.groq.voicetyper.sync.v1.SyncMetadata
+import com.groq.voicetyper.sync.v1.V1Stores
+import com.groq.voicetyper.sync.v1.V1SyncEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,14 +24,18 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Foreground sync driver (spec §27 phase 8): owns the poll loop and the
- * single-flight pass mutex shared with [SyncWorker]. Mirrors the Windows
- * scheduler semantics via [SyncSchedulerCore].
+ * Foreground sync driver (frozen v1.2): owns the poll loop and the
+ * single-flight pass mutex shared with [SyncWorker].
  *
- * While the activity is started ([start]/[stop]) the loop polls on a 5-min
- * cadence; the WorkManager periodic works (15-min minimum, documented) cover
- * background passes. Manual "sync now" runs an immediate pass through the
- * same gate.
+ * One pass = the four v1.2 domain files on the user's Drive appDataFolder
+ * (dictionary, snippets, stats, settings), merged with pure LWW and uploaded
+ * with version-number staleness detection. Transcription history NEVER syncs —
+ * it is platform-local by product contract.
+ *
+ * While the activity is started ([start]/[stop]) the loop polls on a short
+ * cadence; WorkManager periodic works cover background passes. A "sync now"
+ * request arriving during an active pass queues behind the gate and runs
+ * afterwards (single-flight with requeue).
  */
 class SyncManager(
     private val context: Context,
@@ -59,6 +62,16 @@ class SyncManager(
 
     private var loopJob: Job? = null
 
+    /**
+     * Last successful pass, read from prefs at construction. The scheduler's
+     * lastSyncAtMs is memory-only; this survives process death so the UI can
+     * show an honest "Last synced" after a restart.
+     */
+    private var persistedLastSyncAtMs: Long? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_SYNC_AT, 0L)
+            .takeIf { it > 0L }
+
     /** Start the poll loop (idempotent). */
     fun start() {
         refreshFlags()
@@ -72,31 +85,38 @@ class SyncManager(
         loopJob = null
     }
 
-    /** Manual "sync now": run a pass immediately (single-flight). */
-    fun syncNow() {
+    /**
+     * Manual "sync now": run a pass immediately (single-flight, requeued).
+     * Returns false when sync is paused — nothing is scheduled, mirroring the
+     * disabled Sync-now button so pull-to-refresh cannot bypass the gate.
+     */
+    fun syncNow(): Boolean {
+        if (!isSyncEnabled()) return false
         scope.launch(Dispatchers.IO) { runPass() }
+        return true
     }
 
     /** Re-read persisted auth + prefs into the status flow. */
     fun refreshStatus() {
         auth.reloadFromStorage()
-        SyncAccounts.refresh(context)
         refreshFlags()
     }
 
-    /** Complete sign-in using the server auth code from native Google Sign-In. */
-    suspend fun completeSignInWithAuthCode(serverAuthCode: String, accountEmailHint: String? = null): String {
-        val email = auth.completeSignInWithAuthCode(serverAuthCode, accountEmailHint)
-        SyncAccounts.refresh(context)
+    /** Complete sign-in using PKCE loopback tokens. */
+    fun completeSignIn(tokens: com.groq.voicetyper.sync.auth.GoogleOAuth.TokenResponse, accountEmail: String): String {
+        auth.completeSignIn(tokens, accountEmail)
         refreshStatus()
-        return email
+        // Refresh the ownership cache now (not only on next Activity create),
+        // or isForeign would misclassify the previous account's rows.
+        SyncAccounts.refresh(context)
+        return accountEmail
     }
 
     /** Sign out: clears encrypted storage and the status flow. */
     fun signOut() {
         auth.signOut()
-        SyncAccounts.refresh(context)
         refreshStatus()
+        SyncAccounts.refresh(context)
     }
 
     private suspend fun pollLoop() {
@@ -113,65 +133,114 @@ class SyncManager(
         }
     }
 
-    private suspend fun runPass() = withContext(Dispatchers.IO) {
-        SyncPassGate.mutex.withLock {
-            auth.reloadFromStorage()
-            SyncAccounts.refresh(context)
-            if (!auth.isSignedIn()) {
-                scheduler.completePass(PassOutcomeKind.AUTH_REQUIRED)
-                publish()
-                return@withLock
-            }
-            scheduler.beginPass()
-            var outcome = PassOutcomeKind.SUCCESS
-            try {
-                auth.refreshAccessTokenIfNeeded()
-                val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
-                val drive = GoogleDriveStore(token)
-                val account = auth.accountEmail
-                var retryableFailures = 0
-                var rejectedFailures = 0
-                val cache = InMemoryFileCacheStore()
-                for (kind in SYNC_KINDS) {
-                    val local = LocalStores.forKind(context, kind)
-                    val o = SyncEngine.run(kind, account, local, drive, auth, cache)
-                    retryableFailures += o.retryableFailures
-                    rejectedFailures += o.rejectedFailures
-                    if (kind == RecordType.History) {
-                        // Imports bypass HistoryRepository.save, so stats are
-                        // rebuilt after the history phase (§30.3 parity).
-                        HistoryRepository.refreshStats(context)
+    /** One full v1.2 pass; returns the outcome for callers that map retries. */
+    internal suspend fun runPass(): PassOutcomeKind = withContext(Dispatchers.IO) {
+        // Surface the running state BEFORE waiting on the single-flight gate:
+        // a manual "Sync now" must show "Syncing…" (and disable the button)
+        // immediately, even while a background worker holds the mutex.
+        scheduler.beginPass()
+        publish()
+        try {
+            SyncPassGate.mutex.withLock {
+                auth.reloadFromStorage()
+                if (!auth.isSignedIn()) {
+                    scheduler.completePass(PassOutcomeKind.AUTH_REQUIRED)
+                    publish()
+                    return@withLock PassOutcomeKind.AUTH_REQUIRED
+                }
+                var outcome = PassOutcomeKind.SUCCESS
+                try {
+                    outcome = runV12Pass()
+                } catch (e: com.groq.voicetyper.sync.v1.SyncError) {
+                    android.util.Log.e("FluenceSync", "v1.2 pass failed: ${e::class.simpleName} ${e.message}")
+                    outcome = when (e) {
+                        is com.groq.voicetyper.sync.v1.SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
+                        is com.groq.voicetyper.sync.v1.SyncError.Retryable,
+                        is com.groq.voicetyper.sync.v1.SyncError.StaleVersion -> PassOutcomeKind.RETRYABLE
+                        is com.groq.voicetyper.sync.v1.SyncError.Fatal,
+                        is com.groq.voicetyper.sync.v1.SyncError.Rejected -> PassOutcomeKind.FATAL
                     }
-                    if (kind == RecordType.Settings) {
-                        // §30.3 mirror: the synced toggle becomes the local flag.
-                        (local as com.groq.voicetyper.sync.engine.SettingsStore)
-                            .mirrorEnabled { SnippetPreferences.setSnippetsEnabled(context, it) }
+                } catch (e: Exception) {
+                    android.util.Log.e("FluenceSync", "v1.2 pass failed unexpectedly: ${e::class.simpleName} ${e.message}", e)
+                    outcome = PassOutcomeKind.RETRYABLE
+                } finally {
+                    scheduler.completePass(outcome)
+                    if (outcome == PassOutcomeKind.SUCCESS) {
+                        persistLastSyncAt(scheduler.lastSyncAtMs)
                     }
+                    publish()
                 }
-                // Windows parity (scheduler.rs classify_pass): retryable wins
-                // over rejected; either makes the pass non-success so the
-                // outcome is never recorded as synced.
-                outcome = when {
-                    retryableFailures > 0 -> PassOutcomeKind.RETRYABLE
-                    rejectedFailures > 0 -> PassOutcomeKind.REJECTED
-                    else -> PassOutcomeKind.SUCCESS
-                }
-            } catch (e: SyncError) {
-                android.util.Log.e("FluenceSync", "Sync pass failed with SyncError: ${e::class.simpleName} - ${e.message}", e)
-                outcome = when (e) {
-                    is SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
-                    is SyncError.Retryable -> PassOutcomeKind.RETRYABLE
-                    is SyncError.Fatal -> PassOutcomeKind.FATAL
-                    is SyncError.Rejected -> PassOutcomeKind.REJECTED
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("FluenceSync", "Sync pass failed with unexpected Exception: ${e::class.simpleName} - ${e.message}", e)
-                outcome = PassOutcomeKind.RETRYABLE
-            } finally {
-                scheduler.completePass(outcome)
-                publish()
+                outcome
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancelled while waiting for the gate (e.g. activity stopped):
+            // clear the running flag so the UI never sticks on "Syncing…".
+            scheduler.cancelPass()
+            publish()
+            throw e
         }
+    }
+
+    /**
+     * One frozen-v1.2 pass across all four domains. Domains are isolated: a
+     * failure in one never prevents the others from syncing.
+     */
+    private suspend fun runV12Pass(): PassOutcomeKind {
+        auth.refreshAccessTokenIfNeeded()
+        val token = auth.accessTokenOrNull() ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
+        val accountHash = AccountHash.of(auth.accountEmail)
+            ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
+        val drive = AppDataDriveStore(token)
+        val deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context)
+
+        // Per-account metadata: atomic NULL→stamped rows + maxSeen/backfillDone.
+        val metaDao = V1Stores.metadataDao(context)
+        var meta = metaDao.getByHash(accountHash)
+        if (meta == null) {
+            meta = SyncMetadata(
+                accountHash = accountHash,
+                deviceId = deviceId,
+                maxSeen = 0L,
+                backfillDone = false
+            )
+            metaDao.upsert(meta)
+        }
+
+        val maxSeenRef = V1SyncEngine.MaxSeenRef(meta.maxSeen)
+        var retryable = false
+        for (domain in DomainFile.values()) {
+            val ok = runDomain(domain, drive, accountHash, deviceId, maxSeenRef)
+            retryable = retryable || !ok
+            metaDao.updateMaxSeen(accountHash, maxSeenRef.value)
+        }
+        return if (retryable) PassOutcomeKind.RETRYABLE else PassOutcomeKind.SUCCESS
+    }
+
+    /** Run one domain; failures are logged and reported, never propagated. */
+    private suspend fun runDomain(
+        domain: DomainFile,
+        drive: AppDataDriveStore,
+        accountHash: String,
+        deviceId: String,
+        maxSeenRef: V1SyncEngine.MaxSeenRef
+    ): Boolean = try {
+        when (domain) {
+            DomainFile.DICTIONARY ->
+                V1SyncEngine.syncDictionary(V1Stores.dictionaryStore(context), drive, accountHash, deviceId, maxSeenRef)
+            DomainFile.SNIPPETS ->
+                V1SyncEngine.syncSnippets(V1Stores.snippetStore(context), drive, accountHash, deviceId, maxSeenRef)
+            DomainFile.STATS ->
+                V1SyncEngine.syncStats(V1Stores.statStore(context), drive, accountHash, deviceId, maxSeenRef)
+            DomainFile.SETTINGS ->
+                V1SyncEngine.syncSettings(V1Stores.settingsStore(context), drive, accountHash, deviceId, maxSeenRef)
+        }
+        true
+    } catch (e: com.groq.voicetyper.sync.v1.SyncError.StaleVersion) {
+        android.util.Log.w("FluenceSync", "domain $domain kept changing; will converge next pass")
+        false
+    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Retryable) {
+        android.util.Log.w("FluenceSync", "domain $domain retryable: ${e.message}")
+        false
     }
 
     private fun publish() {
@@ -180,11 +249,19 @@ class SyncManager(
             account = auth.accountEmail,
             syncEnabled = isSyncEnabled(),
             running = scheduler.running,
-            lastSyncAtMs = scheduler.lastSyncAtMs,
+            lastSyncAtMs = scheduler.lastSyncAtMs ?: persistedLastSyncAtMs,
             lastError = scheduler.lastOutcome?.takeIf { it != PassOutcomeKind.SUCCESS }?.name,
         )
         _status.value = status
         listener(status)
+    }
+
+    /** Write-through the last successful pass time so it survives process death. */
+    private fun persistLastSyncAt(atMs: Long?) {
+        if (atMs == null) return
+        persistedLastSyncAtMs = atMs
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putLong(KEY_LAST_SYNC_AT, atMs).apply()
     }
 
     private fun refreshFlags() {
@@ -200,6 +277,7 @@ class SyncManager(
     companion object {
         private const val PREFS_NAME = "fluence_prefs"
         private const val KEY_SYNC_ENABLED = "sync_enabled"
+        private const val KEY_LAST_SYNC_AT = "last_sync_at_ms"
 
         fun isSyncEnabled(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -207,9 +285,7 @@ class SyncManager(
 
         fun setSyncEnabled(context: Context, enabled: Boolean) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_SYNC_ENABLED, enabled)
-                .apply()
+                .edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
         }
     }
 }

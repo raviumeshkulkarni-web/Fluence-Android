@@ -92,6 +92,21 @@ class StatsCalculatorTest {
     }
 
     @Test
+    fun daily_aggregates_tracks_count_and_chars() {
+        val rows = listOf(
+            row("hello world", 5_000L, instantMs("2026-08-10T01:00:00Z")),
+            row("another entry", 2_000L, instantMs("2026-08-10T23:00:00Z")),
+            row("next day", 7_000L, instantMs("2026-08-11T01:00:00Z"))
+        )
+        val stats = StatsCalculator.dailyAggregates(rows)
+        assertEquals(2, stats.size)
+        assertEquals(2L, stats[0].count)
+        assertEquals(24L, stats[0].chars)
+        assertEquals(1L, stats[1].count)
+        assertEquals(8L, stats[1].chars)
+    }
+
+    @Test
     fun daily_aggregates_after_delete_excludes_removed_rows() {
         val rowA = row("keep me", 3_000L, instantMs("2026-08-10T01:00:00Z"))
         val rowB = row("delete me now", 9_000L, instantMs("2026-08-10T02:00:00Z"))

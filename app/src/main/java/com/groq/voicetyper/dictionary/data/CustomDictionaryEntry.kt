@@ -39,6 +39,16 @@ data class CustomDictionaryEntry(
 
     val deletedAt: Long? = null,
 
+    // Frozen v1.2 LWW metadata (migration 10 -> 11): updatedAt bumps on every
+    // edit; winner = max(updatedAt, deviceId); tombstones are ordinary records.
+    val updatedAt: Long? = null,
+
+    val deviceId: String? = null,
+
+    val dirty: Boolean = false,
+
+    val everPushed: Boolean = false,
+
     @ColumnInfo(defaultValue = "local")
     val syncState: String = "local",
 

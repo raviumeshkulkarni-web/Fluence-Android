@@ -30,7 +30,7 @@ class SyncBackoff(
 
 /**
  * Pure scheduler core (mirror of Windows `SchedulerCore`, scheduler.rs) —
- * cadence 300s, idle poll 3.6s×1000, single-flight with pending coalescing.
+ * cadence 300s, auth-required park 15min, single-flight with pending coalescing.
  * All timing goes through [nowMs] so tests can drive it deterministically.
  *
  * - [pollTick] is called from the poll loop: it decides whether a pass should
@@ -44,11 +44,12 @@ class SyncBackoff(
  *     surfaced non-success (lastSyncAtMs NOT advanced) but never backoff-
  *     escalated (§23 / Phase 0 remediation)
  *   - FATAL → next attempt at now + cadence (skip this pass, keep schedule)
- *   - AUTH_REQUIRED → next attempt at now + idle poll (wait for reauth)
+ *   - AUTH_REQUIRED → next attempt at now + auth park (15 min, aligned with
+ *     the periodic cadence so token recovery is prompt)
  */
 class SyncSchedulerCore(
     private val cadenceMs: Long = 300_000L,
-    private val idlePollMs: Long = 3_600_000L,
+    private val idlePollMs: Long = 900_000L,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -67,6 +68,11 @@ class SyncSchedulerCore(
 
     fun beginPass() {
         running = true
+    }
+
+    /** Clear an in-flight pass without touching the outcome schedule (cancellation). */
+    fun cancelPass() {
+        running = false
     }
 
     fun completePass(outcome: PassOutcomeKind) {

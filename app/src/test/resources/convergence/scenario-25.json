@@ -1,0 +1,398 @@
+{
+  "name": "s25",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "1e0ed584-675f-41df-8e9d-f1ed66d8bb36",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465002500,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465002500
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "feb70c5a-d498-40d7-af0c-b549d8a8ee18",
+        "trigger": "TY",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": false,
+        "updatedAt": 1713470512165,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "bd414ec4-c8ca-4844-938c-9c9dad7bff6d",
+        "spoken": "GONNA",
+        "corrected": "привет-fixed",
+        "isEnabled": true,
+        "updatedAt": 1713470371956,
+        "deviceId": "dev-a",
+        "deletedAt": 1713470371956
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "false",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "e95dc0d8-496a-4fea-bab2-2969514402b8",
+        "day": "2026-08-21",
+        "timestampMs": 1787184025000,
+        "words": 96,
+        "chars": 480,
+        "durationMs": 54002
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "4afc8006-276f-41c4-83ae-4c8df8bc74d5",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000250,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 1789999917995,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "true",
+        "updatedAt": 1789999998601,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "f5e0142b-8421-43a8-81fd-0415f561a076",
+        "spoken": "hello",
+        "corrected": "hello",
+        "isEnabled": true,
+        "updatedAt": 1713469009830,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1789999924047,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "f80ef59b-7859-4d54-bc07-d405a7092cae",
+        "spoken": " नमस्ते ",
+        "corrected": "afternoon",
+        "isEnabled": true,
+        "updatedAt": 1713469487175,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "3e2bbc0b-f498-47e7-8066-7a9c982bc3c3",
+        "trigger": "नमस्ते",
+        "expansion": "On my way!",
+        "isEnabled": true,
+        "updatedAt": 1713468001150,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "e95dc0d8-496a-4fea-bab2-2969514402b8",
+        "day": "2026-08-21",
+        "timestampMs": 1787184025000,
+        "words": 96,
+        "chars": 480,
+        "durationMs": 54002
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "true",
+        "updatedAt": 1790000000203,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "c3ebdc25-be1c-428c-850c-bc2bb76e60da",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000250,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000250
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1789999956664,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "fcfe8b72-e3f3-4162-8151-35c7ddb6f15e",
+        "spoken": "HELLO",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469005019,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "dictionary_enabled",
+        "value": "false",
+        "updatedAt": 1789999951043,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "e4835c1a-f416-4153-ae47-9c531273bcd9",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465007500,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "718022bd-3a73-4f53-a32b-114dba08b33b",
+        "trigger": "नमस्ते",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": false,
+        "updatedAt": 1713468672130,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "5f1cf317-2af8-42f5-9db9-04d5e4667920",
+        "day": "2026-08-21",
+        "timestampMs": 1787319998486,
+        "words": 132,
+        "chars": 924,
+        "durationMs": 84165
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "8317c1f3-6d3d-4f71-838c-feff901ef24f",
+        "spoken": "नमस्ते",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713465946746,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "c40b9d89-8f7d-4ef7-a32b-b9e89748aa06",
+        "spoken": "teh ",
+        "corrected": "test",
+        "isEnabled": false,
+        "updatedAt": 1713467541134,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "formal",
+        "updatedAt": 1789999903669,
+        "deviceId": "dev-c"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "5f11ec60-3d7f-4b71-b9ad-884998bc740f",
+        "spoken": " привет ",
+        "corrected": "😀-test fixed",
+        "isEnabled": false,
+        "updatedAt": 1713465003004,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "fcddd4ec-f3d9-4921-9ad1-a1af070ce987",
+        "spoken": "  hello  ",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469001259,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "bd414ec4-c8ca-4844-938c-9c9dad7bff6d",
+        "businessKey": "gonna",
+        "spoken": "GONNA",
+        "corrected": "привет-fixed",
+        "isEnabled": true,
+        "updatedAt": 1713470371956,
+        "deletedAt": 1713470371956,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "f5e0142b-8421-43a8-81fd-0415f561a076",
+        "businessKey": "hello",
+        "spoken": "hello",
+        "corrected": "hello",
+        "isEnabled": true,
+        "updatedAt": 1713469009830,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "c3ebdc25-be1c-428c-850c-bc2bb76e60da",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000250,
+        "deletedAt": 1713470000250,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "5f11ec60-3d7f-4b71-b9ad-884998bc740f",
+        "businessKey": "привет",
+        "spoken": " привет ",
+        "corrected": "😀-test fixed",
+        "isEnabled": false,
+        "updatedAt": 1713465003004,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "f80ef59b-7859-4d54-bc07-d405a7092cae",
+        "businessKey": "नमस्ते",
+        "spoken": " नमस्ते ",
+        "corrected": "afternoon",
+        "isEnabled": true,
+        "updatedAt": 1713469487175,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "feb70c5a-d498-40d7-af0c-b549d8a8ee18",
+        "businessKey": "ty",
+        "trigger": "TY",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": false,
+        "updatedAt": 1713470512165,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "718022bd-3a73-4f53-a32b-114dba08b33b",
+        "businessKey": "नमस्ते",
+        "trigger": "नमस्ते",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": false,
+        "updatedAt": 1713468672130,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      }
+    ],
+    "settings": [
+      {
+        "key": "ai_polish_style",
+        "value": "formal",
+        "updatedAt": 1789999903669,
+        "deviceId": "dev-c"
+      },
+      {
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 1789999917995,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "dictionary_enabled",
+        "value": "true",
+        "updatedAt": 1790000000203,
+        "deviceId": "dev-b"
+      },
+      {
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1789999956664,
+        "deviceId": "dev-b"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "5f1cf317-2af8-42f5-9db9-04d5e4667920",
+        "day": "2026-08-21",
+        "timestampMs": 1787319998486,
+        "words": 132,
+        "chars": 924,
+        "durationMs": 84165
+      },
+      {
+        "eventId": "e95dc0d8-496a-4fea-bab2-2969514402b8",
+        "day": "2026-08-21",
+        "timestampMs": 1787184025000,
+        "words": 96,
+        "chars": 480,
+        "durationMs": 54002
+      }
+    ]
+  }
+}

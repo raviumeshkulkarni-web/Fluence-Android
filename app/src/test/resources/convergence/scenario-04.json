@@ -1,0 +1,313 @@
+{
+  "name": "s04",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 1789999926848,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "4fd6dadb-5436-4416-9c02-6c7e218a8bc4",
+        "trigger": "  brb  ",
+        "expansion": "be right back",
+        "isEnabled": false,
+        "updatedAt": 1713468336222,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "cf402740-4b9b-465a-87ba-c7e024246bd5",
+        "day": "2026-01-02",
+        "timestampMs": 1787184004000,
+        "words": 79,
+        "chars": 395,
+        "durationMs": 37893
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a07a2599-ebf0-437e-b8b5-a7a0e5231c23",
+        "spoken": "HELLO",
+        "corrected": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713469009260,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "language",
+        "value": "hi",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "684e9fbc-4243-4dc6-9910-fc93afbcddd0",
+        "spoken": "  नमस्ते  ",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713467830725,
+        "deviceId": "dev-a",
+        "deletedAt": 1713467830725
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "3d8eae05-cc8c-4530-afb7-8aaf015ea7b5",
+        "spoken": "GONNA",
+        "corrected": "test",
+        "isEnabled": false,
+        "updatedAt": 1713469413249,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "34a57d47-a0e6-40c9-b0ca-3a2d5aadca1b",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000040,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "deea9043-e83c-494e-bd1d-6e90ee28b05e",
+        "trigger": "привет",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": true,
+        "updatedAt": 1713468000684,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a29398cf-773b-453f-9f8c-b07ab84ce90b",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465000400,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465000400
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "cf402740-4b9b-465a-87ba-c7e024246bd5",
+        "day": "2026-01-02",
+        "timestampMs": 1787184004000,
+        "words": 79,
+        "chars": 395,
+        "durationMs": 37893
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "6c9518ca-330f-4fd8-86ae-a0c05a317219",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000040,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000040
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "17aec805-ec0f-4bf6-aad1-7cfa0310a882",
+        "spoken": "HELLO",
+        "corrected": "as soon as possible",
+        "isEnabled": true,
+        "updatedAt": 1713469005481,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "language",
+        "value": "es",
+        "updatedAt": 1790000000127,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a746c409-f312-4d63-b073-b8170f1e38db",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465005400,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "dc3b1fb9-907d-439f-bcb7-8b4cf25e4234",
+        "spoken": "gitHub ",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 242,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "625cc399-b551-4aa6-9346-fafa74ce350a",
+        "spoken": "  HELLO  ",
+        "corrected": "thank you",
+        "isEnabled": true,
+        "updatedAt": 1713469004337,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "9c7bf8ec-8c91-48f0-ae04-caf27e51bfae",
+        "day": "2026-06-15",
+        "timestampMs": 1781556576299,
+        "words": 338,
+        "chars": 2028,
+        "durationMs": 47662
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "dc3b1fb9-907d-439f-bcb7-8b4cf25e4234",
+        "businessKey": "github",
+        "spoken": "gitHub ",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 242,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "3d8eae05-cc8c-4530-afb7-8aaf015ea7b5",
+        "businessKey": "gonna",
+        "spoken": "GONNA",
+        "corrected": "test",
+        "isEnabled": false,
+        "updatedAt": 1713469413249,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "a07a2599-ebf0-437e-b8b5-a7a0e5231c23",
+        "businessKey": "hello",
+        "spoken": "HELLO",
+        "corrected": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713469009260,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "6c9518ca-330f-4fd8-86ae-a0c05a317219",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000040,
+        "deletedAt": 1713470000040,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "684e9fbc-4243-4dc6-9910-fc93afbcddd0",
+        "businessKey": "नमस्ते",
+        "spoken": "  नमस्ते  ",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713467830725,
+        "deletedAt": 1713467830725,
+        "deviceId": "dev-a"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "4fd6dadb-5436-4416-9c02-6c7e218a8bc4",
+        "businessKey": "brb",
+        "trigger": "  brb  ",
+        "expansion": "be right back",
+        "isEnabled": false,
+        "updatedAt": 1713468336222,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "deea9043-e83c-494e-bd1d-6e90ee28b05e",
+        "businessKey": "привет",
+        "trigger": "привет",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": true,
+        "updatedAt": 1713468000684,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "settings": [
+      {
+        "key": "language",
+        "value": "es",
+        "updatedAt": 1790000000127,
+        "deviceId": "dev-b"
+      },
+      {
+        "key": "snippets_enabled",
+        "value": "true",
+        "updatedAt": 1789999926848,
+        "deviceId": "dev-a"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "cf402740-4b9b-465a-87ba-c7e024246bd5",
+        "day": "2026-01-02",
+        "timestampMs": 1787184004000,
+        "words": 79,
+        "chars": 395,
+        "durationMs": 37893
+      },
+      {
+        "eventId": "9c7bf8ec-8c91-48f0-ae04-caf27e51bfae",
+        "day": "2026-06-15",
+        "timestampMs": 1781556576299,
+        "words": 338,
+        "chars": 2028,
+        "durationMs": 47662
+      }
+    ]
+  }
+}

@@ -76,14 +76,14 @@ class SyncSchedulerCoreTest {
     }
 
     @Test
-    fun authRequiredWaitsIdlePollForReauth() {
+    fun authRequiredParks15MinForReauth() {
         val core = core()
         now = 5_000L
         core.beginPass()
         core.completePass(PassOutcomeKind.AUTH_REQUIRED)
-        assertEquals(3_605_000L, core.nextAttemptMs)
+        assertEquals(905_000L, core.nextAttemptMs)
         assertFalse(core.pollTick())
-        now = 3_605_000L
+        now = 905_000L
         assertTrue(core.pollTick())
     }
 

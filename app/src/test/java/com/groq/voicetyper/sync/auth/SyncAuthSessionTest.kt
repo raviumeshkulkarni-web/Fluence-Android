@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.groq.voicetyper.sync.engine.SyncError
+import com.groq.voicetyper.sync.v1.SyncError
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
@@ -81,39 +81,34 @@ class SyncAuthSessionTest {
     }
 
     @Test
-    fun completeSignInWithAuthCode_missingSecret_throwsException() {
-        mockkObject(GoogleOAuth)
-        every {
-            GoogleOAuth.exchangeServerAuthCode(any(), any(), any(), any(), any())
-        } throws GoogleOAuth.AuthError.MissingClientSecret("set oauth.web.client.secret in local.properties")
-
+    fun completeSignIn_success_persistsTokensAndEmail() {
         val session = SyncAuthSession(mockContext)
-        val error = assertThrows(GoogleOAuth.AuthError.MissingClientSecret::class.java) {
-            session.completeSignInWithAuthCode("sample-code")
-        }
-        assertTrue(error.message?.contains("set oauth.web.client.secret in local.properties") == true)
-        assertFalse(session.isSignedIn())
-    }
-
-    @Test
-    fun completeSignInWithAuthCode_success_persistsTokensAndEmail() {
-        mockkObject(GoogleOAuth)
-        every {
-            GoogleOAuth.exchangeServerAuthCode(any(), "auth-code-123", any(), any(), any())
-        } returns GoogleOAuth.TokenResponse(
+        val tokens = GoogleOAuth.TokenResponse(
             accessToken = "test-access-token",
             refreshToken = "test-refresh-token",
             expiresInSecs = 3600,
         )
+        session.completeSignIn(tokens, "user@example.com")
 
-        val session = SyncAuthSession(mockContext)
-        val email = session.completeSignInWithAuthCode("auth-code-123", "user@example.com")
-
-        assertEquals("user@example.com", email)
         assertEquals("user@example.com", session.accountEmail)
         assertTrue(session.isSignedIn())
         assertEquals("test-refresh-token", prefsMap["sync_refresh_token"])
         assertEquals("user@example.com", prefsMap["sync_account_email"])
+    }
+
+    @Test
+    fun completeSignIn_noRefreshToken_throws() {
+        val session = SyncAuthSession(mockContext)
+        val tokens = GoogleOAuth.TokenResponse(
+            accessToken = "at-only",
+            refreshToken = null,
+            expiresInSecs = 3600,
+        )
+        val error = assertThrows(GoogleOAuth.AuthError.NoRefreshToken::class.java) {
+            session.completeSignIn(tokens, "user@example.com")
+        }
+        assertTrue(error.message?.contains("no refresh token") == true || error is GoogleOAuth.AuthError.NoRefreshToken)
+        assertFalse(session.isSignedIn())
     }
 
     @Test
@@ -134,32 +129,31 @@ class SyncAuthSessionTest {
     }
 
     @Test
-    fun refreshAccessTokenIfNeeded_missingSecret_throwsFatal() {
-        prefsMap["sync_refresh_token"] = "existing-rt"
-        val session = SyncAuthSession(mockContext)
-
-        mockkObject(GoogleOAuth)
-        every {
-            GoogleOAuth.refreshAccessToken(any(), "existing-rt", any(), any(), any())
-        } throws GoogleOAuth.AuthError.MissingClientSecret("set oauth.web.client.secret in local.properties")
-
-        val error = assertThrows(SyncError.Fatal::class.java) {
-            session.refreshAccessTokenIfNeeded()
-        }
-        assertTrue(error.message?.contains("set oauth.web.client.secret in local.properties") == true)
-    }
-
-    @Test
     fun refreshAccessTokenIfNeeded_revoked401_throwsAuthRequired() {
         prefsMap["sync_refresh_token"] = "revoked-rt"
         val session = SyncAuthSession(mockContext)
 
         mockkObject(GoogleOAuth)
         every {
-            GoogleOAuth.refreshAccessToken(any(), "revoked-rt", any(), any(), any())
+            GoogleOAuth.refreshAccessToken(any(), "revoked-rt", any())
         } throws GoogleOAuth.AuthError.Http(401, "revoked")
 
         assertThrows(SyncError.AuthRequired::class.java) {
+            session.refreshAccessTokenIfNeeded()
+        }
+    }
+
+    @Test
+    fun refreshAccessTokenIfNeeded_network_throwsRetryable() {
+        prefsMap["sync_refresh_token"] = "rt-net"
+        val session = SyncAuthSession(mockContext)
+
+        mockkObject(GoogleOAuth)
+        every {
+            GoogleOAuth.refreshAccessToken(any(), "rt-net", any())
+        } throws GoogleOAuth.AuthError.Network("offline")
+
+        assertThrows(SyncError.Retryable::class.java) {
             session.refreshAccessTokenIfNeeded()
         }
     }

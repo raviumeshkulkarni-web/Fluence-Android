@@ -1,0 +1,250 @@
+{
+  "name": "s18",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "87146bcc-c9e4-4b29-8100-409888a93ece",
+        "trigger": "afk",
+        "expansion": "Got to go",
+        "isEnabled": true,
+        "updatedAt": 1713469242940,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "01238af0-6b0a-46ed-95b9-7b30c6b3533e",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465001800,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465001800
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "e31a86d1-8e25-4a17-9e4a-d49d36e4ce43",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000180,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "8ac643ff-657c-4d12-a17e-4af651573e21",
+        "day": "2026-12-31",
+        "timestampMs": 1787184018000,
+        "words": 31,
+        "chars": 155,
+        "durationMs": 27764
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "70aeb3ae-87ba-414a-8329-f0bdc7c2361e",
+        "spoken": "привет",
+        "corrected": "thank you",
+        "isEnabled": true,
+        "updatedAt": 1713469009767,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "translate",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "b35db476-d562-4a5c-a029-17167210bf86",
+        "trigger": "नमस्ते",
+        "expansion": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713468002578,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "f7acef0a-b138-4101-b299-26c452f25230",
+        "spoken": "ПРИВЕТ",
+        "corrected": "test",
+        "isEnabled": true,
+        "updatedAt": 1713469002364,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "a32481d3-0ed1-4310-826f-d1556b313479",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000180,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000180
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "406c555e-a740-4e8d-9173-3c50a9ec68dd",
+        "day": "2026-03-03",
+        "timestampMs": 1772574912444,
+        "words": 344,
+        "chars": 2408,
+        "durationMs": 119078
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "645f70cf-b056-44bf-9fa7-12b528da6683",
+        "spoken": " Привет ",
+        "corrected": "coffee",
+        "isEnabled": true,
+        "updatedAt": 1713468370962,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "false",
+        "updatedAt": 1790000000350,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "8ac643ff-657c-4d12-a17e-4af651573e21",
+        "day": "2026-12-31",
+        "timestampMs": 1787184018000,
+        "words": 31,
+        "chars": 155,
+        "durationMs": 27764
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "03b59d02-b501-4aa6-8ab1-d1c38099e190",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006800,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "03b59d02-b501-4aa6-8ab1-d1c38099e190",
+        "businessKey": "gonna",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465006800,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "a32481d3-0ed1-4310-826f-d1556b313479",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000180,
+        "deletedAt": 1713470000180,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "70aeb3ae-87ba-414a-8329-f0bdc7c2361e",
+        "businessKey": "привет",
+        "spoken": "привет",
+        "corrected": "thank you",
+        "isEnabled": true,
+        "updatedAt": 1713469009767,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "87146bcc-c9e4-4b29-8100-409888a93ece",
+        "businessKey": "afk",
+        "trigger": "afk",
+        "expansion": "Got to go",
+        "isEnabled": true,
+        "updatedAt": 1713469242940,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "b35db476-d562-4a5c-a029-17167210bf86",
+        "businessKey": "नमस्ते",
+        "trigger": "नमस्ते",
+        "expansion": "be right back",
+        "isEnabled": true,
+        "updatedAt": 1713468002578,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "settings": [
+      {
+        "key": "ai_polish_style",
+        "value": "translate",
+        "updatedAt": 1700000000000,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "auto_learn_enabled",
+        "value": "false",
+        "updatedAt": 1790000000350,
+        "deviceId": "dev-b"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "406c555e-a740-4e8d-9173-3c50a9ec68dd",
+        "day": "2026-03-03",
+        "timestampMs": 1772574912444,
+        "words": 344,
+        "chars": 2408,
+        "durationMs": 119078
+      },
+      {
+        "eventId": "8ac643ff-657c-4d12-a17e-4af651573e21",
+        "day": "2026-12-31",
+        "timestampMs": 1787184018000,
+        "words": 31,
+        "chars": 155,
+        "durationMs": 27764
+      }
+    ]
+  }
+}

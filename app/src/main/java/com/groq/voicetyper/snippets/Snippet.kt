@@ -6,14 +6,16 @@ package com.groq.voicetyper.snippets
  * When the spoken [trigger] phrase appears in a transcript, it is replaced by
  * the [expansion] text. Enable/disable is controlled globally by the master
  * switch ([SnippetPreferences.isSnippetsEnabled]); there is no per-snippet
- * toggle in V1.
+ * toggle.
  *
- * §30 sync metadata: [uuid] is the wire identity (assigned at creation;
- * entries created before sync carry it already since v2 writes fresh UUIDs),
- * [createdAt]/[deletedAt] mirror the §6 tombstone rules, and
- * [syncState]/[serverFileId]/[syncAccount]/[quarantineReason] are the §6-table
- * shadow of the Windows `snippets.json` metadata. User-facing reads filter
- * [deletedAt] == null (spec §30.4).
+ * Frozen v1.2 sync metadata: [uuid] is the wire identity, [createdAt] is the
+ * LWW timestamp baseline and [updatedAt] bumps on every edit (winner =
+ * max(updatedAt, deviceId); tombstones are ordinary records). [deviceId],
+ * [dirty] and [everPushed] drive change detection; [deletedAt] marks a
+ * tombstone. Legacy legacy-engine columns ([syncState]/[serverFileId]/
+ * [syncAccount]/[quarantineReason]) remain for file-format compatibility and
+ * are no longer written by the v1.2 path. User-facing reads filter
+ * [deletedAt] == null.
  */
 data class Snippet(
     val id: Long,
@@ -22,8 +24,20 @@ data class Snippet(
     val uuid: String? = null,
     val createdAt: Long? = null,
     val deletedAt: Long? = null,
+    val updatedAt: Long? = null,
+    val deviceId: String? = null,
+    val isEnabled: Boolean = true,
+    val dirty: Boolean = false,
+    val everPushed: Boolean = false,
+    // Dormant legacy columns (kept for document compatibility).
     val syncState: String? = null,
     val serverFileId: String? = null,
     val syncAccount: String? = null,
     val quarantineReason: String? = null
-)
+) {
+    /** Wire identity (v1.2 name for the legacy [uuid] field). */
+    fun effectiveSyncId(): String? = uuid
+
+    /** Canonical business key — always derived from content. */
+    fun businessKey(): String = trigger.trim().lowercase()
+}

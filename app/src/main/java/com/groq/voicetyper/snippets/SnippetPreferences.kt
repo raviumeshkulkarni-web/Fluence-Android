@@ -2,6 +2,7 @@ package com.groq.voicetyper.snippets
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.groq.voicetyper.sync.v1.MutationClock
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONException
@@ -33,8 +34,8 @@ object SnippetPreferences {
     private const val KEY_SNIPPETS_JSON = "snippets_json"
     private const val JSON_VERSION = 2
 
-    const val MAX_TRIGGER_LENGTH = 100
-    const val MAX_EXPANSION_LENGTH = 500
+    const val MAX_TRIGGER_LENGTH = 4096
+    const val MAX_EXPANSION_LENGTH = 8192
 
     enum class SaveResult { INSERTED, UPDATED, PRESERVED }
 
@@ -82,9 +83,10 @@ object SnippetPreferences {
         val trimmedTrigger = trigger.trim()
         val trimmedExpansion = expansion.trim()
         if (trimmedTrigger.isEmpty() || trimmedExpansion.isEmpty()) return SaveResult.PRESERVED
-        if (trimmedTrigger.length > MAX_TRIGGER_LENGTH ||
-            trimmedExpansion.length > MAX_EXPANSION_LENGTH
+        if (trimmedTrigger.codePointCount(0, trimmedTrigger.length) > MAX_TRIGGER_LENGTH ||
+            trimmedExpansion.codePointCount(0, trimmedExpansion.length) > MAX_EXPANSION_LENGTH
         ) {
+            android.util.Log.w("SnippetPreferences", "Snippet trigger or expansion exceeds wire caps (trigger=${trimmedTrigger.codePointCount(0, trimmedTrigger.length)} > 4096 or expansion=${trimmedExpansion.codePointCount(0, trimmedExpansion.length)} > 8192)")
             return SaveResult.PRESERVED
         }
 
@@ -96,7 +98,7 @@ object SnippetPreferences {
 
         if (id == 0L) {
             val nextId = (all.maxOfOrNull { it.id } ?: 0L) + 1L
-            all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion))
+            all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion, context))
             write(context, all)
             return SaveResult.INSERTED
         }
@@ -104,31 +106,34 @@ object SnippetPreferences {
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return SaveResult.PRESERVED
         val old = all[index]
-        // §30.2 step 1: tombstone the old UUID (dirty only when uploaded).
+        // Frozen v1.2: an edit is a NEWER state than any tombstone (pure LWW),
+        // so the edited row keeps its identity and bumps updatedAt. The legacy
+        // tombstone-and-fresh-UUID dance is no longer needed.
         all[index] = old.copy(
-            deletedAt = nowMs(),
-            syncState = if (old.serverFileId != null) SYNC_STATE_DIRTY else null
+            trigger = trimmedTrigger,
+            expansion = trimmedExpansion,
+            updatedAt = MutationClock.next(context),
+            dirty = true
         )
-        // §30.2 step 2: a new UUID carries the updated content (one write).
-        val nextId = (all.maxOfOrNull { it.id } ?: 0L) + 1L
-        all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion))
         write(context, all)
         return SaveResult.UPDATED
     }
 
     /**
-     * §30.2/§14: an uploaded snippet is tombstoned so other devices delete it
-     * too; a never-uploaded one is provably safe to hard-remove.
+     * Frozen v1.2 delete: a pushed snippet is tombstoned so other devices
+     * delete it too; a never-pushed one is provably safe to hard-remove.
      */
     fun deleteSnippet(context: Context, id: Long) {
         val all = allEntries(context).toMutableList()
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return
         val entry = all[index]
-        if (entry.serverFileId != null) {
+        if (entry.everPushed || entry.serverFileId != null) {
             all[index] = entry.copy(
-                deletedAt = nowMs(),
-                syncState = SYNC_STATE_DIRTY
+                deletedAt = MutationClock.next(context),
+                updatedAt = MutationClock.next(context),
+                dirty = true,
+                everPushed = true
             )
         } else {
             all.removeAt(index)
@@ -136,18 +141,19 @@ object SnippetPreferences {
         write(context, all)
     }
 
-    private fun newSnippet(id: Long, trigger: String, expansion: String): Snippet =
+    private fun newSnippet(id: Long, trigger: String, expansion: String, context: Context): Snippet =
         Snippet(
             id = id,
             trigger = trigger,
             expansion = expansion,
             uuid = UUID.randomUUID().toString(),
-            createdAt = nowMs(),
+            createdAt = MutationClock.next(context),
+            updatedAt = MutationClock.next(context),
             deletedAt = null,
-            syncState = null,
-            serverFileId = null,
-            syncAccount = null,
-            quarantineReason = null
+            deviceId = null,
+            isEnabled = true,
+            dirty = true,
+            everPushed = false
         )
 
     private fun nowMs(): Long = System.currentTimeMillis()
@@ -163,11 +169,17 @@ object SnippetPreferences {
                 .put("id", snippet.id)
                 .put("t", snippet.trigger)
                 .put("e", snippet.expansion)
-            // §30 metadata — serde-style: only non-null fields are written,
-            // legacy v1 documents (and pre-sync entries) load with nulls.
+            // Sync metadata — serde-style: only non-null/non-default fields are
+            // written, legacy documents load with defaults.
             snippet.uuid?.let { entry.put("uuid", it) }
             snippet.createdAt?.let { entry.put("created_at", it) }
             snippet.deletedAt?.let { entry.put("deleted_at", it) }
+            if (snippet.updatedAt != null) entry.put("updated_at", snippet.updatedAt)
+            snippet.deviceId?.let { entry.put("device_id", it) }
+            if (!snippet.isEnabled) entry.put("is_enabled", false)
+            if (snippet.dirty) entry.put("dirty", true)
+            if (snippet.everPushed) entry.put("ever_pushed", true)
+            // Dormant legacy columns (document compatibility only).
             snippet.syncState?.let { entry.put("sync_state", it) }
             snippet.serverFileId?.let { entry.put("server_file_id", it) }
             snippet.syncAccount?.let { entry.put("sync_account", it) }
@@ -205,6 +217,11 @@ object SnippetPreferences {
                             uuid = entry.optStringOrNull("uuid"),
                             createdAt = entry.optLongOrNull("created_at"),
                             deletedAt = entry.optLongOrNull("deleted_at"),
+                            updatedAt = entry.optLongOrNull("updated_at"),
+                            deviceId = entry.optStringOrNull("device_id"),
+                            isEnabled = entry.optBoolean("is_enabled", true),
+                            dirty = entry.optBoolean("dirty", false),
+                            everPushed = entry.optBoolean("ever_pushed", false),
                             syncState = entry.optStringOrNull("sync_state"),
                             serverFileId = entry.optStringOrNull("server_file_id"),
                             syncAccount = entry.optStringOrNull("sync_account"),

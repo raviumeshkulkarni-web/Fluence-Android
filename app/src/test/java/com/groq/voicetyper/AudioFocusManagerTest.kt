@@ -261,7 +261,7 @@ class AudioFocusManagerTest {
         coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } returns Result.success("hello")
 
         mockkObject(com.groq.voicetyper.history.HistoryRepository)
-        coEvery { com.groq.voicetyper.history.HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) } just Runs
+        coEvery { com.groq.voicetyper.history.HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) } returns true
 
         mockkObject(com.groq.voicetyper.dictionary.DictionaryTextPostProcessor)
         every { com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(any(), any()) } answers { secondArg() }

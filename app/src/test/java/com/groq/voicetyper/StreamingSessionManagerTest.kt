@@ -71,7 +71,7 @@ class StreamingSessionManagerTest {
         every { DictionaryTextPostProcessor.process(any(), any()) } answers { secondArg() }
 
         mockkObject(HistoryRepository)
-        coEvery { HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) } just Runs
+        coEvery { HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) } returns true
 
         mockkObject(CommandProcessor)
 

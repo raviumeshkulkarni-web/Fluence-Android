@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="sharedpref" path="groq_voice_typer_secure_prefs.xml"/>
+    <exclude domain="sharedpref" path="fluence_sync_secure_prefs.xml"/>
     <exclude domain="database" path="fluence_database"/>
     <exclude domain="file" path="updates"/>
     <exclude domain="file" path="sensevoice_v2"/>

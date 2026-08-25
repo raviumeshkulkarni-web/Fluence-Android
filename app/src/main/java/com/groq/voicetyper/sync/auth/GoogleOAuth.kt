@@ -1,33 +1,42 @@
 package com.groq.voicetyper.sync.auth
 
 import android.content.Context
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.Scope
-import com.groq.voicetyper.BuildConfig
+import android.content.Intent
+import android.net.Uri
+import java.io.BufferedReader
+import java.io.BufferedWriter
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
 /**
- * Android OAuth 2.0 implementation using native Google Sign-In with offline
- * server auth code exchange (spec §24 deviation note).
+ * Android OAuth 2.0 implementation using loopback PKCE (RFC 7636 S256).
+ * No secret is stored or transmitted. The desktop client ID is public
+ * (mirrors Windows flow) and the verifier is generated per sign-in.
  *
- * Uses [GoogleSignInOptions] with `requestServerAuthCode(webClientId, forceCodeForRefreshToken = true)`
- * and `requestScopes(drive.file)` to prompt the native Android account-chooser bottom sheet.
- * The resulting server auth code is exchanged at the Google token endpoint using the Web client ID
- * and Web client secret (configured from local.properties via [BuildConfig]).
- *
- * The access token is memory-only; the refresh token and account email live in encrypted prefs
- * ([SyncAuthSession]). Client secrets are never logged or committed.
+ * Uses Drive appDataFolder scope via PKCE S256 code challenge.
  */
 object GoogleOAuth {
 
-    const val DRIVE_FILE_SCOPE: String = "https://www.googleapis.com/auth/drive.file"
+    const val DESKTOP_CLIENT_ID: String = "236666538373-005rdohmcf6cgh0in10v5v8nhcc1m85k.apps.googleusercontent.com"
+    const val DRIVE_APPDATA_SCOPE: String = "https://www.googleapis.com/auth/drive.appdata"
     const val TOKEN_ENDPOINT: String = "https://oauth2.googleapis.com/token"
-    const val USERINFO_URL: String = "https://www.googleapis.com/oauth2/v3/userinfo"
+    const val ABOUT_URL: String = "https://www.googleapis.com/drive/v3/about?fields=user"
+    const val AUTH_BASE_URL: String = "https://accounts.google.com/o/oauth2/v2/auth"
 
     const val CONNECT_TIMEOUT_SECS: Long = 8
     const val READ_TIMEOUT_SECS: Long = 30
@@ -36,21 +45,6 @@ object GoogleOAuth {
         .connectTimeout(CONNECT_TIMEOUT_SECS, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT_SECS, java.util.concurrent.TimeUnit.SECONDS)
         .build()
-
-    fun buildGoogleSignInOptions(
-        webClientId: String = BuildConfig.OAUTH_WEB_CLIENT_ID
-    ): GoogleSignInOptions =
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestServerAuthCode(webClientId, /* forceCodeForRefreshToken = */ true)
-            .requestScopes(Scope(DRIVE_FILE_SCOPE))
-            .requestEmail()
-            .build()
-
-    fun getGoogleSignInClient(
-        context: Context,
-        webClientId: String = BuildConfig.OAUTH_WEB_CLIENT_ID
-    ): GoogleSignInClient =
-        GoogleSignIn.getClient(context, buildGoogleSignInOptions(webClientId))
 
     /** The outcome of a successful token exchange. */
     data class TokenResponse(
@@ -61,7 +55,6 @@ object GoogleOAuth {
     )
 
     sealed class AuthError(message: String) : Exception(message) {
-        class MissingClientSecret(message: String = "set oauth.web.client.secret in local.properties") : AuthError(message)
         class Network(message: String) : AuthError(message)
         class Http(val status: Int, message: String) : AuthError(message)
         object BadResponse : AuthError("malformed token response")
@@ -82,51 +75,128 @@ object GoogleOAuth {
         return TokenResponse(accessToken = access, refreshToken = refresh, expiresInSecs = expires)
     }
 
-    /** Extract the account key (email) from the Google userinfo response. */
-    fun parseAccountEmail(json: String): String? {
+    /** Extract the account key (email) from the Drive about response. */
+    fun parseAboutEmail(json: String): String? {
         val value = runCatching { JSONObject(json) }.getOrNull() ?: return null
-        val email = value.optString("email", "").trim()
+        val user = value.optJSONObject("user") ?: return null
+        val email = user.optString("emailAddress", "").trim()
         return email.ifEmpty { null }
     }
 
-    /** Exchange the server auth code for access + refresh tokens. */
-    fun exchangeServerAuthCode(
-        client: OkHttpClient,
-        serverAuthCode: String,
-        webClientId: String = BuildConfig.OAUTH_WEB_CLIENT_ID,
-        webClientSecret: String = BuildConfig.OAUTH_WEB_CLIENT_SECRET,
-        tokenEndpoint: String = TOKEN_ENDPOINT,
-    ): TokenResponse {
-        if (webClientSecret.isBlank()) {
-            throw AuthError.MissingClientSecret("set oauth.web.client.secret in local.properties")
-        }
-        val body = FormBody.Builder()
+    /** Legacy helper kept for compatibility: extract email from userinfo style JSON. */
+    fun parseAccountEmail(json: String): String? {
+        val value = runCatching { JSONObject(json) }.getOrNull() ?: return null
+        val email = value.optString("email", "").trim()
+        if (email.isNotEmpty()) return email
+        // Fallback to about-style if present
+        return parseAboutEmail(json)
+    }
+
+    // PKCE (RFC 7636 S256) — same as Windows auth.rs
+    fun pkceVerifier(): String {
+        val rnd = SecureRandom()
+        val bytes = ByteArray(32)
+        rnd.nextBytes(bytes)
+        return base64UrlNoPad(bytes)
+    }
+
+    fun pkceS256(verifier: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(verifier.toByteArray(Charsets.US_ASCII))
+        return base64UrlNoPad(hash)
+    }
+
+    private fun base64UrlNoPad(b: ByteArray): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(b)
+
+    fun buildAuthorizationUrl(redirectUri: String, state: String, challenge: String): String {
+        val scopeEncoded = URLEncoder.encode(DRIVE_APPDATA_SCOPE, "UTF-8")
+        val redirectEncoded = URLEncoder.encode(redirectUri, "UTF-8")
+        return "$AUTH_BASE_URL?response_type=code&client_id=$DESKTOP_CLIENT_ID&scope=$scopeEncoded&redirect_uri=$redirectEncoded&prompt=select_account&state=$state&code_challenge=$challenge&code_challenge_method=S256"
+    }
+
+    internal fun exchangeCodeForm(code: String, verifier: String, redirectUri: String): FormBody =
+        FormBody.Builder()
             .add("grant_type", "authorization_code")
-            .add("client_id", webClientId)
-            .add("client_secret", webClientSecret)
-            .add("code", serverAuthCode)
+            .add("client_id", DESKTOP_CLIENT_ID)
+            .add("code", code)
+            .add("code_verifier", verifier)
+            .add("redirect_uri", redirectUri)
             .build()
-        return postTokenRequest(client, body, tokenEndpoint)
+
+    internal fun refreshForm(refreshToken: String): FormBody =
+        FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refreshToken)
+            .add("client_id", DESKTOP_CLIENT_ID)
+            .build()
+
+    suspend fun signInWithLoopback(context: Context): TokenResponse = withContext(Dispatchers.IO) {
+        var serverSocket: ServerSocket? = null
+        try {
+            serverSocket = ServerSocket()
+            serverSocket.reuseAddress = true
+            serverSocket.bind(InetSocketAddress("127.0.0.1", 0))
+            val redirectUri = "http://127.0.0.1:${serverSocket.localPort}"
+            val state = UUID.randomUUID().toString()
+            val verifier = pkceVerifier()
+            val challenge = pkceS256(verifier)
+            val authUrl = buildAuthorizationUrl(redirectUri, state, challenge)
+            withContext(Dispatchers.Main) {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }
+            val (code, returnedState) = withTimeout(300_000L) {
+                serverSocket.accept().use { socket ->
+                    val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
+                    val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream()))
+                    val requestLine = reader.readLine() ?: throw AuthError.BadResponse
+                    // Consume headers until blank line
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null && line!!.isNotEmpty()) {
+                        // skip
+                    }
+                    val path = requestLine.split(" ").getOrNull(1) ?: throw AuthError.BadResponse
+                    val query = path.substringAfter("?", "")
+                    val params = query.split("&").mapNotNull {
+                        if (it.isEmpty()) return@mapNotNull null
+                        val kv = it.split("=", limit = 2)
+                        if (kv.size == 2) {
+                            val k = URLDecoder.decode(kv[0], "UTF-8")
+                            val v = URLDecoder.decode(kv[1], "UTF-8")
+                            k to v
+                        } else null
+                    }.toMap()
+                    val c = params["code"]
+                    val s = params["state"]
+                    val body = "Sign-in complete \u2014 you can close this window."
+                    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+                    val response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ${bodyBytes.size}\r\nConnection: close\r\n\r\n$body"
+                    writer.write(response)
+                    writer.flush()
+                    Pair(c, s)
+                }
+            }
+            if (code == null) throw AuthError.BadResponse
+            if (returnedState != state) throw AuthError.Http(400, "state mismatch")
+            val client = newHttpClient()
+            val form = exchangeCodeForm(code, verifier, redirectUri)
+            return@withContext postTokenRequest(client, form, TOKEN_ENDPOINT)
+        } finally {
+            runCatching { serverSocket?.close() }
+        }
     }
 
     /** Refresh the access token with the stored refresh token. */
     fun refreshAccessToken(
         client: OkHttpClient,
         refreshToken: String,
-        webClientId: String = BuildConfig.OAUTH_WEB_CLIENT_ID,
-        webClientSecret: String = BuildConfig.OAUTH_WEB_CLIENT_SECRET,
         tokenEndpoint: String = TOKEN_ENDPOINT,
     ): TokenResponse {
-        if (webClientSecret.isBlank()) {
-            throw AuthError.MissingClientSecret("set oauth.web.client.secret in local.properties")
-        }
-        val body = FormBody.Builder()
-            .add("grant_type", "refresh_token")
-            .add("refresh_token", refreshToken)
-            .add("client_id", webClientId)
-            .add("client_secret", webClientSecret)
-            .build()
-        return postTokenRequest(client, body, tokenEndpoint)
+        val form = refreshForm(refreshToken)
+        return postTokenRequest(client, form, tokenEndpoint)
     }
 
     private fun postTokenRequest(client: OkHttpClient, body: FormBody, tokenEndpoint: String): TokenResponse {
@@ -150,10 +220,10 @@ object GoogleOAuth {
     fun fetchAccountEmail(
         client: OkHttpClient,
         accessToken: String,
-        userinfoUrl: String = USERINFO_URL,
+        aboutUrl: String = ABOUT_URL,
     ): String {
         val request = Request.Builder()
-            .url(userinfoUrl)
+            .url(aboutUrl)
             .header("Authorization", "Bearer $accessToken")
             .build()
         val response = runCatching { client.newCall(request).execute() }
@@ -164,7 +234,7 @@ object GoogleOAuth {
             if (!it.isSuccessful) {
                 throw AuthError.Http(it.code, "account lookup failed (HTTP ${it.code})")
             }
-            return parseAccountEmail(text) ?: throw AuthError.BadResponse
+            return parseAboutEmail(text) ?: throw AuthError.BadResponse
         }
     }
 }

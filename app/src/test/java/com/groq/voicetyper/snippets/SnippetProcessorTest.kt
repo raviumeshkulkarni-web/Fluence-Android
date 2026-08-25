@@ -299,9 +299,11 @@ class SnippetProcessorTest {
         assertEquals(SnippetPreferences.SaveResult.UPDATED, SnippetPreferences.saveSnippet(context, "my GitHub", "hub", id = 2))
         val snippets = SnippetPreferences.loadSnippets(context)
         assertEquals(2, snippets.size)
+        // Frozen v1.2: an edit updates the row in place (identity preserved,
+        // updatedAt bumped) instead of tombstone-and-recreate.
         assertEquals(listOf("my linkedin", "my GitHub"), snippets.map { it.trigger })
         assertEquals("hub", snippets.first { it.trigger == "my GitHub" }.expansion)
-        assertEquals(3L, snippets.first { it.trigger == "my GitHub" }.id)
+        assertEquals(2L, snippets.first { it.trigger == "my GitHub" }.id)
     }
 
     @Test
@@ -311,11 +313,11 @@ class SnippetProcessorTest {
         assertEquals(SnippetPreferences.SaveResult.PRESERVED, SnippetPreferences.saveSnippet(context, "my linkedin", "  "))
         assertEquals(
             SnippetPreferences.SaveResult.PRESERVED,
-            SnippetPreferences.saveSnippet(context, "x".repeat(101), "url")
+            SnippetPreferences.saveSnippet(context, "x".repeat(4097), "url")
         )
         assertEquals(
             SnippetPreferences.SaveResult.PRESERVED,
-            SnippetPreferences.saveSnippet(context, "my linkedin", "x".repeat(501))
+            SnippetPreferences.saveSnippet(context, "my linkedin", "x".repeat(8193))
         )
         assertEquals(emptyList<Snippet>(), SnippetPreferences.loadSnippets(context))
     }

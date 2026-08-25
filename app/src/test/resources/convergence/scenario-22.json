@@ -1,0 +1,611 @@
+{
+  "name": "s22",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "default",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "34048484-d47a-482b-a527-9301bc666782",
+        "spoken": "teh",
+        "corrected": "test",
+        "isEnabled": true,
+        "updatedAt": 1713466550052,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "130f2072-19fb-4445-b289-4b97d2bb78b1",
+        "spoken": "привет",
+        "corrected": "😀-test fixed",
+        "isEnabled": true,
+        "updatedAt": 1713469009752,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 0,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "f36cce2d-78b6-4409-a4af-b024db20754a",
+        "trigger": "g2g",
+        "expansion": "😀 expansion with emoji",
+        "isEnabled": false,
+        "updatedAt": 1713468611826,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "93ba741d-54d6-4760-b265-cebd31899e57",
+        "spoken": "gonna",
+        "corrected": "as soon as possible",
+        "isEnabled": true,
+        "updatedAt": 1713466294387,
+        "deviceId": "dev-a",
+        "deletedAt": 1713466294387
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "eb68ff4a-8ef1-439f-afcf-0af12f9c3862",
+        "spoken": "gonna",
+        "corrected": "going to - old",
+        "isEnabled": true,
+        "updatedAt": 1713465002200,
+        "deviceId": "dev-a",
+        "deletedAt": 1713465002200
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "6f858207-1548-4194-8dcb-29806cb550c6",
+        "day": "2026-06-15",
+        "timestampMs": 1781492022179,
+        "words": 496,
+        "chars": 2480,
+        "durationMs": 106323
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "37cd4e8e-19db-4b2d-a4ed-29c0fc8f4f65",
+        "day": "2026-01-01",
+        "timestampMs": 1787184022000,
+        "words": 36,
+        "chars": 180,
+        "durationMs": 29833
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "ai_polish_style",
+        "value": "translate",
+        "updatedAt": 1789999923912,
+        "deviceId": "dev-a"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "f4537a77-16cc-4ac9-b251-810bf7f3025d",
+        "spoken": "  github",
+        "corrected": "Namaste",
+        "isEnabled": false,
+        "updatedAt": 1713470431894,
+        "deviceId": "dev-a",
+        "deletedAt": 1713470431894
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "64d78bd1-1de4-4079-b79d-8ff77c55998a",
+        "spoken": "TEH",
+        "corrected": "edited-live",
+        "isEnabled": true,
+        "updatedAt": 1713470000220,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "5dc7f7df-2a65-4e4b-ad27-c6e5f117e10b",
+        "trigger": "BRB ",
+        "expansion": "123 Example Street, Springfield",
+        "isEnabled": false,
+        "updatedAt": 1713468737306,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "1ef9a6db-fb4e-4bc5-91d7-0def8581e460",
+        "spoken": "Afternoon ",
+        "corrected": "afternoon",
+        "isEnabled": true,
+        "updatedAt": 1713467588522,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "f314edb4-bad2-4780-9d34-8536caaeddcc",
+        "trigger": "नमस्ते",
+        "expansion": "Got to go",
+        "isEnabled": true,
+        "updatedAt": 1713468001625,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "051bed39-09be-41e0-846c-f52f8d5287d8",
+        "spoken": "GONNA",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469714935,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "b34d591b-0a3c-4c83-a6d3-093c089304f6",
+        "spoken": "😀-Test ",
+        "corrected": "😀-test fixed",
+        "isEnabled": true,
+        "updatedAt": 1713468846002,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "75d5fb39-199f-4cf9-a38d-2b008a8f6ab2",
+        "spoken": " AFTERNOON",
+        "corrected": "coffee",
+        "isEnabled": true,
+        "updatedAt": 1713468108513,
+        "deviceId": "dev-a",
+        "deletedAt": null
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "da9a1b50-3d70-4a38-b2de-930cd0de8220",
+        "spoken": "gitHub ",
+        "corrected": "  keep   internal spaces\tand tabs ",
+        "isEnabled": true,
+        "updatedAt": 1713466941144,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "79d3ad2e-6448-4e62-8863-29dc06bee3d1",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000220,
+        "deviceId": "dev-b",
+        "deletedAt": 1713470000220
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "f9644172-da13-47a9-8312-8b71f70844ca",
+        "trigger": "sig ",
+        "expansion": "Got to go",
+        "isEnabled": false,
+        "updatedAt": 1713470216880,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "272f1fc9-1c44-40dd-9963-c95b2027fc60",
+        "spoken": "ПРИВЕТ",
+        "corrected": "example",
+        "isEnabled": true,
+        "updatedAt": 1713469009039,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "6dbbc6a7-b11e-43d7-8e05-82a255e51ef2",
+        "day": "2026-03-03",
+        "timestampMs": 1772515063980,
+        "words": 232,
+        "chars": 928,
+        "durationMs": 29895
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "37cd4e8e-19db-4b2d-a4ed-29c0fc8f4f65",
+        "day": "2026-01-01",
+        "timestampMs": 1787184022000,
+        "words": 36,
+        "chars": 180,
+        "durationMs": 29833
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "b6c2e959-6dd2-46c8-87f9-2d415ca163d6",
+        "day": "2026-08-21",
+        "timestampMs": 1787344569364,
+        "words": 408,
+        "chars": 1224,
+        "durationMs": 35371
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "2fa562f1-0f7f-4114-b387-1c27694ada26",
+        "spoken": "नमस्ते ",
+        "corrected": "coffee",
+        "isEnabled": false,
+        "updatedAt": 1713467239935,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "ddb70c72-3e3e-49ef-b98c-3bdab2c3be37",
+        "spoken": "gonna",
+        "corrected": "going to - recreated",
+        "isEnabled": true,
+        "updatedAt": 1713465007200,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "26248147-5083-40ff-8023-6551d543e1a0",
+        "day": "2026-07-10",
+        "timestampMs": 1783645525392,
+        "words": 266,
+        "chars": 1330,
+        "durationMs": 72871
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "dfbec94a-2018-4ae5-89a8-e2a7193b5738",
+        "spoken": " 😀-test",
+        "corrected": "thank you",
+        "isEnabled": true,
+        "updatedAt": 499,
+        "deviceId": "dev-b",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 1790000000133,
+        "deviceId": "dev-b"
+      },
+      {
+        "kind": "stat",
+        "op": "put",
+        "eventId": "f775a279-20ea-4a5d-83a7-6afbcd9a1f7a",
+        "day": "2026-08-20",
+        "timestampMs": 1787193358032,
+        "words": 417,
+        "chars": 1668,
+        "durationMs": 119996
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1789999972747,
+        "deviceId": "dev-c"
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "abee343d-da67-42b1-bcdc-bbc7f0959bef",
+        "spoken": "teh ",
+        "corrected": "Namaste",
+        "isEnabled": true,
+        "updatedAt": 1713467641054,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "4fdb4e5a-24a9-47ea-8025-c52e134e3e48",
+        "spoken": "GitHub",
+        "corrected": "hello",
+        "isEnabled": false,
+        "updatedAt": 1713469855269,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "ef65898d-e307-4840-b266-e5374f752867",
+        "spoken": "  привет  ",
+        "corrected": "Corrected Text",
+        "isEnabled": true,
+        "updatedAt": 1713469005435,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "bbd71ed0-62e3-4604-b36a-544c21efe30a",
+        "spoken": "THANKS ",
+        "corrected": "hello",
+        "isEnabled": true,
+        "updatedAt": 182,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "face9694-c7b4-4f70-8b2d-c430158e6516",
+        "spoken": "teh ",
+        "corrected": "afternoon",
+        "isEnabled": true,
+        "updatedAt": 1713466464338,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "d560a479-63c2-4c0c-a569-5fac5a07eabb",
+        "trigger": "  brb  ",
+        "expansion": "привет expansion",
+        "isEnabled": true,
+        "updatedAt": 1713468896855,
+        "deviceId": "dev-c",
+        "deletedAt": null
+      },
+      {
+        "kind": "set",
+        "op": "put",
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 1789999995115,
+        "deviceId": "dev-c"
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "75d5fb39-199f-4cf9-a38d-2b008a8f6ab2",
+        "businessKey": "afternoon",
+        "spoken": " AFTERNOON",
+        "corrected": "coffee",
+        "isEnabled": true,
+        "updatedAt": 1713468108513,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "f4537a77-16cc-4ac9-b251-810bf7f3025d",
+        "businessKey": "github",
+        "spoken": "  github",
+        "corrected": "Namaste",
+        "isEnabled": false,
+        "updatedAt": 1713470431894,
+        "deletedAt": 1713470431894,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "051bed39-09be-41e0-846c-f52f8d5287d8",
+        "businessKey": "gonna",
+        "spoken": "GONNA",
+        "corrected": "going to",
+        "isEnabled": true,
+        "updatedAt": 1713469714935,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "79d3ad2e-6448-4e62-8863-29dc06bee3d1",
+        "businessKey": "teh",
+        "spoken": "teh",
+        "corrected": "the",
+        "isEnabled": true,
+        "updatedAt": 1713470000220,
+        "deletedAt": 1713470000220,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "bbd71ed0-62e3-4604-b36a-544c21efe30a",
+        "businessKey": "thanks",
+        "spoken": "THANKS ",
+        "corrected": "hello",
+        "isEnabled": true,
+        "updatedAt": 182,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "130f2072-19fb-4445-b289-4b97d2bb78b1",
+        "businessKey": "привет",
+        "spoken": "привет",
+        "corrected": "😀-test fixed",
+        "isEnabled": true,
+        "updatedAt": 1713469009752,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "2fa562f1-0f7f-4114-b387-1c27694ada26",
+        "businessKey": "नमस्ते",
+        "spoken": "नमस्ते ",
+        "corrected": "coffee",
+        "isEnabled": false,
+        "updatedAt": 1713467239935,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "b34d591b-0a3c-4c83-a6d3-093c089304f6",
+        "businessKey": "😀-test",
+        "spoken": "😀-Test ",
+        "corrected": "😀-test fixed",
+        "isEnabled": true,
+        "updatedAt": 1713468846002,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "d560a479-63c2-4c0c-a569-5fac5a07eabb",
+        "businessKey": "brb",
+        "trigger": "  brb  ",
+        "expansion": "привет expansion",
+        "isEnabled": true,
+        "updatedAt": 1713468896855,
+        "deletedAt": null,
+        "deviceId": "dev-c"
+      },
+      {
+        "syncId": "f36cce2d-78b6-4409-a4af-b024db20754a",
+        "businessKey": "g2g",
+        "trigger": "g2g",
+        "expansion": "😀 expansion with emoji",
+        "isEnabled": false,
+        "updatedAt": 1713468611826,
+        "deletedAt": null,
+        "deviceId": "dev-a"
+      },
+      {
+        "syncId": "f9644172-da13-47a9-8312-8b71f70844ca",
+        "businessKey": "sig",
+        "trigger": "sig ",
+        "expansion": "Got to go",
+        "isEnabled": false,
+        "updatedAt": 1713470216880,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      },
+      {
+        "syncId": "f314edb4-bad2-4780-9d34-8536caaeddcc",
+        "businessKey": "नमस्ते",
+        "trigger": "नमस्ते",
+        "expansion": "Got to go",
+        "isEnabled": true,
+        "updatedAt": 1713468001625,
+        "deletedAt": null,
+        "deviceId": "dev-b"
+      }
+    ],
+    "settings": [
+      {
+        "key": "ai_polish_style",
+        "value": "translate",
+        "updatedAt": 1789999923912,
+        "deviceId": "dev-a"
+      },
+      {
+        "key": "auto_learn_enabled",
+        "value": "true",
+        "updatedAt": 1790000000133,
+        "deviceId": "dev-b"
+      },
+      {
+        "key": "snippets_enabled",
+        "value": "false",
+        "updatedAt": 1789999972747,
+        "deviceId": "dev-c"
+      }
+    ],
+    "stats": [
+      {
+        "eventId": "37cd4e8e-19db-4b2d-a4ed-29c0fc8f4f65",
+        "day": "2026-01-01",
+        "timestampMs": 1787184022000,
+        "words": 36,
+        "chars": 180,
+        "durationMs": 29833
+      },
+      {
+        "eventId": "6dbbc6a7-b11e-43d7-8e05-82a255e51ef2",
+        "day": "2026-03-03",
+        "timestampMs": 1772515063980,
+        "words": 232,
+        "chars": 928,
+        "durationMs": 29895
+      },
+      {
+        "eventId": "6f858207-1548-4194-8dcb-29806cb550c6",
+        "day": "2026-06-15",
+        "timestampMs": 1781492022179,
+        "words": 496,
+        "chars": 2480,
+        "durationMs": 106323
+      },
+      {
+        "eventId": "26248147-5083-40ff-8023-6551d543e1a0",
+        "day": "2026-07-10",
+        "timestampMs": 1783645525392,
+        "words": 266,
+        "chars": 1330,
+        "durationMs": 72871
+      },
+      {
+        "eventId": "f775a279-20ea-4a5d-83a7-6afbcd9a1f7a",
+        "day": "2026-08-20",
+        "timestampMs": 1787193358032,
+        "words": 417,
+        "chars": 1668,
+        "durationMs": 119996
+      },
+      {
+        "eventId": "b6c2e959-6dd2-46c8-87f9-2d415ca163d6",
+        "day": "2026-08-21",
+        "timestampMs": 1787344569364,
+        "words": 408,
+        "chars": 1224,
+        "durationMs": 35371
+      }
+    ]
+  }
+}
