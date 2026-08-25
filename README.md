@@ -4,7 +4,7 @@
 
 [![Build Android APK](https://github.com/raviumeshkulkarni-web/Fluence/actions/workflows/build.yml/badge.svg)](https://github.com/raviumeshkulkarni-web/Fluence/actions/workflows/build.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/raviumeshkulkarni-web/Fluence?color=blue)](https://github.com/raviumeshkulkarni-web/Fluence/releases)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%20API%2026%2B-brightgreen.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9.23-orange.svg)](https://kotlinlang.org)
 
@@ -156,4 +156,7 @@ sequenceDiagram
 ---
 
 ## 📄 License
-This project is open-source and licensed under the [Apache License 2.0](LICENSE).
+
+Fluence is licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only).
+
+See the [LICENSE](LICENSE) file for the complete license text.
