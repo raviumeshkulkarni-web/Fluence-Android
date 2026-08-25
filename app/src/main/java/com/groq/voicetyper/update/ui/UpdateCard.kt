@@ -93,13 +93,13 @@ fun AboutAndUpdateCard(
             ) {
                 Text("Latest Version", color = TextSecondary, style = FluenceTypography.bodyMedium)
                 val statusText = when (state) {
-                    is UpdateState.Checking -> "Checking..."
+                    is UpdateState.Checking -> "Checking…"
                     is UpdateState.UpdateAvailable -> {
                         val meta = (state as UpdateState.UpdateAvailable).metadata
                         "v${meta.versionName} available"
                     }
                     is UpdateState.UpToDate -> "Up to date (${BuildConfig.VERSION_NAME})"
-                    is UpdateState.Downloading -> "Downloading..."
+                    is UpdateState.Downloading -> "Downloading…"
                     is UpdateState.ReadyToInstall -> "Ready to install"
                     is UpdateState.Error -> "Check failed — tap to retry"
                     else -> "Up to date (${BuildConfig.VERSION_NAME})"
@@ -196,7 +196,7 @@ fun AboutAndUpdateCard(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Checking...", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Checking…", color = TextPrimary, fontWeight = FontWeight.Bold)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,

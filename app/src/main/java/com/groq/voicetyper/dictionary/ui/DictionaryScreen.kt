@@ -47,6 +47,9 @@ fun DictionaryScreen(
     var isEnabled by remember { mutableStateOf(DictionaryPreferences.isDictionaryEnabled(context)) }
     var isAutoLearnEnabled by remember { mutableStateOf(AutoLearnPreferences.isAutoLearnEnabled(context)) }
     val entries by remember(context) { DictionaryRepository.getAll(context) }.collectAsState(initial = emptyList())
+    // Quarantined rows are sync bookkeeping (latched collisions) with no in-app
+    // resolution flow; they are never applied, so hide them from the user list.
+    val visibleEntries = entries.filter { it.quarantineReason == null }
 
     var showDialog by remember { mutableStateOf(false) }
     var entryToEdit by remember { mutableStateOf<CustomDictionaryEntry?>(null) }
@@ -104,7 +107,7 @@ fun DictionaryScreen(
                         checkedThumbColor = Panel,
                         checkedTrackColor = TextPrimary,
                         uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = PanelElevated
+                        uncheckedTrackColor = Panel
                     )
                 )
             }
@@ -166,7 +169,7 @@ fun DictionaryScreen(
                             checkedThumbColor = Panel,
                             checkedTrackColor = TextPrimary,
                             uncheckedThumbColor = TextPrimary,
-                            uncheckedTrackColor = Canvas
+                            uncheckedTrackColor = Panel
                         )
                     )
                 }
@@ -177,7 +180,7 @@ fun DictionaryScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            if (entries.isEmpty()) {
+            if (visibleEntries.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -204,7 +207,7 @@ fun DictionaryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(
-                        items = entries,
+                        items = visibleEntries,
                         key = { it.id }
                     ) { entry ->
                         DictionaryEntryCard(
@@ -344,7 +347,7 @@ private fun DictionaryEntryCard(
                     checkedThumbColor = Panel,
                     checkedTrackColor = TextPrimary,
                     uncheckedThumbColor = TextPrimary,
-                    uncheckedTrackColor = PanelElevated
+                    uncheckedTrackColor = Panel
                 )
             )
 
@@ -400,7 +403,7 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = InputBg,
                         unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextPrimary,
+                        focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
@@ -422,7 +425,7 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = InputBg,
                         unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextPrimary,
+                        focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,

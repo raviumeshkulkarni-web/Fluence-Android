@@ -194,7 +194,7 @@ fun TranscriptionDetailSheet(
                                     }
                                 }
                             ) {
-                                Text("Delete", color = Error)
+                                Text("Delete", color = ErrorText)
                             }
                         },
                         dismissButton = {

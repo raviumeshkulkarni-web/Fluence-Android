@@ -65,7 +65,7 @@ private fun ApiKeySection(
     OutlinedTextField(
         value = apiKey,
         onValueChange = onApiKeyChange,
-        placeholder = { Text(placeholder, color = TextDisabled) },
+        placeholder = { Text(placeholder, color = TextSecondary) },
         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = TextPrimary,
@@ -417,7 +417,7 @@ fun SttConfigScreen(
                 ) {
                     CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Fetching models...", color = TextSecondary, fontSize = 13.sp)
+                    Text("Fetching models…", color = TextSecondary, fontSize = 13.sp)
                 }
             } else {
                 var showModelDropdown by remember { mutableStateOf(false) }
@@ -647,7 +647,7 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customApiKey,
                     onValueChange = { customApiKey = it.trim() },
-                    placeholder = { Text("API Key", color = TextDisabled) },
+                    placeholder = { Text("API Key", color = TextSecondary) },
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
@@ -676,7 +676,7 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customBaseUrl,
                     onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("https://api.example.com/v1", color = TextDisabled) },
+                    placeholder = { Text("https://api.example.com/v1", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -696,7 +696,7 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customModel,
                     onValueChange = { customModel = it.trim() },
-                    placeholder = { Text("whisper-large-v3", color = TextDisabled) },
+                    placeholder = { Text("whisper-large-v3", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,

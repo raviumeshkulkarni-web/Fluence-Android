@@ -311,7 +311,7 @@ fun OfflineConfigScreen(
                 }
             } else if (modelVerifying) {
                 Text(
-                    text = "Verifying model integrity...",
+                    text = "Verifying model integrity…",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
@@ -349,7 +349,7 @@ fun OfflineConfigScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = if (downloadProgress.state == ModelAssetManager.DownloadState.VERIFYING) "Verifying..." else "Downloading...",
+                                text = if (downloadProgress.state == ModelAssetManager.DownloadState.VERIFYING) "Verifying…" else "Downloading…",
                                 color = TextPrimary,
                                 fontSize = 14.sp
                             )
@@ -491,7 +491,7 @@ fun OfflineConfigScreen(
                 }
             } else if (moonshineVerifying) {
                 Text(
-                    text = "Verifying model integrity...",
+                    text = "Verifying model integrity…",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
@@ -529,7 +529,7 @@ fun OfflineConfigScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.VERIFYING) "Verifying..." else "Downloading...",
+                                text = if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.VERIFYING) "Verifying…" else "Downloading…",
                                 color = TextPrimary,
                                 fontSize = 14.sp
                             )

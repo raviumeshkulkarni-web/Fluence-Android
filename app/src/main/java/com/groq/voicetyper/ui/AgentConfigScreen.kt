@@ -206,7 +206,7 @@ fun AgentConfigScreen(
                 onValueChange = {
                     apiKey = it
                 },
-                placeholder = { Text("Enter your API key", color = TextDisabled) },
+                placeholder = { Text("Enter your API key", color = TextSecondary) },
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = TextPrimary,
@@ -244,7 +244,7 @@ fun AgentConfigScreen(
                 OutlinedTextField(
                     value = model,
                     onValueChange = { model = it },
-                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = TextDisabled) },
+                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -271,7 +271,7 @@ fun AgentConfigScreen(
                 OutlinedTextField(
                     value = customBaseUrl,
                     onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("e.g. https://api.example.com", color = TextDisabled) },
+                    placeholder = { Text("e.g. https://api.example.com", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -293,7 +293,7 @@ fun AgentConfigScreen(
                     ) {
                         CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Fetching models...", color = TextSecondary, fontSize = 13.sp)
+                        Text("Fetching models…", color = TextSecondary, fontSize = 13.sp)
                     }
                 } else {
                     var showModelDropdown by remember { mutableStateOf(false) }

@@ -1,6 +1,6 @@
 package com.groq.voicetyper.theme
 
-import android.view.accessibility.AccessibilityManager
+import android.provider.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -36,6 +36,7 @@ data class PrecisionColors(
     val success: Color,
     val warning: Color,
     val error: Color,
+    val errorText: Color,
 )
 
 val LocalPrecisionColors = staticCompositionLocalOf {
@@ -57,6 +58,7 @@ val LocalPrecisionColors = staticCompositionLocalOf {
         success = Success,
         warning = Warning,
         error = Error,
+        errorText = ErrorText,
     )
 }
 
@@ -128,12 +130,22 @@ fun FluenceTranscribeTheme(
         success = Success,
         warning = Warning,
         error = Error,
+        errorText = ErrorText,
     )
 
     val context = LocalContext.current
     val motionPrefs = remember {
-        val am = context.getSystemService(AccessibilityManager::class.java)
-        MotionPreferences(reducedMotion = am?.isTouchExplorationEnabled == true)
+        // Reduced-motion signal: the system "remove animations" accessibility
+        // toggle zeroes ANIMATOR_DURATION_SCALE (TalkBack must NOT flip this
+        // flag — touch exploration is a different need). DESIGN_SYSTEM.md:
+        // reduced-motion preferences must be respected everywhere.
+        MotionPreferences(
+            reducedMotion = Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) == 0f
+        )
     }
 
     CompositionLocalProvider(

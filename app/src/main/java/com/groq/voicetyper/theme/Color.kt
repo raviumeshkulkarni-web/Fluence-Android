@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
 
 // ── Surface Hierarchy ───────────────────────────────────────────────────────
 val Canvas         = Color(0xFF121212)
-val AppBackground  = Canvas
+val AppBackground  = Color(0xFF0D0D0D) // spec/Windows app background; Canvas untouched
 val Sidebar        = Color(0xFF141414)
 val Panel          = Color(0xFF1E1E1E)
 val PanelElevated  = Color(0xFF262626)
@@ -47,6 +47,11 @@ val ImePillBgActive  = Color(0xB2131319)
 val Success        = Color(0xFF22C55E)
 val Warning        = Color(0xFFF59E0B)
 val Error          = Color(0xFFEF4444)
+
+// Error-colored TEXT on elevated surfaces (Panel/Dialog/DialogElevated) —
+// holds WCAG AA ≥4.5:1 there (4.91:1 on Dialog #2E2E2E). Error remains the
+// tone for icons, containers, indicators. See DESIGN_SYSTEM.md 2026-08-25.
+val ErrorText      = Color(0xFFF87171)
 
 // ── Code Block Surface ──────────────────────────────────────────────────────
 val CodeBlock       = Color(0xFF181818)

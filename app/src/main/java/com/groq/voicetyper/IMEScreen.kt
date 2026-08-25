@@ -183,7 +183,7 @@ fun IMEScreen(
     }
 
     val statusText = when (recordingState) {
-        RecordingState.IDLE -> if (isOfflineReady && isOfflineMode) "Ready (offline)" else if (apiKey.isNullOrBlank()) "API KEY REQUIRED" else "Ready"
+        RecordingState.IDLE -> if (isOfflineReady && isOfflineMode) "Ready (offline)" else if (apiKey.isNullOrBlank()) "API key required" else "Ready"
         RecordingState.RECORDING -> {
             if (isAgentMode) {
                 "AI Command Mode... ($timeText)"
@@ -195,7 +195,7 @@ fun IMEScreen(
                 "Listening... ($timeText)"
             }
         }
-        RecordingState.TRANSCRIBING -> "Transcribing..."
+        RecordingState.TRANSCRIBING -> "Transcribing…"
         RecordingState.ERROR -> errorMessage ?: "ERROR"
     }
 

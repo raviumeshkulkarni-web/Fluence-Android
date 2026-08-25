@@ -115,6 +115,11 @@ private fun SettingsRow(
 
 @Composable
 private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
+    // Reduced motion: render rows in final state — no fade/slide, no stagger.
+    if (LocalMotionPreferences.current.reducedMotion) {
+        content()
+        return
+    }
     val state = remember { MutableTransitionState(false).apply { targetState = true } }
     AnimatedVisibility(
         visibleState = state,

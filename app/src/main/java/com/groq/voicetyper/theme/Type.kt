@@ -3,47 +3,55 @@ package com.groq.voicetyper.theme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.R
 
-// ── Google Fonts Provider ───────────────────────────────────────────────────
-val fontProvider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
+// ── Bundled Variable Fonts ──────────────────────────────────────────────────
+// The brand fonts ship inside the APK (app/src/main/res/font) so text renders
+// correctly on first run, offline, and on de-Googled devices — no Google Fonts
+// provider round-trip. Licenses live in docs/fonts/OFL-*.txt.
+// Each family pins the single variable TTF to named instances via
+// FontVariation.weight. Keep the registered weights aligned with what the
+// type scale below actually requests.
+@OptIn(ExperimentalTextApi::class)
+private fun bundledVariableFont(resId: Int, weight: FontWeight): Font = Font(
+    resId = resId,
+    weight = weight,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight))
 )
 
 // ── Font Families ───────────────────────────────────────────────────────────
 // UI: buttons, labels, sidebar, chips, settings, editor body
 val HankenGroteskFont = FontFamily(
-    Font(googleFont = GoogleFont("Hanken Grotesk"), fontProvider = fontProvider, weight = FontWeight.SemiBold),
-    Font(googleFont = GoogleFont("Hanken Grotesk"), fontProvider = fontProvider, weight = FontWeight.Medium),
-    Font(googleFont = GoogleFont("Hanken Grotesk"), fontProvider = fontProvider, weight = FontWeight.Normal),
+    bundledVariableFont(R.font.hanken_grotesk_variable, FontWeight.Normal),
+    bundledVariableFont(R.font.hanken_grotesk_variable, FontWeight.Medium),
+    bundledVariableFont(R.font.hanken_grotesk_variable, FontWeight.SemiBold),
 )
 
 // Headlines / titles / display
 val SoraFont = FontFamily(
-    Font(googleFont = GoogleFont("Sora"), fontProvider = fontProvider, weight = FontWeight.SemiBold),
-    Font(googleFont = GoogleFont("Sora"), fontProvider = fontProvider, weight = FontWeight.Medium),
-    Font(googleFont = GoogleFont("Sora"), fontProvider = fontProvider, weight = FontWeight.Normal),
+    bundledVariableFont(R.font.sora_variable, FontWeight.Normal),
+    bundledVariableFont(R.font.sora_variable, FontWeight.Medium),
+    bundledVariableFont(R.font.sora_variable, FontWeight.SemiBold),
+    bundledVariableFont(R.font.sora_variable, FontWeight.Bold),
 )
 
 // Mono: code blocks, inline code, timestamps, technical labels
 val GeistMonoFont = FontFamily(
-    Font(googleFont = GoogleFont("Geist Mono"), fontProvider = fontProvider, weight = FontWeight.Medium),
-    Font(googleFont = GoogleFont("Geist Mono"), fontProvider = fontProvider, weight = FontWeight.Normal),
+    bundledVariableFont(R.font.geist_mono_variable, FontWeight.Normal),
+    bundledVariableFont(R.font.geist_mono_variable, FontWeight.Medium),
 )
 
 // Product name script (brand artwork only — Fluence Capture / Fluence Transcribe)
 // Bundled locally so the script face is always present (no network/fallback dependency).
 val AlluraFont = FontFamily(
-    androidx.compose.ui.text.font.Font(resId = R.font.allura, weight = FontWeight.Normal),
+    Font(resId = R.font.allura, weight = FontWeight.Normal),
 )
 
 // ── CompositionLocal for mono font ──────────────────────────────────────────

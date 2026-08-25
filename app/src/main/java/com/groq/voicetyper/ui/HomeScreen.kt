@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
@@ -79,9 +80,14 @@ import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.history.DailyStat
 import com.groq.voicetyper.history.StatsCalculator
+import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -109,14 +115,15 @@ private data class DashboardStats(
     val dayLabels: List<String>
 )
 
-private fun computeDashboardStats(dailyStats: List<DailyStat>): DashboardStats {
-    val totalWords = dailyStats.sumOf { it.wordCount }.toInt()
-
+private fun computeDashboardStats(
+    dailyMap: Map<String, DayCounters>
+): DashboardStats {
+    val totalWords = dailyMap.values.sumOf { it.words }.toInt()
     val totalSavedHours = totalWords / AVG_WPM / 60.0
     val timeSaved = if (totalSavedHours < 1.0) "${(totalSavedHours * 60).toInt()}m"
         else String.format(Locale.US, "%.1fh", totalSavedHours)
 
-    val totalDictMs = dailyStats.sumOf { it.dictationMs }
+    val totalDictMs = dailyMap.values.sumOf { it.ms }
     val totalDictMinutes = totalDictMs / 60_000.0
     val dictH = totalDictMinutes.toInt() / 60
     val dictM = totalDictMinutes.toInt() % 60
@@ -145,22 +152,22 @@ private fun computeDashboardStats(dailyStats: List<DailyStat>): DashboardStats {
     }
 
     val monthStartDate = StatsCalculator.utcDateOf(StatsCalculator.utcMonthStartMs(System.currentTimeMillis()))
-    val monthWords = dailyStats.filter { it.day >= monthStartDate }.sumOf { it.wordCount }.toInt()
+    val monthWords = dailyMap.filter { it.key >= monthStartDate }.values.sumOf { it.words }.toInt()
     val monthSavedHours = monthWords / AVG_WPM / 60.0
     val monthlySaved = if (monthSavedHours < 1.0) "${(monthSavedHours * 60).toInt()}m"
         else String.format(Locale.US, "%.1fh", monthSavedHours)
 
     val weekStartDate = StatsCalculator.utcDateOf(StatsCalculator.utcWeekStartMs(System.currentTimeMillis()))
-    val weekRows = dailyStats.filter { it.day >= weekStartDate }
-    val weekWords = weekRows.sumOf { it.wordCount }.toInt()
+    val weekRows = dailyMap.filter { it.key >= weekStartDate }.values
+    val weekWords = weekRows.sumOf { it.words }.toInt()
     val weekSavedHours = weekWords / AVG_WPM / 60.0
-    val weekDictMs = weekRows.sumOf { it.dictationMs }
+    val weekDictMs = weekRows.sumOf { it.ms }
     val weekSpokenHours = weekDictMs / 3_600_000.0
 
     val dayWordCounts = (0..6).map { i ->
         val day = StatsCalculator.utcDateOf(StatsCalculator.utcWeekStartMs(System.currentTimeMillis()) +
             i * TimeUnit.DAYS.toMillis(1))
-        dailyStats.firstOrNull { it.day == day }?.wordCount?.toInt() ?: 0
+        dailyMap[day]?.words?.toInt() ?: 0
     }
 
     val dayLabels = (0..6).map { i -> dayLabel(i) }
@@ -247,7 +254,6 @@ fun HomeScreen(
         mutableStateOf(context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE).getBoolean("onboarding_dismissed", false))
     }
     var allEntries by remember { mutableStateOf<List<TranscriptionEntry>>(emptyList()) }
-    var dailyStats by remember { mutableStateOf<List<DailyStat>>(emptyList()) }
     val longSetSaver = Saver<MutableState<Set<Long>>, ArrayList<Long>>(
         save = { arrayListOf<Long>().apply { addAll(it.value) } },
         restore = { mutableStateOf(it.toSet()) }
@@ -286,10 +292,19 @@ fun HomeScreen(
         refreshStatus()
     }
 
+    var unifiedDailyStats by remember { mutableStateOf<Map<String, DayCounters>>(emptyMap()) }
+    var syncAccountEmail by remember { mutableStateOf<String?>(null) }
+
+    fun refreshSyncAccount() {
+        val auth = com.groq.voicetyper.sync.auth.SyncAuthSession(context)
+        syncAccountEmail = if (auth.isSignedIn()) auth.accountEmail else null
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 refreshStatus()
+                refreshSyncAccount()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -299,11 +314,17 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        repository.getAll().collect { allEntries = it }
+        refreshSyncAccount()
+    }
+
+    LaunchedEffect(syncAccountEmail) {
+        repository.observeUnifiedStats(syncAccountEmail).collect {
+            unifiedDailyStats = it
+        }
     }
 
     LaunchedEffect(Unit) {
-        repository.getStats().collect { dailyStats = it }
+        repository.getAll().collect { allEntries = it }
     }
 
     val displayedEntries = remember(allEntries, searchQuery, currentSortOption) {
@@ -326,7 +347,9 @@ fun HomeScreen(
         }
     }
     
-    val dashboardStats = remember(dailyStats) { computeDashboardStats(dailyStats) }
+    val dashboardStats = remember(unifiedDailyStats) {
+        computeDashboardStats(unifiedDailyStats)
+    }
 
     Box(
         modifier = modifier
@@ -603,7 +626,7 @@ fun HomeScreen(
                             selectedIds = selectedIds - pendingDeleteIds.toSet()
                         }
                         showDeleteDialog = false
-                    }) { Text("Delete", color = Error) }
+                    }) { Text("Delete", color = ErrorText) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = TextSecondary) }
@@ -622,7 +645,7 @@ fun HomeScreen(
                     TextButton(onClick = {
                         coroutineScope.launch { repository.clearAll() }
                         showClearAllDialog = false
-                    }) { Text("Clear All", color = Error) }
+                    }) { Text("Clear All", color = ErrorText) }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = TextSecondary) }
@@ -855,8 +878,10 @@ private fun WeeklyActivityChart(
     dayLabels: List<String>
 ) {
     val maxCount = dayWordCounts.max().coerceAtLeast(1)
+    // Monochrome bar treatment per DESIGN_SYSTEM.md — accent colors are not
+    // permitted in charts. White-alpha ladder over the Panel track.
     val barGradient = Brush.verticalGradient(
-        colors = listOf(BrandAmethyst, BrandAmethyst.copy(alpha = 0.35f))
+        colors = listOf(ButtonSecondary, ButtonSubtle)
     )
 
     Column(
@@ -896,11 +921,12 @@ private fun WeeklyActivityChart(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Sm)
         ) {
+            val motionPrefs = LocalMotionPreferences.current
             dayWordCounts.forEachIndexed { index, count ->
                 val targetFraction = count.toFloat() / maxCount
                 val animatedFraction by animateFloatAsState(
                     targetValue = targetFraction,
-                    animationSpec = tween(durationMillis = 600, delayMillis = index * 80),
+                    animationSpec = if (motionPrefs.reducedMotion) snap() else tween(durationMillis = 600, delayMillis = index * 80),
                     label = "bar_$index"
                 )
 
@@ -959,7 +985,7 @@ private fun HomeSearchBar(
         value = searchQuery,
         onValueChange = onSearchChange,
         placeholder = {
-            Text("Search transcriptions...", color = TextTertiary, style = FluenceTypography.bodySmall)
+            Text("Search transcriptions…", color = TextSecondary, style = FluenceTypography.bodySmall)
         },
         singleLine = true,
         leadingIcon = {
@@ -991,11 +1017,11 @@ private fun HomeSearchBar(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = TextPrimary,
             unfocusedTextColor = TextPrimary,
-            focusedBorderColor = OutlineSubtle,
+            focusedBorderColor = TextSecondary,
             unfocusedBorderColor = OutlineSubtle,
             focusedContainerColor = PanelElevated,
             unfocusedContainerColor = PanelElevated,
-            cursorColor = TextPrimary
+            cursorColor = BrandAmethyst
         ),
         shape = FluenceShapes.Small,
         modifier = Modifier
@@ -1328,7 +1354,7 @@ private fun OnboardingStepRow(
             TextButton(
                 onClick = onAction,
                 contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm, vertical = 0.dp),
-                modifier = Modifier.heightIn(min = 32.dp)
+                modifier = Modifier.heightIn(min = 44.dp)
             ) {
                 Text(
                     text = actionLabel,

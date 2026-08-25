@@ -100,7 +100,7 @@ fun SnippetsScreen(
                         checkedThumbColor = Panel,
                         checkedTrackColor = TextPrimary,
                         uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = PanelElevated
+                        uncheckedTrackColor = Panel
                     )
                 )
             }
@@ -312,7 +312,7 @@ private fun AddEditSnippetDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = InputBg,
                         unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextPrimary,
+                        focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
@@ -329,12 +329,12 @@ private fun AddEditSnippetDialog(
                         errorMessage = null
                     },
                     label = { Text("Expansion (Output Text)") },
-                    placeholder = { Text("e.g. https://linkedin.com/in/...") },
+                    placeholder = { Text("e.g. https://linkedin.com/in/…") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = InputBg,
                         unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextPrimary,
+                        focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,

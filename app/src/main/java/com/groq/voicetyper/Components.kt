@@ -1,7 +1,9 @@
 package com.groq.voicetyper
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -43,6 +45,7 @@ import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.OutlineSubtle
 import com.groq.voicetyper.theme.PanelElevated
 import com.groq.voicetyper.theme.TextPrimary
@@ -57,20 +60,22 @@ fun Modifier.pressScale(
     pressedScale: Float = 0.96f
 ): Modifier {
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) pressedScale else 1f,
-        animationSpec = tween(
+    // Reduced motion: state change still applies (feedback preserved) but it
+    // snaps instead of animating.
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
+    val pressSpec: AnimationSpec<Float> =
+        if (reducedMotion) snap() else tween(
             durationMillis = FluenceMotion.durationImmediate,
             easing = FastOutSlowInEasing
-        ),
+        )
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressedScale else 1f,
+        animationSpec = pressSpec,
         label = "press_scale"
     )
     val alpha by animateFloatAsState(
         targetValue = if (isPressed) 0.88f else 1f,
-        animationSpec = tween(
-            durationMillis = FluenceMotion.durationImmediate,
-            easing = FastOutSlowInEasing
-        ),
+        animationSpec = pressSpec,
         label = "press_alpha"
     )
     return this.graphicsLayer {

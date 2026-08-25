@@ -253,6 +253,15 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-08-25 — New token: ErrorText `#F87171` (error-colored text on elevated surfaces).**
+Brighter error tone reserved for error-colored TEXT on elevated surfaces
+(Panel/Dialog/DialogElevated) to hold WCAG AA ≥4.5:1; `#F87171` measures
+4.91:1 on Dialog `#2E2E2E` where `Error #EF4444` fails at ≈3.6:1.
+Error `#EF4444` unchanged for icons, containers, indicators. Cross-platform
+parity: matches the Windows client's error-text tone. Files touched:
+Android `Color.kt`, `Theme.kt`, `HomeScreen.kt`, `TranscriptionDetailSheet.kt`,
+`UpdateDialog.kt`.
+
 **2026-07-16 — Solid accent closed list — audit resolution.**
 Following a full codebase audit that found 7 brand-amethyst usages
 outside the prior closed list, 3 were approved as consistent with the

@@ -189,7 +189,7 @@ private fun UpdateDownloadingDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Downloading Update...",
+                    text = "Downloading Update…",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -355,7 +355,7 @@ private fun UpdateErrorDialog(
         onDismissRequest = onDismiss,
         containerColor = DialogSurface,
         title = {
-            Text("Update Failed", color = Error, fontWeight = FontWeight.Bold)
+            Text("Update Failed", color = ErrorText, fontWeight = FontWeight.Bold)
         },
         text = {
             Text(message, color = TextSecondary, fontSize = 14.sp)

@@ -20,10 +20,6 @@ val hasReleaseSigning = localProperties.getProperty("release.keystore.path") != 
         localProperties.getProperty("release.key.alias") != null &&
         localProperties.getProperty("release.key.password") != null
 
-val oauthWebClientId = localProperties.getProperty("oauth.web.client.id")
-    ?: "236666538373-tbrh4i5jsevh3j5bspdhrspf7hrdeh7r.apps.googleusercontent.com"
-val oauthWebClientSecret = localProperties.getProperty("oauth.web.client.secret") ?: ""
-
 android {
     namespace = "com.groq.voicetyper"
     compileSdk = 34
@@ -34,9 +30,6 @@ android {
         targetSdk = 34
         versionCode = 34
         versionName = "1.11.0"
-
-        buildConfigField("String", "OAUTH_WEB_CLIENT_ID", "\"$oauthWebClientId\"")
-        buildConfigField("String", "OAUTH_WEB_CLIENT_SECRET", "\"$oauthWebClientSecret\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -131,7 +124,6 @@ dependencies {
     
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)
-    implementation("androidx.compose.ui:ui-text-google-fonts")
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)

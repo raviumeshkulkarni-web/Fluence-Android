@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -28,12 +29,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -58,6 +61,7 @@ import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
+import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.Canvas
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
@@ -129,14 +133,51 @@ fun PrivacyExclusionsScreen(
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = 8.dp)
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+            // User-approved expectation note: bank security warnings about
+            // accessibility-enabled apps are misattributed to Fluence.
+            Surface(
+                color = Panel,
+                shape = FluenceShapes.Medium,
+                border = BorderStroke(1.dp, OutlineSubtle),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(FluenceSpacing.Md),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    Column {
+                        Text(
+                            text = "A note on banking apps",
+                            color = TextPrimary,
+                            style = FluenceTypography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence — it appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
+                            color = TextSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
             // Home-consistent Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
-                    Text("Search apps...", color = TextTertiary, style = FluenceTypography.bodySmall)
+                    Text("Search apps…", color = TextSecondary, style = FluenceTypography.bodySmall)
                 },
                 singleLine = true,
                 leadingIcon = {
@@ -167,11 +208,11 @@ fun PrivacyExclusionsScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = OutlineSubtle,
+                    focusedBorderColor = TextSecondary,
                     unfocusedBorderColor = OutlineSubtle,
                     focusedContainerColor = PanelElevated,
                     unfocusedContainerColor = PanelElevated,
-                    cursorColor = TextPrimary
+                    cursorColor = BrandAmethyst
                 ),
                 shape = FluenceShapes.Small,
                 modifier = Modifier
@@ -274,7 +315,7 @@ private fun AppExclusionRow(
                 checkedThumbColor = Panel,
                 checkedTrackColor = TextPrimary,
                 uncheckedThumbColor = TextPrimary,
-                uncheckedTrackColor = PanelElevated
+                uncheckedTrackColor = Panel
             ),
             modifier = Modifier.semantics {
                 role = Role.Switch
