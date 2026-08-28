@@ -72,6 +72,9 @@ interface TranscriptionHistoryDao {
     @Query("UPDATE transcription_history SET serverFileId = :serverFileId, syncState = 'clean' WHERE syncId = :syncId")
     suspend fun setServerFileIdAndStateBySyncId(syncId: String, serverFileId: String): Int
 
+    @Query("DELETE FROM transcription_history WHERE id NOT IN (SELECT id FROM transcription_history ORDER BY timestamp DESC LIMIT :keep)")
+    suspend fun deleteAllExceptNewest(keep: Int)
+
     @Query("DELETE FROM transcription_history WHERE syncId = :syncId")
     suspend fun hardDeleteBySyncId(syncId: String): Int
 
