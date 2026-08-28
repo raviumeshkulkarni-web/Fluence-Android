@@ -19,7 +19,7 @@ import com.groq.voicetyper.sync.v1.SyncMetadataDao
 
 @Database(
     entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class, SyncFileCache::class, DictationIncrement::class, DeviceMetaEntry::class, AccountDailyStat::class, StatSyncEntry::class, SyncMetadata::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class FluenceDatabase : RoomDatabase() {
@@ -271,6 +271,18 @@ abstract class FluenceDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Foreign-account rows remain local, so dictionary identity
+                // must not be globally unique across accounts.
+                db.execSQL("DROP INDEX IF EXISTS `index_custom_dictionary_spokenText`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_custom_dictionary_spokenText_syncAccount` " +
+                        "ON `custom_dictionary` (`spokenText`, `syncAccount`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -278,7 +290,7 @@ abstract class FluenceDatabase : RoomDatabase() {
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }

@@ -29,6 +29,12 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE deletedAt IS NULL AND LOWER(spokenText) = LOWER(:spokenText) LIMIT 1")
     suspend fun getBySpokenTextIgnoreCase(spokenText: String): CustomDictionaryEntry?
 
+    @Query("SELECT * FROM custom_dictionary WHERE LOWER(spokenText) = LOWER(:spokenText) AND (syncAccount IS NULL OR syncAccount = :hash) LIMIT 1")
+    suspend fun getBySpokenTextForAccount(spokenText: String, hash: String): CustomDictionaryEntry?
+
+    @Query("SELECT * FROM custom_dictionary WHERE LOWER(spokenText) = LOWER(:spokenText) AND syncAccount IS NULL LIMIT 1")
+    suspend fun getBySpokenTextUnstamped(spokenText: String): CustomDictionaryEntry?
+
     // IGNORE (not the default ABORT): a concurrent save of the same spokenText
     // (e.g. double-tap Add/Save) no longer throws SQLiteConstraintException;
     // the loser's insert is ignored and saveEntry re-queries the winning row.
@@ -99,6 +105,10 @@ interface CustomDictionaryDao {
     /** Business-key lookup; the key is always lower(trim(spokenText)). */
     @Query("SELECT * FROM custom_dictionary WHERE lower(trim(spokenText)) = :businessKey AND syncAccount = :hash AND deletedAt IS NULL LIMIT 1")
     suspend fun getByBusinessKey(businessKey: String, hash: String): CustomDictionaryEntry?
+
+    /** Includes tombstones so a newer remote winner can replace the old row. */
+    @Query("SELECT * FROM custom_dictionary WHERE lower(trim(spokenText)) = :businessKey AND syncAccount = :hash LIMIT 1")
+    suspend fun getByBusinessKeyIncludingDeleted(businessKey: String, hash: String): CustomDictionaryEntry?
 
     @Query("UPDATE custom_dictionary SET dirty = 0, everPushed = 1 WHERE syncAccount = :hash")
     suspend fun clearDirtyByAccount(hash: String): Int

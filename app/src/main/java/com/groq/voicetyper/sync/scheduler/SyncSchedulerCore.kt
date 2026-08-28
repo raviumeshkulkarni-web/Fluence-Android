@@ -100,6 +100,14 @@ class SyncSchedulerCore(
         running = false
     }
 
+    /** Clear the previous account's result before enrolling a new account. */
+    fun resetForAccountChange() {
+        lastOutcome = null
+        pending = false
+        nextAttemptMs = 0L
+        backoff.reset()
+    }
+
     fun completePass(outcome: PassOutcomeKind) {
         running = false
         lastOutcome = outcome

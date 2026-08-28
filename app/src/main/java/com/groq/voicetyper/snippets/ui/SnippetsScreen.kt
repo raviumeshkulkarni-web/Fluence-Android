@@ -38,14 +38,8 @@ fun SnippetsScreen(
 ) {
     val context = LocalContext.current
     var isEnabled by remember { mutableStateOf(SnippetPreferences.isSnippetsEnabled(context)) }
-    val snippets = remember { mutableStateListOf<Snippet>() }
-
-    fun reload() {
-        snippets.clear()
-        snippets.addAll(SnippetPreferences.loadSnippets(context))
-    }
-
-    LaunchedEffect(Unit) { reload() }
+    val snippets by remember(context) { SnippetPreferences.observeSnippets(context) }
+        .collectAsState(initial = emptyList())
 
     var showDialog by remember { mutableStateOf(false) }
     var snippetToEdit by remember { mutableStateOf<Snippet?>(null) }
@@ -162,7 +156,6 @@ fun SnippetsScreen(
                             },
                             onDelete = {
                                 SnippetPreferences.deleteSnippet(context, snippet.id)
-                                reload()
                                 Toast.makeText(context, "Snippet deleted", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -209,7 +202,6 @@ fun SnippetsScreen(
                 if (result == SnippetPreferences.SaveResult.PRESERVED) {
                     "A snippet with this trigger already exists"
                 } else {
-                    reload()
                     showDialog = false
                     snippetToEdit = null
                     null

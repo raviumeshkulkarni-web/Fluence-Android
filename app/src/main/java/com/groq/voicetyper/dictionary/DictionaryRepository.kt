@@ -4,10 +4,14 @@ import android.content.Context
 import com.groq.voicetyper.dictionary.data.CustomDictionaryDao
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import com.groq.voicetyper.history.FluenceDatabase
+import com.groq.voicetyper.sync.SyncAccounts
+import com.groq.voicetyper.sync.auth.SyncAuthSession
+import com.groq.voicetyper.sync.v1.AccountHash
 import com.groq.voicetyper.sync.v1.MutationClock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Matcher
 
@@ -38,6 +42,7 @@ object DictionaryRepository {
         if (dao == null) {
             val db = FluenceDatabase.getInstance(context.applicationContext)
             dao = db.customDictionaryDao()
+            SyncAccounts.refresh(context.applicationContext)
             startObservingCache()
         }
     }
@@ -48,15 +53,19 @@ object DictionaryRepository {
         // Prime the cache on the background scope so a first call from the main
         // thread (e.g. DictionaryScreen composition) never blocks on a Room query.
         scope.launch {
-            runCatching { dao?.getAllEnabledSync() }
+            runCatching {
+                dao?.getAllEnabledSync()
+                    ?.filter { belongsToCurrentAccount(it, SyncAccounts.currentAccountHash.value) }
+            }
                 .getOrNull()
                 ?.let { updateCompiledCache(it) }
         }
         scope.launch {
             try {
-                dao?.getAllEnabled()?.collectLatest { entries ->
-                    updateCompiledCache(entries)
-                }
+                val enabled = dao?.getAllEnabled() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+                SyncAccounts.currentAccountHash
+                    .combine(enabled) { hash, entries -> entries.filter { belongsToCurrentAccount(it, hash) } }
+                    .collectLatest { entries -> updateCompiledCache(entries) }
             } catch (e: Exception) {
                 // Fail-safe: empty cache on error
                 cachedRules.set(emptyList())
@@ -84,7 +93,10 @@ object DictionaryRepository {
         // so the first transcription still applies dictionary rules. Callers that
         // reach here (transcription post-processing) run off the main thread.
         if (cachedRules.get().isEmpty()) {
-            runCatching { getDao(context).getAllEnabledSync() }
+            runCatching {
+                getDao(context).getAllEnabledSync()
+                    .filter { belongsToCurrentAccount(it, SyncAccounts.currentAccountHash.value) }
+            }
                 .getOrNull()
                 ?.let { updateCompiledCache(it) }
         }
@@ -97,15 +109,22 @@ object DictionaryRepository {
     }
 
     fun getAll(context: Context): Flow<List<CustomDictionaryEntry>> {
-        return getDao(context).getAll()
+        val dictionaryDao = getDao(context)
+        return SyncAccounts.currentAccountHash.combine(dictionaryDao.getAll()) { hash, entries ->
+            entries.filter { belongsToCurrentAccount(it, hash) }
+        }
     }
 
     fun getAllEnabled(context: Context): Flow<List<CustomDictionaryEntry>> {
-        return getDao(context).getAllEnabled()
+        val dictionaryDao = getDao(context)
+        return SyncAccounts.currentAccountHash.combine(dictionaryDao.getAllEnabled()) { hash, entries ->
+            entries.filter { belongsToCurrentAccount(it, hash) }
+        }
     }
 
     fun getAllEnabledSync(context: Context): List<CustomDictionaryEntry> {
         return getDao(context).getAllEnabledSync()
+            .filter { belongsToCurrentAccount(it, SyncAccounts.currentAccountHash.value) }
     }
 
     suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult {
@@ -114,7 +133,11 @@ object DictionaryRepository {
         if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return SaveResult.PRESERVED
 
         val dao = getDao(context)
-        val existing = dao.getBySpokenTextIgnoreCase(trimmedSpoken)
+        val currentHash = runCatching {
+            AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
+        }.getOrNull()
+        val existing = currentHash?.let { dao.getBySpokenTextForAccount(trimmedSpoken, it) }
+            ?: dao.getBySpokenTextUnstamped(trimmedSpoken)
         val targetId = if (existing != null && existing.deletedAt != null && id == 0L) existing.id else id
         return when (resolveSaveAction(existing, id)) {
             SaveAction.INSERT -> {
@@ -189,7 +212,12 @@ object DictionaryRepository {
      */
     suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
         val dao = getDao(context)
-        val existing = dao.getBySpokenTextIgnoreCase(spokenText.trim()) ?: return
+        val currentHash = runCatching {
+            AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
+        }.getOrNull()
+        val existing = currentHash?.let { dao.getBySpokenTextForAccount(spokenText.trim(), it) }
+            ?: dao.getBySpokenTextUnstamped(spokenText.trim())
+            ?: return
         if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
             dao.update(
                 existing.copy(
@@ -233,4 +261,7 @@ object DictionaryRepository {
     suspend fun deleteById(context: Context, id: Long) {
         deleteByIdResolved(getDao(context), id, context)
     }
+
+    private fun belongsToCurrentAccount(entry: CustomDictionaryEntry, hash: String?): Boolean =
+        entry.syncAccount == null || entry.syncAccount == hash
 }

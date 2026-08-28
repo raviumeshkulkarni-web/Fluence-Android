@@ -129,17 +129,21 @@ class SyncManager(
     /** Complete sign-in with the account email chosen in the account picker. */
     fun completeSignIn(accountEmail: String) {
         auth.completeSignIn(accountEmail)
-        refreshStatus()
         // Refresh the ownership cache now (not only on next Activity create),
         // or isForeign would misclassify the previous account's rows.
         SyncAccounts.refresh(context)
+        scheduler.resetForAccountChange()
+        refreshStatus()
+        // Enroll/pull immediately instead of waiting for the polling cadence.
+        syncNow()
     }
 
     /** Sign out: clears encrypted storage and the status flow. */
     fun signOut() {
         auth.signOut()
-        refreshStatus()
         SyncAccounts.refresh(context)
+        scheduler.resetForAccountChange()
+        refreshStatus()
     }
 
     private suspend fun pollLoop() {

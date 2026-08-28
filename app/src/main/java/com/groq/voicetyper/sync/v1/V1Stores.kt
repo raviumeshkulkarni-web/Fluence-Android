@@ -186,20 +186,30 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
                 )
                 appliedIds.add(rec.syncId)
             } else {
-                // Remote-won record new to this device. A live row owning the
-                // same businessKey (unique index) is tombstoned first so the
-                // winner can land; its own syncId stays intact as a tombstone.
-                val collision = dao.getByBusinessKey(rec.businessKey, hash)
-                if (collision != null && collision.syncId != rec.syncId && collision.deletedAt == null) {
+                // Remote-won record new to this device. Replace a losing
+                // current-account row in place so the account-scoped unique
+                // key remains valid without silently ignoring the import.
+                val collision = dao.getByBusinessKeyIncludingDeleted(rec.businessKey, hash)
+                if (collision != null && collision.syncId != rec.syncId && collision.syncId != null) {
                     dao.update(
                         collision.copy(
-                            deletedAt = collision.updatedAt ?: rec.updatedAt,
-                            updatedAt = collision.updatedAt ?: rec.updatedAt,
-                            dirty = true
+                            spokenText = rec.spoken,
+                            replacementText = rec.corrected,
+                            isEnabled = rec.isEnabled,
+                            syncId = rec.syncId,
+                            createdAt = rec.updatedAt,
+                            deletedAt = rec.deletedAt,
+                            updatedAt = rec.updatedAt,
+                            deviceId = rec.deviceId,
+                            syncAccount = hash,
+                            dirty = false,
+                            everPushed = true
                         )
                     )
+                    appliedIds.add(rec.syncId)
+                    continue
                 }
-                dao.insert(
+                val insertedId = dao.insert(
                     CustomDictionaryEntry(
                         spokenText = rec.spoken,
                         replacementText = rec.corrected,
@@ -214,7 +224,9 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
                         everPushed = true
                     )
                 )
-                appliedIds.add(rec.syncId)
+                if (insertedId != -1L || dao.getBySyncId(rec.syncId) != null) {
+                    appliedIds.add(rec.syncId)
+                }
             }
         }
         val toClear = appliedIds.filterNot { it in skipClear }

@@ -2,7 +2,15 @@ package com.groq.voicetyper.snippets
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.groq.voicetyper.sync.SyncAccounts
+import com.groq.voicetyper.sync.auth.SyncAuthSession
+import com.groq.voicetyper.sync.v1.AccountHash
 import com.groq.voicetyper.sync.v1.MutationClock
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONException
@@ -54,13 +62,33 @@ object SnippetPreferences {
     /** User-facing reads: only live (untombstoned) snippets (spec §30.4). */
     fun loadSnippets(context: Context): List<Snippet> {
         val json = getPrefs(context).getString(KEY_SNIPPETS_JSON, null) ?: return emptyList()
-        return deserialize(json).filter { it.deletedAt == null }
+        val hash = currentAccountHash(context)
+        return deserialize(json).filter { it.deletedAt == null && belongsToCurrentAccount(it, hash) }
     }
 
     /** Every entry — live, tombstoned, latched — for the sync seam. */
     fun allEntries(context: Context): List<Snippet> {
         val json = getPrefs(context).getString(KEY_SNIPPETS_JSON, null) ?: return emptyList()
         return deserialize(json)
+    }
+
+    /** Observable user-facing view; background sync imports become visible immediately. */
+    fun observeSnippets(context: Context): Flow<List<Snippet>> {
+        val appContext = context.applicationContext
+        SyncAccounts.refresh(appContext)
+        val preferenceFlow = callbackFlow {
+            val prefs = getPrefs(appContext)
+            fun emitSnapshot() { trySend(allEntries(appContext)) }
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == KEY_SNIPPETS_JSON) emitSnapshot()
+            }
+            prefs.registerOnSharedPreferenceChangeListener(listener)
+            emitSnapshot()
+            awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
+        return preferenceFlow.combine(SyncAccounts.currentAccountHash) { all, hash ->
+            all.filter { it.deletedAt == null && belongsToCurrentAccount(it, hash) }
+        }.distinctUntilChanged()
     }
 
     /** Sync seam: atomically replace the whole collection (§30.2 bulk import). */
@@ -91,8 +119,10 @@ object SnippetPreferences {
         }
 
         val all = allEntries(context).toMutableList()
+        val hash = currentAccountHash(context)
         val duplicate = all.firstOrNull {
-            it.id != id && it.deletedAt == null && it.trigger.equals(trimmedTrigger, ignoreCase = true)
+            belongsToCurrentAccount(it, hash) &&
+                it.id != id && it.deletedAt == null && it.trigger.equals(trimmedTrigger, ignoreCase = true)
         }
         if (duplicate != null) return SaveResult.PRESERVED
 
@@ -106,6 +136,7 @@ object SnippetPreferences {
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return SaveResult.PRESERVED
         val old = all[index]
+        if (!belongsToCurrentAccount(old, hash)) return SaveResult.PRESERVED
         // Frozen v1.2: an edit is a NEWER state than any tombstone (pure LWW),
         // so the edited row keeps its identity and bumps updatedAt. The legacy
         // tombstone-and-fresh-UUID dance is no longer needed.
@@ -128,6 +159,7 @@ object SnippetPreferences {
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return
         val entry = all[index]
+        if (!belongsToCurrentAccount(entry, currentAccountHash(context))) return
         if (entry.everPushed || entry.serverFileId != null) {
             all[index] = entry.copy(
                 deletedAt = MutationClock.next(context),
@@ -157,6 +189,14 @@ object SnippetPreferences {
         )
 
     private fun nowMs(): Long = System.currentTimeMillis()
+
+    private fun currentAccountHash(context: Context): String? =
+        runCatching {
+            AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
+        }.getOrNull()
+
+    private fun belongsToCurrentAccount(snippet: Snippet, hash: String?): Boolean =
+        snippet.syncAccount == null || snippet.syncAccount == hash
 
     private fun write(context: Context, snippets: List<Snippet>) {
         getPrefs(context).edit().putString(KEY_SNIPPETS_JSON, serialize(snippets)).apply()
