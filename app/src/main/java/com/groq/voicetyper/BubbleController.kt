@@ -66,6 +66,11 @@ object BubbleController {
     private val deferredStopService = Runnable {
         stopFloatingBubbleService()
     }
+    private val errorCollapseRunnable = Runnable {
+        if (recordingState.value == RecordingState.IDLE) {
+            _isBubbleExpanded.value = false
+        }
+    }
 
     fun showBubble(context: Context, node: AccessibilityNodeInfo) {
         if (PrivacyPreferences.isPackageExcluded(context, node.packageName?.toString())) {
@@ -290,13 +295,10 @@ object BubbleController {
 
                 override fun onError(message: String) {
                     mainHandler.post {
-                        // Error handling UI auto-collapses bubble on error after timeout
-                        mainHandler.removeCallbacksAndMessages(null)
-                        mainHandler.postDelayed({
-                            if (recordingState.value == RecordingState.IDLE) {
-                                _isBubbleExpanded.value = false
-                            }
-                        }, 4000)
+                        // Error handling UI auto-collapses bubble on error after timeout.
+                        // Only cancel the pending collapse, never the deferred service stop.
+                        mainHandler.removeCallbacks(errorCollapseRunnable)
+                        mainHandler.postDelayed(errorCollapseRunnable, 4000)
                     }
                 }
             }

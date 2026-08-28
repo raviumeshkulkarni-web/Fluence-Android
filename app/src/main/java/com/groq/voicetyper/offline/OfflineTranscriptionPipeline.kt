@@ -42,6 +42,7 @@ class OfflineTranscriptionPipeline(
     private val audioCapture = OfflineAudioCapture()
     private val transcriber = OfflineTranscriber.create(engineType)
     private var vad: Vad? = null
+    private val vadLock = Any()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -58,7 +59,7 @@ class OfflineTranscriptionPipeline(
     val modelError: StateFlow<String?> = _modelError.asStateFlow()
 
     /** Returns true if both the VAD and transcriber engines are initialized and ready. */
-    fun isReady(): Boolean = transcriber.isReady() && vad != null
+    fun isReady(): Boolean = transcriber.isReady() && synchronized(vadLock) { vad != null }
 
     private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var idleReleaseJob: Job? = null
@@ -71,29 +72,31 @@ class OfflineTranscriptionPipeline(
      * Synchronously loads the VAD model. Fast enough for main-thread execution (~1-2ms).
      */
     fun initializeVadSync() {
-        if (vad == null) {
-            Log.d(TAG, "Initializing Silero VAD from APK assets synchronously")
-            try {
-                val sileroConfig = SileroVadModelConfig(
-                    model = "silero_vad.onnx",
-                    threshold = 0.5f,
-                    minSilenceDuration = VAD_SILENCE_THRESHOLD_SEC,
-                    minSpeechDuration = 0.25f,
-                    windowSize = 512,
-                    maxSpeechDuration = MAX_CHUNK_DURATION_SEC
-                )
-                val vadConfig = VadModelConfig(
-                    sileroVadModelConfig = sileroConfig,
-                    sampleRate = SAMPLE_RATE,
-                    numThreads = 1,
-                    provider = "cpu",
-                    debug = false
-                )
-                vad = Vad(context.assets, vadConfig)
-                Log.d(TAG, "Silero VAD initialized successfully (sync)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize Vad synchronously", e)
-                throw e
+        synchronized(vadLock) {
+            if (vad == null) {
+                Log.d(TAG, "Initializing Silero VAD from APK assets synchronously")
+                try {
+                    val sileroConfig = SileroVadModelConfig(
+                        model = "silero_vad.onnx",
+                        threshold = 0.5f,
+                        minSilenceDuration = VAD_SILENCE_THRESHOLD_SEC,
+                        minSpeechDuration = 0.25f,
+                        windowSize = 512,
+                        maxSpeechDuration = MAX_CHUNK_DURATION_SEC
+                    )
+                    val vadConfig = VadModelConfig(
+                        sileroVadModelConfig = sileroConfig,
+                        sampleRate = SAMPLE_RATE,
+                        numThreads = 1,
+                        provider = "cpu",
+                        debug = false
+                    )
+                    vad = Vad(context.assets, vadConfig)
+                    Log.d(TAG, "Silero VAD initialized successfully (sync)")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to initialize Vad synchronously", e)
+                    throw e
+                }
             }
         }
     }
@@ -146,8 +149,8 @@ class OfflineTranscriptionPipeline(
 
         // 1. Ensure VAD is initialized immediately
         initializeVadSync()
-        val activeVad = vad ?: throw IllegalStateException("VAD is not initialized.")
-        activeVad.reset()
+        val activeVad = synchronized(vadLock) { vad } ?: throw IllegalStateException("VAD is not initialized.")
+        synchronized(vadLock) { activeVad.reset() }
 
         _isRunning.value = true
         _modelError.value = null
@@ -197,6 +200,10 @@ class OfflineTranscriptionPipeline(
                         withContext(Dispatchers.Main) {
                             onTextTranscribed?.invoke(text)
                         }
+                    } else if (!transcriber.isReady()) {
+                        // Silent "" from not-READY would otherwise drop speech without feedback
+                        Log.w(TAG, "Transcription dropped: engine not ready for ${samples.size} samples")
+                        _modelError.value = "Offline transcription unavailable — engine not ready"
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -210,8 +217,13 @@ class OfflineTranscriptionPipeline(
             override fun onAudioFrame(samples: FloatArray, sampleCount: Int) {
                 if (!_isRunning.value) return
 
-                activeVad.acceptWaveform(samples)
-                processVadSegments(activeVad)
+                synchronized(vadLock) {
+                    // isRunning was checked before acquiring lock; re-check under lock
+                    // so stop()/forceRelease() cannot interleave with accept/flush.
+                    if (!_isRunning.value) return
+                    activeVad.acceptWaveform(samples)
+                    processVadSegmentsLocked(activeVad)
+                }
             }
         })
 
@@ -219,6 +231,12 @@ class OfflineTranscriptionPipeline(
     }
 
     private fun processVadSegments(activeVad: Vad) {
+        synchronized(vadLock) {
+            processVadSegmentsLocked(activeVad)
+        }
+    }
+
+    private fun processVadSegmentsLocked(activeVad: Vad) {
         while (!activeVad.empty()) {
             val segment = activeVad.front()
             val segmentSamples = segment.samples.clone() // Clone to safely pass to background thread
@@ -242,10 +260,13 @@ class OfflineTranscriptionPipeline(
         Log.d(TAG, "Stopping pipeline audio capture")
         audioCapture.stopCapture()
 
-        // Flush VAD and process final segment
-        vad?.let { activeVad ->
-            activeVad.flush()
-            processVadSegments(activeVad)
+        // Flush VAD and process final segment — under vadLock so an in-flight
+        // audio-thread acceptWaveform cannot race with flush.
+        synchronized(vadLock) {
+            vad?.let { activeVad ->
+                activeVad.flush()
+                processVadSegmentsLocked(activeVad)
+            }
         }
 
         // Close channel and wait for the sequential worker to finish transcribing queued items
@@ -303,13 +324,15 @@ class OfflineTranscriptionPipeline(
         }
 
         try {
-            vad?.release()
+            synchronized(vadLock) {
+                vad?.release()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Error releasing Vad JNI resources", e)
         } finally {
-            vad = null
+            synchronized(vadLock) { vad = null }
         }
 
         try {

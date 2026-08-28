@@ -64,9 +64,13 @@ class StreamingAudioCapture {
      * @throws SecurityException if RECORD_AUDIO permission is not granted
      * @throws IllegalStateException if AudioRecord fails to initialize
      */
+    private val startLock = Any()
     @SuppressLint("MissingPermission")
     fun startCapture(listener: AudioFrameListener) {
-        if (isRunning) return
+        synchronized(startLock) {
+            if (isRunning) return
+            isRunning = true
+        }
 
         val minBufferSize = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
@@ -85,11 +89,11 @@ class StreamingAudioCapture {
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
+            synchronized(startLock) { isRunning = false }
             throw IllegalStateException("AudioRecord failed to initialize for streaming. State: ${record.state}")
         }
 
         audioRecord = record
-        isRunning = true
         _isCapturing.value = true
 
         captureThread = Thread({

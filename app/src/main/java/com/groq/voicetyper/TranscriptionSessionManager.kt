@@ -77,6 +77,13 @@ object TranscriptionSessionManager {
     // Individual sessions are managed through job cancellation, not scope cancellation.
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
+    private val errorResetRunnable = Runnable {
+        if (_recordingState.value == RecordingState.ERROR) {
+            _recordingState.value = RecordingState.IDLE
+            _errorMessage.value = null
+            currentListener = null
+        }
+    }
 
     private var appContext: Context? = null
     private var noisyReceiver: BroadcastReceiver? = null
@@ -591,7 +598,7 @@ object TranscriptionSessionManager {
         recordingStartTimestampMs = 0L
 
         if (activeOffline) {
-
+            val generation = sessionGeneration
             engineStateCollectJob?.cancel()
             engineStateCollectJob = null
             modelErrorCollectJob?.cancel()
@@ -599,6 +606,7 @@ object TranscriptionSessionManager {
             _offlineEngineState.value = OfflineEngineState.UNLOADED
 
             scope.launch {
+                if (sessionGeneration != generation) return@launch
                 try {
                     val pipeline = OfflinePipelineProvider.getInstance(context, activeEngineType ?: OfflineEngineType.SENSEVOICE)
                     if (pipeline.isRunning.value) {
@@ -611,22 +619,29 @@ object TranscriptionSessionManager {
                         val finalTranscription = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
                         val lang = getEffectiveLanguage(context)
                         val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
-                        CoroutineScope(Dispatchers.IO).launch {
+                        scope.launch(Dispatchers.IO) {
+                            if (sessionGeneration != generation) return@launch
                             HistoryRepository.save(context.applicationContext, finalTranscription, "offline", engineModelName, lang, durationMs, false)
                         }
         withContext(Dispatchers.Main) {
-            currentListener?.onTranscription(finalTranscription)
+            if (sessionGeneration == generation) {
+                currentListener?.onTranscription(finalTranscription)
+            }
         }
                     }
-                    offlineTextAccumulator.setLength(0)
-                    activeEngineType = null
-                    _recordingState.value = RecordingState.IDLE
-                    _isAgentMode.value = false
-                    currentListener = null
+                    if (sessionGeneration == generation) {
+                        offlineTextAccumulator.setLength(0)
+                        activeEngineType = null
+                        _recordingState.value = RecordingState.IDLE
+                        _isAgentMode.value = false
+                        currentListener = null
+                    }
                 } catch (e: Exception) {
-                    showError("Offline transcription failed: ${e.localizedMessage}")
-                    activeEngineType = null
-                    _isAgentMode.value = false
+                    if (sessionGeneration == generation) {
+                        showError("Offline transcription failed: ${e.localizedMessage}")
+                        activeEngineType = null
+                        _isAgentMode.value = false
+                    }
                 }
             }
         } else {
@@ -766,7 +781,8 @@ object TranscriptionSessionManager {
             return
         }
 
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch(Dispatchers.IO) {
+            if (sessionGeneration != generation) return@launch
             HistoryRepository.save(context.applicationContext, text, sttPreset, model, language, durationMs, isAgent)
         }
 
@@ -848,14 +864,8 @@ object TranscriptionSessionManager {
         Log.e(TAG, "Operation failed.")
 
         // Auto-clear error state back to IDLE after 4 seconds
-        handler.removeCallbacksAndMessages(null)
-        handler.postDelayed({
-            if (_recordingState.value == RecordingState.ERROR) {
-                _recordingState.value = RecordingState.IDLE
-                _errorMessage.value = null
-                currentListener = null
-            }
-        }, 4000)
+        handler.removeCallbacks(errorResetRunnable)
+        handler.postDelayed(errorResetRunnable, 4000)
     }
 
     fun onTrimMemory(level: Int) {
@@ -878,7 +888,7 @@ object TranscriptionSessionManager {
     fun destroy() {
         if (sessionOwner != SessionOwner.IME) return
 
-        handler.removeCallbacksAndMessages(null)
+        handler.removeCallbacks(errorResetRunnable)
         cancelPreWarm()
         amplitudeCollectJob?.cancel()
         amplitudeCollectJob = null

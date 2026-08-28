@@ -160,6 +160,11 @@ object SecurityUtils {
         if (preset.lowercase() == "groq") {
             clearApiKey(context)
         }
+        // Cache may hold stale preset/streaming decision after key clear
+        if (providerType.equals("stt", ignoreCase = true)) {
+            cachedSttPreset = null
+            cachedStreamingEnabled = null
+        }
     }
 
     fun buildApiUrl(baseUrl: String, path: String): String {

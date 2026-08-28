@@ -39,7 +39,7 @@ class FluenceAccessibilityService : AccessibilityService() {
          * source; it uses its current EditorInfo package instead.
          */
         fun isCurrentApplicationAllowed(targetPackage: String? = null): Boolean {
-            return activeInstance?.isCurrentApplicationAllowedInternal(targetPackage) ?: true
+            return activeInstance?.isCurrentApplicationAllowedInternal(targetPackage) ?: false
         }
 
         /** Max recursion depth when walking the accessibility tree. */

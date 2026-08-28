@@ -206,15 +206,20 @@ object ModelAssetManager {
                 continue
             }
 
-            // Download file
+            // Download file — throttle progress to 300ms to avoid 30k StateFlow emissions (~239M/8192)
+            var lastProgressEmit = 0L
             val result = downloadFile(targetUrl, tmpFile) { bytesInChunk ->
                 cumulativeBytesDownloaded += bytesInChunk
-                _progress.value = DownloadProgress(
-                    DownloadState.DOWNLOADING,
-                    cumulativeBytesDownloaded,
-                    totalDownloadSize,
-                    fileName
-                )
+                val now = System.currentTimeMillis()
+                if (now - lastProgressEmit > 300 || cumulativeBytesDownloaded == totalDownloadSize) {
+                    lastProgressEmit = now
+                    _progress.value = DownloadProgress(
+                        DownloadState.DOWNLOADING,
+                        cumulativeBytesDownloaded,
+                        totalDownloadSize,
+                        fileName
+                    )
+                }
             }
 
             if (result.isFailure) {

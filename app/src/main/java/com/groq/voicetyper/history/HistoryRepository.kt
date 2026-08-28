@@ -161,6 +161,8 @@ object HistoryRepository {
                         )
                     )
                 }
+                // Cap history atomically with insert — avoids window where >50 rows survive a crash
+                dao?.deleteAllExceptNewest(50)
             }
         } catch (e: Exception) {
             Log.e("HistoryRepository", "Failed to save transcription to history", e)
