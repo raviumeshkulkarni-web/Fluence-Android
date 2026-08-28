@@ -67,11 +67,16 @@ class AppDataDriveStore(
         return response
     }
 
-    private fun classify(status: Int) {
+    /**
+     * Map an HTTP status to a [SyncError]. Non-2xx statuses that carry a body
+     * only read it via [bodyProvider], and only when classified (403) — a
+     * success path never consumes the stream, so callers can still read it.
+     */
+    private fun classify(status: Int, bodyProvider: () -> String = { "" }) {
         when (status) {
             in 200..299 -> return
             401 -> throw SyncError.AuthRequired
-            403 -> throw SyncError.Fatal("Drive access not permitted")
+            403 -> throw classifyForbidden(bodyProvider())
             429 -> throw SyncError.Retryable("rate limited")
             in 500..599 -> throw SyncError.Retryable("Drive HTTP $status")
             else -> throw SyncError.Rejected("Drive HTTP $status")
@@ -84,7 +89,7 @@ class AppDataDriveStore(
         val fluenceId = ensureFluenceFolder()
         val query = URLEncoder.encode("'$fluenceId' in parents and mimeType = '$FOLDER_MIME' and name = 'v1' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             val body = resp.body?.string().orEmpty()
             val id = parseFirstId(body)
             v1FolderId = id ?: createFolder("v1", fluenceId)
@@ -96,7 +101,7 @@ class AppDataDriveStore(
         fluenceFolderId?.let { return it }
         val query = URLEncoder.encode("name = 'fluence' and mimeType = '$FOLDER_MIME' and trashed = false and 'appDataFolder' in parents", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             val body = resp.body?.string().orEmpty()
             val id = parseFirstId(body)
             fluenceFolderId = id ?: createFolder("fluence", "appDataFolder")
@@ -109,7 +114,7 @@ class AppDataDriveStore(
             .put("parents", org.json.JSONArray().put(parent)).toString()
             .toRequestBody("application/json".toMediaType())
         call(bearer("$apiBase/files?fields=id").post(body)).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             return parseId(resp.body?.string().orEmpty()) ?: throw SyncError.Retryable("folder create missing id")
         }
     }
@@ -120,7 +125,7 @@ class AppDataDriveStore(
         val name = domainFileName(domain)
         val query = URLEncoder.encode("'$v1' in parents and name = '$name' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version)&pageSize=10")).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             val body = resp.body?.string().orEmpty()
             return parseFileListLite(body)
         }
@@ -140,7 +145,7 @@ class AppDataDriveStore(
         val meta = files.minByOrNull { it.fileId }!!
         call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
             if (resp.code == 404) return DomainFetch(null, null)
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             val bytes = resp.body?.bytes()
             if (bytes != null && bytes.size > MAX_DOMAIN_BYTES) {
                 throw SyncError.Rejected("domain payload ${bytes.size} bytes exceeds cap")
@@ -181,7 +186,7 @@ class AppDataDriveStore(
             val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(v1)).toString()
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
-                classify(resp.code)
+                classify(resp.code) { resp.body?.string().orEmpty() }
                 parseVersion(resp.body?.string().orEmpty())
                     ?: throw SyncError.Retryable("create succeeded but no file version was returned")
             }
@@ -208,14 +213,14 @@ class AppDataDriveStore(
         val metadata = JSONObject().put("name", name).toString()
         val body = relatedBody(metadata, name, bytes)
         call(bearer("$uploadBase/files/$fileId?uploadType=multipart&fields=version").patch(body)).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             val newVersion = parseVersion(resp.body?.string().orEmpty())
             if (newVersion != null) return newVersion
         }
         // Defensive fallback: fetch the version explicitly so staleness
         // detection stays armed for the next pass.
         call(bearer("$apiBase/files/$fileId?fields=version")).use { resp ->
-            classify(resp.code)
+            classify(resp.code) { resp.body?.string().orEmpty() }
             return parseVersion(resp.body?.string().orEmpty())
                 ?: throw SyncError.Retryable("update succeeded but no file version was returned")
         }
@@ -265,4 +270,40 @@ class AppDataDriveStore(
     }
 
     data class FileMetaLite(val fileId: String, val name: String, val version: String?)
+}
+
+/**
+ * Pure Drive 403 classification — mirrors Windows `classify_forbidden`
+ * (drive.rs): transient/quota reasons surface as [SyncError.Retryable] so the
+ * next pass (with backoff) handles them, while a genuine ownership/scope
+ * denial stays [SyncError.Fatal]. An unparseable body is assumed transient
+ * (Fail-closed retry is safer than wedging the account).
+ */
+fun classifyForbidden(body: String): SyncError {
+    val reason = forbiddenReason(body)
+    return when {
+        reason == null -> SyncError.Retryable("Drive HTTP 403")
+        reason in TRANSIENT_403_REASONS -> SyncError.Retryable("Drive rate limited ($reason)")
+        else -> SyncError.Fatal("Drive access not permitted ($reason)")
+    }
+}
+
+private val TRANSIENT_403_REASONS = setOf(
+    "userRateLimitExceeded",
+    "rateLimitExceeded",
+    "dailyLimitExceeded",
+    "sharedLimitExceeded",
+    "quotaExceeded",
+    "backendError"
+)
+
+/** Read `error.reason`, falling back to `error.errors[0].reason` (Drive API v3). */
+private fun forbiddenReason(body: String): String? {
+    return try {
+        val error = JSONObject(body).optJSONObject("error") ?: return null
+        error.optString("reason").ifEmpty { null }
+            ?: error.optJSONArray("errors")?.optJSONObject(0)?.optString("reason")?.ifEmpty { null }
+    } catch (_: Exception) {
+        null
+    }
 }
