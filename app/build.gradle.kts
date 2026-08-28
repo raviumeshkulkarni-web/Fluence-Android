@@ -103,6 +103,27 @@ android {
     }
 }
 
+// Hardening: a local release build must FAIL when production signing material
+// is absent instead of silently emitting a debug-signed 'release' APK.
+// GitHub Actions sets CI=true and re-signs the assembled APK from repository
+// secrets (see .github/workflows/release.yml), so the CI pipeline is unchanged.
+if (!hasReleaseSigning && System.getenv("CI").isNullOrEmpty()) {
+    tasks.register("checkReleaseSigningConfigured") {
+        doFirst {
+            throw GradleException(
+                "Release signing is not configured. Set release.keystore.path, " +
+                    "release.keystore.password, release.key.alias and release.key.password " +
+                    "in local.properties. Production releases are signed in GitHub Actions " +
+                    "from repository secrets; unconfigured local release builds are blocked " +
+                    "to avoid accidentally distributing a debug-signed artifact."
+            )
+        }
+    }
+    tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+        dependsOn("checkReleaseSigningConfigured")
+    }
+}
+
 kapt {
     arguments {
         arg("room.schemaLocation", "$projectDir/schemas")
