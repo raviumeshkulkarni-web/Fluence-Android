@@ -38,9 +38,9 @@ class BackfillTest {
     @Test
     fun fromTranscriptionRows_aggregates_per_utc_day() {
         val rows = listOf(
-            Backfill.TranscriptionRowLite(t1, wordCount = 10, durationMs = 1000, syncId = "sync-1"),
+            Backfill.TranscriptionRowLite(t1, wordCount = 10, durationMs = 1000, syncId = "sync-1", chars = 120),
             Backfill.TranscriptionRowLite(t2, wordCount = 5, durationMs = 500, syncId = "sync-2"),
-            Backfill.TranscriptionRowLite(t3, wordCount = 7, durationMs = 700, syncId = "sync-3")
+            Backfill.TranscriptionRowLite(t3, wordCount = 7, durationMs = 700, syncId = "sync-3", chars = 64)
         )
         val records = Backfill.fromTranscriptionRows(rows, "hash", "device-a", now = 42L)
         assertEquals(3, records.size)
@@ -54,6 +54,26 @@ class BackfillTest {
         assertEquals(42L, records[0].updatedAt)
         assertEquals("device-a", records[0].deviceId)
         assertEquals(t1, records[0].timestampMs)
+    }
+
+    @Test
+    fun fromTranscriptionRows_carries_real_chars() {
+        val rows = listOf(
+            Backfill.TranscriptionRowLite(t1, 10, 1000, syncId = "sync-1", chars = 245),
+            Backfill.TranscriptionRowLite(t2, 5, 500, syncId = "sync-2")
+        )
+        val records = Backfill.fromTranscriptionRows(rows, "hash", "device-a", now = 1L)
+        assertEquals(245, records[0].chars)
+        assertEquals("backfill default is 0 when no text is available", 0, records[1].chars)
+    }
+
+    @Test
+    fun fromDailyStats_fallback_keeps_chars_zero() {
+        val records = Backfill.fromDailyStats(
+            listOf(Backfill.DailyStatLite("2026-08-20", 7, 700)),
+            "hash", "device-b", now = 5L
+        )
+        assertEquals(0, records[0].chars)
     }
 
     @Test

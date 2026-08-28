@@ -63,12 +63,19 @@ object Backfill {
                 deviceId = deviceId,
                 deletedAt = null,
                 timestampMs = row.timestampMs,
-                chars = 0
+                chars = row.chars
             )
         }
     }
 
-    data class TranscriptionRowLite(val timestampMs: Long, val wordCount: Int, val durationMs: Long, val syncId: String)
+    data class TranscriptionRowLite(
+        val timestampMs: Long,
+        val wordCount: Int,
+        val durationMs: Long,
+        val syncId: String,
+        /** Real character count from the transcription text (fresh events use text.length). */
+        val chars: Int = 0
+    )
     data class DailyStatLite(val day: String, val wordCount: Int, val durationMs: Long)
 
     /** Fallback source when no live history rows exist. */

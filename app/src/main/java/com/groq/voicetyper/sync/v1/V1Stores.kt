@@ -320,7 +320,8 @@ class RoomStatV1Store(
                         timestampMs = row.timestamp,
                         wordCount = StatsCalculator.wordCountOf(row.text),
                         durationMs = row.durationMs,
-                        syncId = row.syncId ?: ""
+                        syncId = row.syncId ?: "",
+                        chars = row.text.length
                     )
                 },
                 hash, deviceId, now
