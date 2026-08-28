@@ -878,10 +878,10 @@ private fun WeeklyActivityChart(
     dayLabels: List<String>
 ) {
     val maxCount = dayWordCounts.max().coerceAtLeast(1)
-    // Monochrome bar treatment per DESIGN_SYSTEM.md — accent colors are not
-    // permitted in charts. White-alpha ladder over the Panel track.
+    // Desktop-parity amethyst gradient — matches Fluence-Windows
+    // design-tokens.css --color-chart-bar-a/b (rgba 139,69,216 0.55→0.12).
     val barGradient = Brush.verticalGradient(
-        colors = listOf(ButtonSecondary, ButtonSubtle)
+        colors = listOf(BrandAmethyst.copy(alpha = 0.55f), BrandAmethyst.copy(alpha = 0.12f))
     )
 
     Column(

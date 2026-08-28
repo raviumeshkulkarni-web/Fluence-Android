@@ -4,69 +4,73 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.groq.voicetyper.sync.v1.SyncError
 import com.groq.voicetyper.sync.v1.TokenProvider
 import java.util.concurrent.atomic.AtomicLong
-import okhttp3.OkHttpClient
 
 /**
- * OAuth session for the sync worker (PKCE loopback).
+ * OAuth session for the sync worker (Play Services pattern, mirroring the
+ * proven Fluence-capture implementation).
  *
- * The access token lives in memory and nowhere else; the refresh token and the
- * account key (email) are persisted in encrypted prefs (Keystore-backed,
- * mirroring [com.groq.voicetyper.SecurityUtils]).
- *
- * Sign-in is completed via [completeSignIn], which stores the token response
- * from the PKCE loopback flow and persists the refresh token and account email.
- * [refreshAccessTokenIfNeeded] refreshes before each pass; a 400/401
- * from the token endpoint means the refresh token was revoked — the user must
- * sign in again (PassOutcomeKind.AuthRequired).
+ * The only persisted state is the account email (encrypted prefs). Drive
+ * access tokens are minted per pass by Play Services via
+ * [GoogleOAuth.getDriveAccessToken] and live in memory only. There is no
+ * refresh token and no client secret anywhere.
  */
-class SyncAuthSession(context: Context) : TokenProvider {
+class SyncAuthSession(
+    private val context: Context,
+    prefsProvider: (Context) -> SharedPreferences = ::buildDefaultPrefs
+) : TokenProvider {
 
-    private val prefs: SharedPreferences = buildPrefs(context.applicationContext)
-    private val client: OkHttpClient = GoogleOAuth.newHttpClient()
+    private val prefs: SharedPreferences = prefsProvider(context)
 
     // Memory-only access token.
     @Volatile private var accessToken: String? = null
     private val expiresAtMs = AtomicLong(0)
 
-    // The refresh token is mirrored here and persisted below.
-    @Volatile private var refreshToken: String? = prefs.getString(KEY_REFRESH_TOKEN, null)
+    /**
+     * Pending Google consent intent. When [GoogleAuthUtil] needs explicit user
+     * consent, the intent is stashed here so the UI can launch it. After
+     * successful token mint or explicit sign-out, this is cleared.
+     */
+    @Volatile var recoveryIntent: android.content.Intent? = null
+        private set
 
     /** The signed-in account key (email), or null when signed out. */
     @Volatile var accountEmail: String? = prefs.getString(KEY_ACCOUNT_EMAIL, null)
         private set
 
-    /**
-     * Finish sign-in from a PKCE loopback token response.
-     * Throws [GoogleOAuth.AuthError] on failure.
-     */
-    fun completeSignIn(tokens: GoogleOAuth.TokenResponse, accountEmail: String) {
-        storeTokens(tokens)
-        if (refreshToken == null) throw GoogleOAuth.AuthError.NoRefreshToken
-        persistRefreshToken()
-        accountEmail.let { this.accountEmail = it; prefs.edit().putString(KEY_ACCOUNT_EMAIL, it).apply() }
+    /** Finish sign-in: persist the account email chosen via the account picker. */
+    fun completeSignIn(accountEmail: String) {
+        this.accountEmail = accountEmail
+        prefs.edit().putString(KEY_ACCOUNT_EMAIL, accountEmail).apply()
+        accessToken = null
+        expiresAtMs.set(0L)
     }
 
     /**
-     * Ensure a valid access token, refreshing when needed. A revoked refresh
-     * token (HTTP 400/401) surfaces as [SyncError.AuthRequired].
+     * Mint/renew the Drive access token via Play Services. A missing account
+     * or pending consent surfaces as [SyncError.AuthRequired]; transient
+     * Play Services failures are [SyncError.Retryable].
      */
     fun refreshAccessTokenIfNeeded() {
         if (hasValidAccessToken()) return
-        val refresh = refreshToken ?: throw SyncError.AuthRequired
-        val tokens = try {
-            GoogleOAuth.refreshAccessToken(client, refresh)
-        } catch (e: GoogleOAuth.AuthError.Http) {
-            if (e.status == 400 || e.status == 401) throw SyncError.AuthRequired
-            throw SyncError.Retryable("token refresh failed: ${e.message}")
-        } catch (e: GoogleOAuth.AuthError.Network) {
-            throw SyncError.Retryable("token refresh failed: ${e.message}")
+        val email = accountEmail ?: throw SyncError.AuthRequired
+        accessToken = try {
+            val token = GoogleOAuth.getDriveAccessToken(context, email)
+            recoveryIntent = null // consent granted — clear pending recovery
+            token
+        } catch (e: GoogleOAuth.RecoveryRequired) {
+            recoveryIntent = e.intent // surface to UI for consent dialog
+            throw SyncError.AuthRequired
+        } catch (e: com.google.android.gms.auth.GoogleAuthException) {
+            throw SyncError.Retryable("token: ${e.message}")
+        } catch (e: java.io.IOException) {
+            throw SyncError.Retryable("token: ${e.message}")
         }
-        storeTokens(tokens)
-        // A rotated refresh token replaces the old one.
-        if (refreshToken != refresh) persistRefreshToken()
+        expiresAtMs.set(System.currentTimeMillis() + 55 * 60_000L)
     }
 
     /** The current access token, or null when absent/expired. */
@@ -77,64 +81,50 @@ class SyncAuthSession(context: Context) : TokenProvider {
         return expiresAtMs.get() == 0L || System.currentTimeMillis() < expiresAtMs.get()
     }
 
-    /** Sign out: clear memory and encrypted storage. */
+    /** Sign out: clear memory, encrypted storage, and the Play Services account selection. */
     fun signOut() {
         accessToken = null
         expiresAtMs.set(0L)
-        refreshToken = null
         accountEmail = null
-        prefs.edit()
-            .remove(KEY_REFRESH_TOKEN)
-            .remove(KEY_ACCOUNT_EMAIL)
-            .apply()
+        recoveryIntent = null
+        prefs.edit().remove(KEY_ACCOUNT_EMAIL).apply()
+        // Best-effort: also clear the native account selection. Play Services
+        // classes are unavailable in JVM unit tests — ignore failures.
+        runCatching {
+            GoogleSignIn.getClient(
+                context,
+                GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().build()
+            ).signOut()
+        }
     }
 
-    /** Whether a sign-in state exists (refresh token present). */
-    fun isSignedIn(): Boolean = refreshToken != null
+    /** Whether a sign-in state exists (account email present). */
+    fun isSignedIn(): Boolean = accountEmail != null
 
-    /**
-     * Re-read persisted credentials.
-     */
+    /** Re-read persisted state. */
     fun reloadFromStorage() {
-        refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
         accountEmail = prefs.getString(KEY_ACCOUNT_EMAIL, null)
     }
 
-    override fun hasValidToken(): Boolean = hasValidAccessToken() || refreshToken != null
+    override fun hasValidToken(): Boolean = hasValidAccessToken() || isSignedIn()
 
-    private fun storeTokens(tokens: GoogleOAuth.TokenResponse) {
-        accessToken = tokens.accessToken
-        expiresAtMs.set(
-            if (tokens.expiresInSecs > 0) {
-                System.currentTimeMillis() + (tokens.expiresInSecs - 60) * 1000L
-            } else {
-                0L
-            }
-        )
-        tokens.refreshToken?.let { refreshToken = it }
-    }
+    private fun buildPrefs(context: Context): SharedPreferences = buildDefaultPrefs(context)
 
-    private fun persistRefreshToken() {
-        val token = refreshToken ?: return
-        prefs.edit().putString(KEY_REFRESH_TOKEN, token).apply()
-    }
-
-    private fun buildPrefs(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
-
-    private companion object {
+    internal companion object {
         const val PREFS_NAME = "fluence_sync_secure_prefs"
-        const val KEY_REFRESH_TOKEN = "sync_refresh_token"
         const val KEY_ACCOUNT_EMAIL = "sync_account_email"
+
+        fun buildDefaultPrefs(context: Context): SharedPreferences {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            return EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
     }
 }

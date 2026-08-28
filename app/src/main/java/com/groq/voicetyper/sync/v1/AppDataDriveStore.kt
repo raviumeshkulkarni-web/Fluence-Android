@@ -31,7 +31,11 @@ import org.json.JSONObject
  */
 class AppDataDriveStore(
     private val accessToken: String,
-    private val client: OkHttpClient = GoogleOAuth.newHttpClient(),
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(java.time.Duration.ofSeconds(15))
+        .readTimeout(java.time.Duration.ofSeconds(30))
+        .writeTimeout(java.time.Duration.ofSeconds(60))
+        .build(),
     private val apiBase: String = API_BASE,
     private val uploadBase: String = UPLOAD_BASE
 ) : V1SyncEngine.DomainGateway {
@@ -46,10 +50,10 @@ class AppDataDriveStore(
         const val UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
 
         /** Hard cap on a domain payload we will read or write. */
-        const val MAX_DOMAIN_BYTES = 1024 * 1024
+        const val MAX_DOMAIN_BYTES = 8 * 1024 * 1024
 
         /** Maximum records accepted in one envelope (corruption/abuse guard). */
-        const val MAX_ENVELOPE_ITEMS = 10_000
+        const val MAX_ENVELOPE_ITEMS = 50_000
     }
 
     private fun bearer(url: String): Request.Builder =
@@ -175,10 +179,7 @@ class AppDataDriveStore(
         } else {
             // File absent — creating is always safe (recreate-after-vanish).
             val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(v1)).toString()
-            val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
-                .addFormDataPart("metadata", null, metadata.toRequestBody("application/json".toMediaType()))
-                .addFormDataPart("file", name, bytes.toRequestBody("application/octet-stream".toMediaType()))
-                .build()
+            val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
                 classify(resp.code)
                 parseVersion(resp.body?.string().orEmpty())
@@ -187,13 +188,25 @@ class AppDataDriveStore(
         }
     }
 
+    /**
+     * Drive's `uploadType=multipart` requires RFC 2387 `multipart/related`.
+     * OkHttp's MultipartBody.FORM emits `multipart/form-data`, which Drive
+     * mis-parses: the metadata part is dropped and an appDataFolder create
+     * becomes parentless => 403 insufficientFilePermissions.
+     */
+    private fun relatedBody(metadata: String, name: String, bytes: ByteArray): okhttp3.RequestBody {
+        val boundary = "fluence_" + java.util.UUID.randomUUID().toString().replace("-", "")
+        val head = "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$metadata\r\n" +
+            "--$boundary\r\nContent-Type: application/json\r\n\r\n"
+        val tail = "\r\n--$boundary--\r\n"
+        val payload = head.toByteArray(Charsets.UTF_8) + bytes + tail.toByteArray(Charsets.UTF_8)
+        return payload.toRequestBody("multipart/related; boundary=$boundary".toMediaType())
+    }
+
     /** Multipart media update returning the new file version. */
     private fun patchMultipart(fileId: String, name: String, bytes: ByteArray): String {
         val metadata = JSONObject().put("name", name).toString()
-        val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
-            .addFormDataPart("metadata", null, metadata.toRequestBody("application/json".toMediaType()))
-            .addFormDataPart("file", name, bytes.toRequestBody("application/octet-stream".toMediaType()))
-            .build()
+        val body = relatedBody(metadata, name, bytes)
         call(bearer("$uploadBase/files/$fileId?uploadType=multipart&fields=version").patch(body)).use { resp ->
             classify(resp.code)
             val newVersion = parseVersion(resp.body?.string().orEmpty())

@@ -12,4 +12,6 @@ data class SyncStatus(
     val running: Boolean = false,
     val lastSyncAtMs: Long? = null,
     val lastError: String? = null,
+    /** A Google consent dialog is needed before sync can proceed. */
+    val recoveryPending: Boolean = false,
 )

@@ -10,9 +10,13 @@ import com.groq.voicetyper.sync.v1.DomainFile
 import com.groq.voicetyper.sync.v1.SyncMetadata
 import com.groq.voicetyper.sync.v1.V1Stores
 import com.groq.voicetyper.sync.v1.V1SyncEngine
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +26,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * Foreground sync driver (frozen v1.2): owns the poll loop and the
@@ -63,6 +68,19 @@ class SyncManager(
     private var loopJob: Job? = null
 
     /**
+     * Dedicated scope for sync passes. Survives activity ON_STOP so that a
+     * pass in progress (e.g. waiting on GoogleAuthUtil.getToken) is not killed
+     * when the screen turns off. Cancelled only when the SyncManager is no
+     * longer needed.
+     */
+    private val passScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineName("sync-pass") +
+            kotlinx.coroutines.CoroutineExceptionHandler { _, t ->
+                android.util.Log.e("FluenceSync", "passScope uncaught: ${t::class.simpleName}: ${t.message}")
+            }
+    )
+
+    /**
      * Last successful pass, read from prefs at construction. The scheduler's
      * lastSyncAtMs is memory-only; this survives process death so the UI can
      * show an honest "Last synced" after a restart.
@@ -85,6 +103,11 @@ class SyncManager(
         loopJob = null
     }
 
+    /** Cancel orphaned pass jobs — call only from Activity.onDestroy (not onStop). */
+    fun destroy() {
+        passScope.cancel()
+    }
+
     /**
      * Manual "sync now": run a pass immediately (single-flight, requeued).
      * Returns false when sync is paused — nothing is scheduled, mirroring the
@@ -92,7 +115,7 @@ class SyncManager(
      */
     fun syncNow(): Boolean {
         if (!isSyncEnabled()) return false
-        scope.launch(Dispatchers.IO) { runPass() }
+        passScope.launch { runPass() }
         return true
     }
 
@@ -102,14 +125,13 @@ class SyncManager(
         refreshFlags()
     }
 
-    /** Complete sign-in using PKCE loopback tokens. */
-    fun completeSignIn(tokens: com.groq.voicetyper.sync.auth.GoogleOAuth.TokenResponse, accountEmail: String): String {
-        auth.completeSignIn(tokens, accountEmail)
+    /** Complete sign-in with the account email chosen in the account picker. */
+    fun completeSignIn(accountEmail: String) {
+        auth.completeSignIn(accountEmail)
         refreshStatus()
         // Refresh the ownership cache now (not only on next Activity create),
         // or isForeign would misclassify the previous account's rows.
         SyncAccounts.refresh(context)
-        return accountEmail
     }
 
     /** Sign out: clears encrypted storage and the status flow. */
@@ -122,7 +144,7 @@ class SyncManager(
     private suspend fun pollLoop() {
         while (currentCoroutineContext().isActive) {
             if (scheduler.pollTick() && isSyncEnabled()) {
-                runPass()
+                passScope.launch { runPass() }
             }
             val waitMs = if (scheduler.running) {
                 1_000L
@@ -186,7 +208,11 @@ class SyncManager(
      * failure in one never prevents the others from syncing.
      */
     private suspend fun runV12Pass(): PassOutcomeKind {
-        auth.refreshAccessTokenIfNeeded()
+        try {
+            withTimeout(20_000L) { auth.refreshAccessTokenIfNeeded() }
+        } catch (e: TimeoutCancellationException) {
+            throw com.groq.voicetyper.sync.v1.SyncError.Retryable("token mint timeout")
+        }
         val token = auth.accessTokenOrNull() ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
         val accountHash = AccountHash.of(auth.accountEmail)
             ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
@@ -251,9 +277,19 @@ class SyncManager(
             running = scheduler.running,
             lastSyncAtMs = scheduler.lastSyncAtMs ?: persistedLastSyncAtMs,
             lastError = scheduler.lastOutcome?.takeIf { it != PassOutcomeKind.SUCCESS }?.name,
+            recoveryPending = auth.recoveryIntent != null,
         )
         _status.value = status
         listener(status)
+    }
+
+    /**
+     * Consume the pending Google consent intent, if any. The caller (UI)
+     * should launch the returned intent via an ActivityResultLauncher.
+     * Returns null when no consent is needed.
+     */
+    fun consumeRecoveryIntent(): android.content.Intent? = auth.recoveryIntent?.also {
+        // Don't clear here — clear after successful token mint in refreshAccessTokenIfNeeded.
     }
 
     /** Write-through the last successful pass time so it survives process death. */

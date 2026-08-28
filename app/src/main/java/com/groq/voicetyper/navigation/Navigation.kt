@@ -52,6 +52,8 @@ fun FluenceNavHost(
     onRequestPermission: () -> Unit = {},
     onSignInClick: () -> Unit = {},
     onSignOutClick: () -> Unit = {},
+    onConsentClick: () -> Unit = {},
+    signInError: String? = null,
     syncSection: @Composable () -> Unit = {}
 ) {
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
@@ -162,7 +164,9 @@ fun FluenceNavHost(
                 onNavigateBack = { navigateBack() },
                 manager = syncManager,
                 onSignInClick = onSignInClick,
-                onSignOutClick = onSignOutClick
+                onSignOutClick = onSignOutClick,
+                onConsentClick = onConsentClick,
+                signInError = signInError
             )
             Screen.About -> AboutScreen(
                 onNavigateBack = { navigateBack() }

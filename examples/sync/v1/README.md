@@ -18,7 +18,7 @@ All files share one envelope shape:
 - Compact JSON — no whitespace between tokens, no pretty-print.
 - Fixed key order as listed per item type below (keys appear in the declared order).
 - Deterministic sorts — dict/snippet: businessKey then syncId; stats: day then eventId; settings: key.
-- Whole payload <=1 MiB.
+- Whole payload <=8 MiB.
 - Wrong envelope `v` rejects the whole file; malformed JSON rejects the whole file.
 
 ## Item schemas (fixed key order)
@@ -57,7 +57,7 @@ All files share one envelope shape:
 
 ## Validation caps
 
-Caps: dict/snippet strings <=4096 chars; expansion <=8192; settings value <=1024; wordCount<=1_000_000; chars<=10_000_000; durationMs<=604_800_000; envelope <=10_000 entries (settings <=20); payload <=1 MiB. Invalid individual records are skipped, never fatal; wrong envelope `v` rejects the whole file.
+Caps: dict/snippet strings <=4096 chars; expansion <=8192; settings value <=1024; wordCount<=1_000_000; chars<=10_000_000; durationMs<=604_800_000; envelope <=50_000 entries (settings <=20); payload <=8 MiB. Invalid individual records are skipped, never fatal; wrong envelope `v` rejects the whole file.
 
 Detailed caps table:
 
@@ -69,11 +69,11 @@ Detailed caps table:
 | wordCount / words | <=1_000_000 |
 | chars | <=10_000_000 |
 | durationMs | <=604_800_000 (7 days) |
-| envelope entries | <=10_000 entries (settings <=20) |
-| whole payload | <=1 MiB |
+| envelope entries | <=50_000 entries (settings <=20) |
+| whole payload | <=8 MiB |
 
 - An individual record violating a cap is skipped, never fatal for the rest of the envelope.
-- Only envelope-level problems (wrong version, malformed JSON, payload >1 MiB) reject the whole file.
+- Only envelope-level problems (wrong version, malformed JSON, payload >8 MiB) reject the whole file.
 - Wrong envelope `v` rejects the whole file.
 
 ## Canonical fixtures

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -62,6 +63,8 @@ fun SyncScreen(
     manager: SyncManager,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
+    onConsentClick: () -> Unit = {},
+    signInError: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -200,6 +203,9 @@ fun SyncScreen(
                                             .size(8.dp)
                                             .clip(CircleShape)
                                             .background(if (status.lastError != null) Error else Success)
+                                            // Optical centering: font cap-height sits ~1dp above geometric center,
+                                            // without this offset the dot reads as floating above the label.
+                                            .offset(y = 1.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                 }
@@ -257,6 +263,19 @@ fun SyncScreen(
                                 },
                                 color = if (status.lastError != null) Error else TextSecondary,
                                 style = FluenceTypography.bodySmall
+                            )
+                        }
+
+                        if (status.recoveryPending && status.signedIn) {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                            Text(
+                                text = "\u27a1\ufe0f Reconnect to Google Drive",
+                                color = Error,
+                                style = FluenceTypography.labelMedium,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onConsentClick() }
+                                    .padding(vertical = FluenceSpacing.Xs)
                             )
                         }
                     }
@@ -391,29 +410,39 @@ fun SyncScreen(
                     )
                 }
             } else {
-                // Sign In Button
-                Button(
-                    onClick = onSignInClick,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TextPrimary,
-                        contentColor = Canvas
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .pressScale(remember { MutableInteractionSource() })
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudSync,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                    Text(
-                        text = "Sign in with Google",
-                        style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = onSignInClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TextPrimary,
+                            contentColor = Canvas
+                        ),
+                        shape = FluenceShapes.Medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .pressScale(remember { MutableInteractionSource() })
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+                        Text(
+                            text = "Sign in with Google",
+                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        )
+                    }
+                    if (signInError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = signInError,
+                            color = Error,
+                            style = FluenceTypography.bodySmall,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
 
@@ -458,6 +487,12 @@ fun SyncScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = FluenceSpacing.Base)
+                // Hide the idle circular indicator — without this a faint 4dp dot
+                // bleeds at the very top edge (overlaps the camera cutout) when
+                // the list is at rest. Keep it visible only while pulling/refreshing.
+                .graphicsLayer { alpha = if (pullRefreshState.isRefreshing) 1f else 0f },
+            containerColor = Panel,
+            contentColor = TextPrimary
         )
     }
 }

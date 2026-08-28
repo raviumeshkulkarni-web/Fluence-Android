@@ -46,6 +46,44 @@ class MainActivity : ComponentActivity() {
     }
 
     private var deepLinkToSettings by mutableStateOf(false)
+    private var signInError by mutableStateOf<String?>(null)
+
+    private val googleSignInClient by lazy {
+        val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions
+            .Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .build()
+        com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(this, gso)
+    }
+
+    private val signInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        try {
+            val account = com.google.android.gms.auth.api.signin.GoogleSignIn
+                .getSignedInAccountFromIntent(result.data)
+                .getResult(com.google.android.gms.common.api.ApiException::class.java)
+            val email = account?.email ?: error("account has no email")
+            syncManager.completeSignIn(email)
+            signInError = null
+            Toast.makeText(this, "Signed in as $email", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("FluenceAuth", "sign-in failed", e)
+            signInError = e.message
+            Toast.makeText(this, "Sign-in failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val consentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            Toast.makeText(this, "Access granted — syncing\u2026", Toast.LENGTH_SHORT).show()
+            syncManager.syncNow()
+        } else {
+            Toast.makeText(this, "Consent denied — sync requires Drive access", Toast.LENGTH_LONG).show()
+        }
+    }
 
     private val syncManager by lazy {
         SyncManager(
@@ -113,28 +151,21 @@ class MainActivity : ComponentActivity() {
                     FluenceNavHost(
                         syncManager = syncManager,
                         deepLinkToSettings = deepLinkToSettings,
+                        signInError = signInError,
                         onRequestPermission = {
                             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
                         onSignInClick = {
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                try {
-                                    val tokens = GoogleOAuth.signInWithLoopback(applicationContext)
-                                    val email = GoogleOAuth.fetchAccountEmail(GoogleOAuth.newHttpClient(), tokens.accessToken)
-                                    syncManager.completeSignIn(tokens, email)
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(this@MainActivity, "Signed in as $email", Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.e("FluenceAuth", "signInWithLoopback failed", e)
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(this@MainActivity, "Sign-in failed: ${e.message}", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            }
+                            signInLauncher.launch(googleSignInClient.signInIntent)
                         },
                         onSignOutClick = {
                             syncManager.signOut()
+                        },
+                        onConsentClick = {
+                            val intent = syncManager.consumeRecoveryIntent()
+                            if (intent != null) {
+                                consentLauncher.launch(intent)
+                            }
                         }
                     )
 
@@ -163,6 +194,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Tear down orphan passScope (survives ON_STOP by design). Must not run
+        // on ON_STOP — that would re-break the token-mint stall fix.
+        if (isFinishing) {
+            try { syncManager.destroy() } catch (_: Exception) {}
+        }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

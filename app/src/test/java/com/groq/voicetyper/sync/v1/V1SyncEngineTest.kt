@@ -365,6 +365,55 @@ class V1SyncEngineTest {
     }
 
     // ------------------------------------------------------------------
+    // Regression: converged pull must materialize into an empty local store
+    // (fresh device installs never took the PUT path, so merged winners
+    // were computed and dropped — dictionary/snippets stayed invisible).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun fresh_device_converged_pull_materializes_dictionary() = runBlocking {
+        val remote = DomainSerializer.parseDictionary(fixtureBytes("dictionary"))!!
+        val drive = FakeDrive(bytes = DomainSerializer.serializeDictionary(remote).toByteArray(), version = "7")
+        val store = FakeDictStore(mutableListOf())
+        val result = V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(0, drive.putCount)
+        assertFalse(result.uploaded)
+        assertEquals(1, store.applyCalls)
+        assertEquals(remote.entries.map { it.syncId }.sorted(), store.rows.map { it.syncId }.sorted())
+    }
+
+    @Test
+    fun fresh_device_converged_pull_materializes_snippets() = runBlocking {
+        val remote = DomainSerializer.parseSnippets(fixtureBytes("snippets"))!!
+        val drive = FakeDrive(bytes = DomainSerializer.serializeSnippets(SnippetDomain(entries = remote.entries)).toByteArray(), version = "3")
+        val store = FakeSnippetStore()
+        val result = V1SyncEngine.syncSnippets(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(0, drive.putCount)
+        assertFalse(result.uploaded)
+        assertEquals(remote.entries.map { it.syncId }, store.rows.map { it.syncId })
+    }
+
+    @Test
+    fun fresh_device_converged_pull_materializes_stats() = runBlocking {
+        val remote = DomainSerializer.parseStats(fixtureBytes("stats"))!!
+        val drive = FakeDrive(bytes = DomainSerializer.serializeStats(StatsDomain(entries = remote.entries)).toByteArray(), version = "4")
+        val store = FakeStatStore()
+        V1SyncEngine.syncStats(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(0, drive.putCount)
+        assertEquals(remote.entries.size, store.rows.size)
+    }
+
+    @Test
+    fun fresh_device_converged_pull_materializes_settings() = runBlocking {
+        val remote = DomainSerializer.parseSettings(fixtureBytes("settings"))!!
+        val drive = FakeDrive(bytes = DomainSerializer.serializeSettings(SettingsDomain(entries = remote.entries)).toByteArray(), version = "2")
+        val store = FakeSettingsStore()
+        V1SyncEngine.syncSettings(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(0, drive.putCount)
+        assertEquals(remote.entries.associate { it.key to it.value }, store.values.mapValues { it.value.first })
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
