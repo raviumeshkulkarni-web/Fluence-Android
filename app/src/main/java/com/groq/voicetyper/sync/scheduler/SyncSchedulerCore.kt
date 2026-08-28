@@ -7,6 +7,31 @@ package com.groq.voicetyper.sync.scheduler
 enum class PassOutcomeKind { SUCCESS, RETRYABLE, REJECTED, FATAL, AUTH_REQUIRED }
 
 /**
+ * Order-independent "worst wins" aggregation of per-domain outcomes into the
+ * pass outcome (mirror of Windows PassOutcomeKind precedence). A single doomed
+ * domain must never hide what another domain reported: severity
+ * SUCCESS < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED.
+ */
+fun worstOutcome(a: PassOutcomeKind, b: PassOutcomeKind): PassOutcomeKind {
+    if (a == b) return a
+    // Ties between equally severe kinds (REJECTED vs FATAL) return the left
+    // argument — deterministic because both are equivalent for scheduling.
+    return if (a.severity() >= b.severity()) a else b
+}
+
+/** [worstOutcome] fold over every domain in the pass. */
+fun worstOutcome(outcomes: Iterable<PassOutcomeKind>): PassOutcomeKind =
+    outcomes.fold(PassOutcomeKind.SUCCESS) { acc, o -> worstOutcome(acc, o) }
+
+private fun PassOutcomeKind.severity(): Int = when (this) {
+    PassOutcomeKind.SUCCESS -> 0
+    PassOutcomeKind.RETRYABLE -> 1
+    PassOutcomeKind.REJECTED -> 2
+    PassOutcomeKind.FATAL -> 2
+    PassOutcomeKind.AUTH_REQUIRED -> 3
+}
+
+/**
  * Exponential backoff for retryable passes (mirror of Windows: 1000ms start,
  * ×2, capped at 60s).
  */

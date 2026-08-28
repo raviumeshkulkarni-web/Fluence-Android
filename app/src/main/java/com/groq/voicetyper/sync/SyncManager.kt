@@ -4,6 +4,7 @@ import android.content.Context
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.sync.scheduler.PassOutcomeKind
 import com.groq.voicetyper.sync.scheduler.SyncSchedulerCore
+import com.groq.voicetyper.sync.scheduler.worstOutcome
 import com.groq.voicetyper.sync.v1.AccountHash
 import com.groq.voicetyper.sync.v1.AppDataDriveStore
 import com.groq.voicetyper.sync.v1.DomainFile
@@ -205,7 +206,10 @@ class SyncManager(
 
     /**
      * One frozen-v1.2 pass across all four domains. Domains are isolated: a
-     * failure in one never prevents the others from syncing.
+     * classified failure in one never prevents the others from syncing, and
+     * the worst per-domain outcome is reported as the pass outcome
+     * (worstOutcome — SUCCESS < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED).
+     * Only truly unexpected exceptions escape to the caller.
      */
     private suspend fun runV12Pass(): PassOutcomeKind {
         try {
@@ -233,23 +237,26 @@ class SyncManager(
         }
 
         val maxSeenRef = V1SyncEngine.MaxSeenRef(meta.maxSeen)
-        var retryable = false
+        var worst = PassOutcomeKind.SUCCESS
         for (domain in DomainFile.values()) {
-            val ok = runDomain(domain, drive, accountHash, deviceId, maxSeenRef)
-            retryable = retryable || !ok
+            val outcome = runDomain(domain, drive, accountHash, deviceId, maxSeenRef)
+            worst = worstOutcome(worst, outcome)
             metaDao.updateMaxSeen(accountHash, maxSeenRef.value)
         }
-        return if (retryable) PassOutcomeKind.RETRYABLE else PassOutcomeKind.SUCCESS
+        return worst
     }
 
-    /** Run one domain; failures are logged and reported, never propagated. */
+    /** Run one domain; classified failures are contained and folded into the
+     *  pass outcome via [worstOutcome], never propagated, so the remaining
+     *  domains still sync (Windows parity). Unexpected exceptions still escape.
+     */
     private suspend fun runDomain(
         domain: DomainFile,
         drive: AppDataDriveStore,
         accountHash: String,
         deviceId: String,
         maxSeenRef: V1SyncEngine.MaxSeenRef
-    ): Boolean = try {
+    ): PassOutcomeKind = try {
         when (domain) {
             DomainFile.DICTIONARY ->
                 V1SyncEngine.syncDictionary(V1Stores.dictionaryStore(context), drive, accountHash, deviceId, maxSeenRef)
@@ -260,13 +267,22 @@ class SyncManager(
             DomainFile.SETTINGS ->
                 V1SyncEngine.syncSettings(V1Stores.settingsStore(context), drive, accountHash, deviceId, maxSeenRef)
         }
-        true
+        PassOutcomeKind.SUCCESS
     } catch (e: com.groq.voicetyper.sync.v1.SyncError.StaleVersion) {
         android.util.Log.w("FluenceSync", "domain $domain kept changing; will converge next pass")
-        false
+        PassOutcomeKind.RETRYABLE
     } catch (e: com.groq.voicetyper.sync.v1.SyncError.Retryable) {
         android.util.Log.w("FluenceSync", "domain $domain retryable: ${e.message}")
-        false
+        PassOutcomeKind.RETRYABLE
+    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Rejected) {
+        android.util.Log.e("FluenceSync", "domain $domain rejected: ${e.message}")
+        PassOutcomeKind.FATAL
+    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Fatal) {
+        android.util.Log.e("FluenceSync", "domain $domain fatal: ${e.message}")
+        PassOutcomeKind.FATAL
+    } catch (e: com.groq.voicetyper.sync.v1.SyncError.AuthRequired) {
+        android.util.Log.e("FluenceSync", "domain $domain auth required: ${e.message}")
+        PassOutcomeKind.AUTH_REQUIRED
     }
 
     private fun publish() {

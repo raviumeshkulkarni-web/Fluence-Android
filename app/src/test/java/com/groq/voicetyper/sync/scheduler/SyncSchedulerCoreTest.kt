@@ -8,6 +8,38 @@ import org.junit.Test
 
 class SyncSchedulerCoreTest {
 
+    @Test
+    fun worstOutcome_is_order_independent_and_severity_ordered() {
+        val auth = PassOutcomeKind.AUTH_REQUIRED
+        val fatal = PassOutcomeKind.FATAL
+        val rejected = PassOutcomeKind.REJECTED
+        val retryable = PassOutcomeKind.RETRYABLE
+        val success = PassOutcomeKind.SUCCESS
+
+        assertEquals(auth, worstOutcome(success, auth))
+        assertEquals(auth, worstOutcome(auth, success))
+        assertEquals(auth, worstOutcome(rejected, auth))
+        assertEquals(auth, worstOutcome(retryable, auth))
+        assertEquals(fatal, worstOutcome(fatal, retryable))
+        assertEquals(fatal, worstOutcome(retryable, fatal))
+        assertEquals("REJECTED and FATAL schedule identically", rejected, worstOutcome(rejected, fatal))
+        assertEquals(retryable, worstOutcome(success, retryable))
+        assertEquals(retryable, worstOutcome(retryable, success))
+        assertEquals(rejected, worstOutcome(rejected, retryable))
+        assertEquals(success, worstOutcome(success, success))
+    }
+
+    @Test
+    fun worstOutcome_aggregates_a_mixed_four_domain_pass() {
+        val pass = worstOutcome(
+            listOf(PassOutcomeKind.SUCCESS, PassOutcomeKind.RETRYABLE, PassOutcomeKind.SUCCESS, PassOutcomeKind.FATAL)
+        )
+        assertEquals(PassOutcomeKind.FATAL, pass)
+        // One doomed domain still yields SUCCESS-equivalent cast to the others.
+        val pass2 = worstOutcome(listOf(PassOutcomeKind.SUCCESS, PassOutcomeKind.REJECTED))
+        assertEquals(PassOutcomeKind.REJECTED, pass2)
+    }
+
     private var now = 0L
     private val clock = { now }
 
