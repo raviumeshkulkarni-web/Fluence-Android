@@ -29,9 +29,11 @@ fun decideSettingsApply(snapshotValue: String?, liveValue: String?): Boolean =
  * ("fluence_sync_settings_<accountHash>"): {key: {"v": value, "t": updatedAt}}.
  * Partitioning by account hash means signing into another account can never
  * read or overwrite this account's preference timestamps. A key whose live
- * value differs from the recorded one is dirty with updatedAt = now (wall
- * clock). applyMergedAndClearDirty writes winners back and records their cloud
- * updatedAt — one atomic prefs write per apply.
+ * value differs from the recorded one is dirty with updatedAt = a fresh clock
+ * floored by the persisted maxSeen (MutationClock — a backwards wall-clock
+ * jump must not let an edit lose on LWW). applyMergedAndClearDirty writes
+ * winners back and records their cloud updatedAt — one atomic prefs write per
+ * apply.
  */
 class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.SettingsV1Store {
 
@@ -101,9 +103,13 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
                     out.add(local(m.syncKey, current, 0L, dirty = false))
                 }
             } else if (known.first != current) {
-                // Local edit since last sync → dirty with fresh wall clock.
-                setMeta(hash, m.syncKey, current)
-                out.add(local(m.syncKey, current, System.currentTimeMillis(), dirty = true))
+                // Local edit since last sync → dirty with a fresh clock that
+                // still respects the persisted maxSeen floor (MutationClock):
+                // a backwards wall-clock jump must not let this edit lose on
+                // LWW against rows this device already pushed.
+                val at = MutationClock.next(context)
+                setMeta(hash, m.syncKey, current, at)
+                out.add(local(m.syncKey, current, at, dirty = true))
             } else {
                 out.add(local(m.syncKey, current, known.second, dirty = false))
             }
