@@ -41,8 +41,17 @@ class AppDataDriveStore(
 ) : V1SyncEngine.DomainGateway {
     private var fluenceFolderId: String? = null
     private var v1FolderId: String? = null
+    // GET and PUT are performed through this same instance. Remember the
+    // deterministic valid target so version-checking and updating cannot
+    // accidentally switch to a corrupt/oversized sibling.
+    private val preferredDomainFileIds = mutableMapOf<DomainFile, String>()
+    private val validDuplicateFileIds = mutableMapOf<DomainFile, List<String>>()
 
-    data class DomainFetch(val bytes: ByteArray?, val version: String?)
+    data class DomainFetch(
+        val bytes: ByteArray?,
+        val version: String?,
+        val hasDuplicateValidFiles: Boolean = false
+    )
 
     companion object {
         const val FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -89,8 +98,8 @@ class AppDataDriveStore(
         val fluenceId = ensureFluenceFolder()
         val query = URLEncoder.encode("'$fluenceId' in parents and mimeType = '$FOLDER_MIME' and name = 'v1' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
             val body = resp.body?.string().orEmpty()
+            classify(resp.code) { body }
             val id = parseFirstId(body)
             v1FolderId = id ?: createFolder("v1", fluenceId)
             return v1FolderId!!
@@ -101,8 +110,8 @@ class AppDataDriveStore(
         fluenceFolderId?.let { return it }
         val query = URLEncoder.encode("name = 'fluence' and mimeType = '$FOLDER_MIME' and trashed = false and 'appDataFolder' in parents", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
             val body = resp.body?.string().orEmpty()
+            classify(resp.code) { body }
             val id = parseFirstId(body)
             fluenceFolderId = id ?: createFolder("fluence", "appDataFolder")
             return fluenceFolderId!!
@@ -114,8 +123,9 @@ class AppDataDriveStore(
             .put("parents", org.json.JSONArray().put(parent)).toString()
             .toRequestBody("application/json".toMediaType())
         call(bearer("$apiBase/files?fields=id").post(body)).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
-            return parseId(resp.body?.string().orEmpty()) ?: throw SyncError.Retryable("folder create missing id")
+            val responseBody = resp.body?.string().orEmpty()
+            classify(resp.code) { responseBody }
+            return parseId(responseBody) ?: throw SyncError.Retryable("folder create missing id")
         }
     }
 
@@ -124,34 +134,77 @@ class AppDataDriveStore(
         val v1 = ensureV1Folder()
         val name = domainFileName(domain)
         val query = URLEncoder.encode("'$v1' in parents and name = '$name' and trashed = false", "UTF-8")
-        call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version)&pageSize=10")).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
-            val body = resp.body?.string().orEmpty()
-            return parseFileListLite(body)
-        }
+        val all = mutableListOf<FileMetaLite>()
+        var pageToken: String? = null
+        do {
+            val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version),nextPageToken&pageSize=1000$token")).use { resp ->
+                val body = resp.body?.string().orEmpty()
+                classify(resp.code) { body }
+                val page = parseFileListLite(body)
+                all += page.first
+                pageToken = page.second
+            }
+        } while (pageToken != null)
+        return all
     }
 
     /**
-     * GET domain file bytes. The concurrent-revision marker comes from the
-     * listing ([FileMetaLite.version]), not from this media response.
-     * Returns null bytes if 0 files. If >1 duplicate, deterministically picks
-     * the lowest fileId (others left untouched — never auto-deleted).
-     * Corruption is surfaced as unparseable bytes so the caller auto-skips.
+     * GET domain bytes. All valid same-name files are merged before the
+     * engine sees them. Invalid and oversized siblings are never treated as
+     * empty data and are retained for manual recovery.
      */
     override fun getDomain(domain: DomainFile): DomainFetch {
-        val files = listDomainFile(domain)
-        if (files.isEmpty()) return DomainFetch(null, null)
-        // Duplicate handling: deterministic pick (lowest fileId); duplicates coexist.
-        val meta = files.minByOrNull { it.fileId }!!
-        call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
-            if (resp.code == 404) return DomainFetch(null, null)
-            classify(resp.code) { resp.body?.string().orEmpty() }
-            val bytes = resp.body?.bytes()
-            if (bytes != null && bytes.size > MAX_DOMAIN_BYTES) {
-                throw SyncError.Rejected("domain payload ${bytes.size} bytes exceeds cap")
-            }
-            return DomainFetch(bytes, meta.version)
+        val files = listDomainFile(domain).sortedBy { it.fileId }
+        if (files.isEmpty()) {
+            preferredDomainFileIds.remove(domain)
+            validDuplicateFileIds.remove(domain)
+            return DomainFetch(null, null)
         }
+
+        val valid = mutableListOf<Pair<FileMetaLite, ByteArray>>()
+        var firstCorrupt: Pair<FileMetaLite, ByteArray>? = null
+        var largestOversized = 0
+        for (meta in files) {
+            val bytes = call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
+                if (resp.code == 404) return@use null
+                val responseBody = resp.body?.bytes() ?: ByteArray(0)
+                classify(resp.code) { responseBody.toString(Charsets.UTF_8) }
+                responseBody
+            } ?: continue
+            if (bytes.size > MAX_DOMAIN_BYTES) {
+                largestOversized = maxOf(largestOversized, bytes.size)
+                continue
+            }
+            val parseable = when (domain) {
+                DomainFile.DICTIONARY -> DomainSerializer.parseDictionary(bytes) != null
+                DomainFile.SNIPPETS -> DomainSerializer.parseSnippets(bytes) != null
+                DomainFile.STATS -> DomainSerializer.parseStats(bytes) != null
+                DomainFile.SETTINGS -> DomainSerializer.parseSettings(bytes) != null
+            }
+            if (parseable) valid.add(meta to bytes)
+            else if (firstCorrupt == null) firstCorrupt = meta to bytes
+        }
+
+        if (valid.isNotEmpty()) {
+            val target = valid.first().first
+            preferredDomainFileIds[domain] = target.fileId
+            validDuplicateFileIds[domain] = valid.drop(1).map { it.first.fileId }
+            val bytes = if (valid.size == 1) {
+                valid.first().second
+            } else {
+                mergeValidDuplicatePayloads(domain, valid.map { it.second })
+            }
+            return DomainFetch(bytes, target.version, valid.size > 1)
+        }
+
+        preferredDomainFileIds[domain] = files.first().fileId
+        validDuplicateFileIds.remove(domain)
+        if (largestOversized > 0) {
+            throw SyncError.Rejected("domain payload $largestOversized bytes exceeds cap")
+        }
+        val corrupt = firstCorrupt ?: return DomainFetch(null, null)
+        return DomainFetch(corrupt.second, corrupt.first.version)
     }
 
     /**
@@ -170,8 +223,16 @@ class AppDataDriveStore(
         val v1 = ensureV1Folder()
         val name = domainFileName(domain)
         val existing = listDomainFile(domain)
-        return if (existing.isNotEmpty()) {
-            val meta = existing.minByOrNull { it.fileId }!!
+        val preferredId = preferredDomainFileIds[domain]
+        val selected = if (preferredId != null) {
+            existing.firstOrNull { it.fileId == preferredId }
+                ?: if (expectedVersion != null) throw SyncError.StaleVersion(null)
+                else existing.minByOrNull { it.fileId }
+        } else {
+            existing.minByOrNull { it.fileId }
+        }
+        return if (selected != null) {
+            val meta = selected
             // Concurrency check: live version must still match what the caller
             // merged against. A missing live version fails closed (fail-safe).
             val fresh = when {
@@ -180,14 +241,21 @@ class AppDataDriveStore(
                 else -> true
             }
             if (!fresh) throw SyncError.StaleVersion(meta.version)
-            patchMultipart(meta.fileId, name, bytes)
+            val newVersion = patchMultipart(meta.fileId, name, bytes)
+            // The merged payload contains every valid sibling. Delete only
+            // those valid duplicates; corrupt/oversized files remain intact.
+            validDuplicateFileIds.remove(domain).orEmpty().forEach { duplicateId ->
+                if (duplicateId != meta.fileId) deleteDomainFile(duplicateId)
+            }
+            newVersion
         } else {
             // File absent — creating is always safe (recreate-after-vanish).
             val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(v1)).toString()
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
-                classify(resp.code) { resp.body?.string().orEmpty() }
-                parseVersion(resp.body?.string().orEmpty())
+                val responseBody = resp.body?.string().orEmpty()
+                classify(resp.code) { responseBody }
+                parseVersion(responseBody)
                     ?: throw SyncError.Retryable("create succeeded but no file version was returned")
             }
         }
@@ -213,16 +281,50 @@ class AppDataDriveStore(
         val metadata = JSONObject().put("name", name).toString()
         val body = relatedBody(metadata, name, bytes)
         call(bearer("$uploadBase/files/$fileId?uploadType=multipart&fields=version").patch(body)).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
-            val newVersion = parseVersion(resp.body?.string().orEmpty())
+            val responseBody = resp.body?.string().orEmpty()
+            classify(resp.code) { responseBody }
+            val newVersion = parseVersion(responseBody)
             if (newVersion != null) return newVersion
         }
         // Defensive fallback: fetch the version explicitly so staleness
         // detection stays armed for the next pass.
         call(bearer("$apiBase/files/$fileId?fields=version")).use { resp ->
-            classify(resp.code) { resp.body?.string().orEmpty() }
-            return parseVersion(resp.body?.string().orEmpty())
+            val responseBody = resp.body?.string().orEmpty()
+            classify(resp.code) { responseBody }
+            return parseVersion(responseBody)
                 ?: throw SyncError.Retryable("update succeeded but no file version was returned")
+        }
+    }
+
+    private fun mergeValidDuplicatePayloads(domain: DomainFile, payloads: List<ByteArray>): ByteArray {
+        return when (domain) {
+            DomainFile.DICTIONARY -> DomainSerializer.serializeDictionary(
+                DictionaryDomain(entries = Merge.mergeDictionaries(
+                    emptyList(), payloads.flatMap { DomainSerializer.parseDictionary(it)!!.entries }
+                ))
+            )
+            DomainFile.SNIPPETS -> DomainSerializer.serializeSnippets(
+                SnippetDomain(entries = Merge.mergeSnippets(
+                    emptyList(), payloads.flatMap { DomainSerializer.parseSnippets(it)!!.entries }
+                ))
+            )
+            DomainFile.STATS -> DomainSerializer.serializeStats(
+                StatsDomain(entries = Merge.mergeStats(
+                    emptyList(), payloads.flatMap { DomainSerializer.parseStats(it)!!.entries }
+                ))
+            )
+            DomainFile.SETTINGS -> DomainSerializer.serializeSettings(
+                SettingsDomain(entries = Merge.mergeSettings(
+                    emptyList(), payloads.flatMap { DomainSerializer.parseSettings(it)!!.entries }
+                ))
+            )
+        }.toByteArray()
+    }
+
+    private fun deleteDomainFile(fileId: String) {
+        call(bearer("$apiBase/files/$fileId").delete()).use { resp ->
+            if (resp.code == 404) return
+            classify(resp.code) { resp.body?.string().orEmpty() }
         }
     }
 
@@ -235,8 +337,12 @@ class AppDataDriveStore(
 
     private fun parseFirstId(json: String): String? = runCatching {
         val arr = JSONObject(json).optJSONArray("files") ?: return null
-        if (arr.length() == 0) return null
-        arr.getJSONObject(0).optString("id").ifEmpty { null }
+        var best: String? = null
+        for (i in 0 until arr.length()) {
+            val id = arr.optJSONObject(i)?.optString("id")?.ifEmpty { null } ?: continue
+            if (best == null || id < best!!) best = id
+        }
+        best
     }.getOrNull()
 
     private fun parseId(json: String): String? = runCatching { JSONObject(json).optString("id").ifEmpty { null } }.getOrNull()
@@ -251,7 +357,7 @@ class AppDataDriveStore(
         }
     }.getOrNull()
 
-    private fun parseFileListLite(json: String): List<FileMetaLite> {
+    private fun parseFileListLite(json: String): Pair<List<FileMetaLite>, String?> {
         val root = try { JSONObject(json) } catch (_: Exception) { throw SyncError.Rejected("corrupt listing") }
         val arr = root.optJSONArray("files") ?: throw SyncError.Rejected("missing files")
         val out = mutableListOf<FileMetaLite>()
@@ -266,7 +372,7 @@ class AppDataDriveStore(
             }
             out.add(FileMetaLite(id, name, version))
         }
-        return out
+        return out to root.optString("nextPageToken").ifEmpty { null }
     }
 
     data class FileMetaLite(val fileId: String, val name: String, val version: String?)

@@ -337,7 +337,8 @@ class V1SyncEngineTest {
         assertEquals(0, drive.putCount)
 
         // Now a genuinely newer local edit wins and uploads.
-        settings.values["language"] = "fr" to 9_999_999_999_999L
+        // Use now+60s (within 24h CLOCK_SKEW_TOLERANCE) so F3 far-future cap does not reject it
+        settings.values["language"] = "fr" to (System.currentTimeMillis() + 60_000)
         val drive2 = FakeDrive(
             bytes = DomainSerializer.serializeSettings(SettingsDomain(entries = remote.entries)).toByteArray(),
             version = "2"

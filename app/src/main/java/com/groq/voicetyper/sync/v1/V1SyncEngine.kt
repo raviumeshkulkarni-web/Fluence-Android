@@ -63,7 +63,7 @@ object V1SyncEngine {
                     ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
                 val merged = Merge.mergeDictionaries(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
                 val remoteSorted = remoteDomain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
@@ -131,7 +131,7 @@ object V1SyncEngine {
                 val remoteDomain = DomainSerializer.parseSnippets(fetch.bytes!!)
                     ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
                 val merged = Merge.mergeSnippets(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteDomain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteDomain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })) || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.
@@ -202,9 +202,12 @@ object V1SyncEngine {
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseStats(fetch.bytes!!)
                     ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                // Stats are an append-only wire ledger. Never remove a legacy
+                // aggregate merely because a dictation event exists for the
+                // same day; the aggregate may contain data from another peer.
                 val merged = Merge.mergeStats(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
                 val remoteSorted = remoteDomain.entries.sortedWith(compareBy({ it.day }, { it.eventId }))
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.
@@ -273,7 +276,7 @@ object V1SyncEngine {
                     ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
                 val merged = Merge.mergeSettings(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
                 val remoteSorted = remoteDomain.entries.sortedBy { it.key }
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.

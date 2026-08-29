@@ -83,8 +83,16 @@ object HistoryRepository {
     /** Sum the account's union-dedup events into per-day counters. */
     private fun aggregateAccountEvents(rows: List<com.groq.voicetyper.sync.v1.StatSyncEntry>): Map<String, DayCounters> {
         val map = HashMap<String, DayCounters>()
+        // Legacy daily aggregates have no event identity. Keep them in the
+        // append-only wire ledger, but do not display them alongside
+        // dictation-level events for the same day or the UI double-counts.
+        val dictationDays = rows.asSequence()
+            .filter { it.deletedAt == null && (it.timestampMs != 0L || it.chars != 0) }
+            .map { it.day }
+            .toSet()
         for (row in rows) {
             if (row.deletedAt != null) continue
+            if (row.timestampMs == 0L && row.chars == 0 && row.day in dictationDays) continue
             val cur = map[row.day] ?: DayCounters()
             map[row.day] = cur.copy(
                 words = cur.words + row.wordCount,

@@ -128,7 +128,7 @@ object SnippetPreferences {
 
         if (id == 0L) {
             val nextId = (all.maxOfOrNull { it.id } ?: 0L) + 1L
-            all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion, context))
+            all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion, context, hash))
             write(context, all)
             return SaveResult.INSERTED
         }
@@ -143,7 +143,9 @@ object SnippetPreferences {
         all[index] = old.copy(
             trigger = trimmedTrigger,
             expansion = trimmedExpansion,
+            uuid = old.uuid ?: UUID.randomUUID().toString(),
             updatedAt = MutationClock.next(context),
+            deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
             dirty = true
         )
         write(context, all)
@@ -164,6 +166,7 @@ object SnippetPreferences {
             all[index] = entry.copy(
                 deletedAt = MutationClock.next(context),
                 updatedAt = MutationClock.next(context),
+                deviceId = entry.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                 dirty = true,
                 everPushed = true
             )
@@ -173,7 +176,7 @@ object SnippetPreferences {
         write(context, all)
     }
 
-    private fun newSnippet(id: Long, trigger: String, expansion: String, context: Context): Snippet =
+    private fun newSnippet(id: Long, trigger: String, expansion: String, context: Context, accountHash: String?): Snippet =
         Snippet(
             id = id,
             trigger = trigger,
@@ -182,10 +185,11 @@ object SnippetPreferences {
             createdAt = MutationClock.next(context),
             updatedAt = MutationClock.next(context),
             deletedAt = null,
-            deviceId = null,
+            deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
             isEnabled = true,
             dirty = true,
-            everPushed = false
+            everPushed = false,
+            syncAccount = accountHash
         )
 
     private fun nowMs(): Long = System.currentTimeMillis()

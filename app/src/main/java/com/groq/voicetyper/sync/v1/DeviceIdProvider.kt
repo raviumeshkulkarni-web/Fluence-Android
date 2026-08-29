@@ -11,7 +11,14 @@ object DeviceIdProvider {
     private const val KEY_DEVICE_ID = "sync_device_id"
 
     fun getDeviceId(context: Context): String {
-        val prefs = encryptedPrefs(context)
+        // The device id is an identifier, not a secret. Keep the encrypted
+        // store as the normal path, but do not make dictionary/snippet writes
+        // fail when Android's keystore is temporarily unavailable (and allow
+        // lightweight test contexts that do not provide a keystore).
+        val prefs = runCatching { encryptedPrefs(context) }
+            .getOrElse {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            }
         var id = prefs.getString(KEY_DEVICE_ID, null)
         if (id == null) {
             id = UUID.randomUUID().toString()

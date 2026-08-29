@@ -5,6 +5,7 @@ import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.dictionary.DictionaryPreferences
 import com.groq.voicetyper.snippets.SnippetPreferences
+import com.groq.voicetyper.sync.auth.SyncAuthSession
 import org.json.JSONObject
 
 /**
@@ -36,6 +37,44 @@ fun decideSettingsApply(snapshotValue: String?, liveValue: String?): Boolean =
  * apply.
  */
 class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.SettingsV1Store {
+
+    /** Do not let a pass started for account A mutate global prefs after the
+     * active session has moved to account B (or signed out). */
+    private fun isActiveAccount(hash: String): Boolean =
+        runCatching {
+            AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail) == hash
+        }.getOrDefault(false)
+
+    /** Account-switch baseline stored only in that account's metadata. It
+     * prevents the machine-global values from the previous account being
+     * emitted as a new account edit without overwriting those values. */
+    fun activateAccount(hash: String) {
+        val baseline = JSONObject()
+        for (m in mappings()) {
+            val current = runCatching { m.read() }.getOrNull() ?: continue
+            baseline.put(m.syncKey, current)
+        }
+        val meta = loadMeta(hash)
+        meta.put(ACTIVATION_BASELINE_KEY, baseline)
+        saveMeta(hash, meta)
+    }
+
+    private fun activationBaseline(meta: JSONObject): JSONObject? =
+        meta.optJSONObject(ACTIVATION_BASELINE_KEY)
+
+    private fun activationBaselineUnchanged(hash: String, meta: JSONObject = loadMeta(hash)): Boolean {
+        val baseline = activationBaseline(meta) ?: return false
+        return mappings().all { m ->
+            val current = runCatching { m.read() }.getOrNull() ?: return@all true
+            baseline.optString(m.syncKey, "") == current
+        }
+    }
+
+    private fun clearActivationBaseline(hash: String) {
+        val meta = loadMeta(hash)
+        meta.remove(ACTIVATION_BASELINE_KEY)
+        saveMeta(hash, meta)
+    }
 
     private data class Mapping(
         val syncKey: String,
@@ -94,6 +133,23 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
 
     override suspend fun loadByAccount(hash: String): List<V1SyncEngine.SettingsLocal> {
         val meta = loadMeta(hash)
+        val baseline = activationBaseline(meta)
+        if (baseline != null) {
+            if (activationBaselineUnchanged(hash, meta)) return emptyList()
+            meta.remove(ACTIVATION_BASELINE_KEY)
+            saveMeta(hash, meta)
+        }
+        // Global preferences may still contain the previous account's values
+        // immediately after sign-in. Establish a per-account baseline without
+        // uploading those values; a later user edit will differ from this
+        // baseline and become dirty normally.
+        if (meta.length() == 0) {
+            for (m in mappings()) {
+                val current = runCatching { m.read() }.getOrNull() ?: continue
+                setMeta(hash, m.syncKey, current, 0L)
+            }
+            return emptyList()
+        }
         val out = mutableListOf<V1SyncEngine.SettingsLocal>()
         for (m in mappings()) {
             val current = runCatching { m.read() }.getOrNull() ?: continue
@@ -102,6 +158,10 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
                 if (current.isNotEmpty()) {
                     out.add(local(m.syncKey, current, 0L, dirty = false))
                 }
+            } else if (known.second == 0L && known.first == current) {
+                // Unchanged first-session baseline: it is not a user edit and
+                // must not be uploaded to an account whose remote file is
+                // still absent.
             } else if (known.first != current) {
                 // Local edit since last sync → dirty with a fresh clock that
                 // still respects the persisted maxSeen floor (MutationClock):
@@ -129,6 +189,7 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
 
     override suspend fun hasDirty(hash: String): Boolean {
         val meta = loadMeta(hash)
+        if (activationBaseline(meta) != null && activationBaselineUnchanged(hash, meta)) return false
         return mappings().any { m ->
             val current = runCatching { m.read() }.getOrNull()
             val known = getMeta(meta, m.syncKey)
@@ -141,19 +202,28 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
         deviceId: String,
         merged: List<SettingsRecord>
     ) {
+        if (!isActiveAccount(hash)) return
+        val activationPending = activationBaseline(loadMeta(hash)) != null
+        var deferredForConcurrentEdit = false
         val meta = loadMeta(hash)
         val byKey = merged.associateBy { it.key }
         for (m in mappings()) {
+            if (!isActiveAccount(hash)) return
             val rec = byKey[m.syncKey] ?: continue
             // Mid-pass guard (decideSettingsApply): a key edited after the
             // pre-GET snapshot is deferred, keeping its dirty state so the
             // local change rides the next PUT instead of being clobbered.
             val snapshot = getMeta(meta, m.syncKey)?.first
             val live = runCatching { m.read() }.getOrNull()
-            if (!decideSettingsApply(snapshot, live)) continue
+            if (!decideSettingsApply(snapshot, live)) {
+                deferredForConcurrentEdit = true
+                continue
+            }
+            if (!isActiveAccount(hash)) return
             runCatching { m.write(rec.value) }
             setMeta(hash, m.syncKey, rec.value, rec.updatedAt)
         }
+        if (activationPending && !deferredForConcurrentEdit) clearActivationBaseline(hash)
     }
 
     private fun local(key: String, value: String, updatedAt: Long, dirty: Boolean) =
@@ -172,5 +242,6 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
         const val META_PREFS = "fluence_sync_settings"
         const val META_KEY = "lww_meta"
         const val KEY_AI_POLISH_STYLE = "ai_polish_style"
+        private const val ACTIVATION_BASELINE_KEY = "__activation_baseline"
     }
 }

@@ -44,11 +44,11 @@ object DomainSerializer {
 
     // ---- Dictionary ----
     fun serializeDictionary(domain: DictionaryDomain): String {
-        // Canonical order = syncId ascending; document ends with a newline.
-        // Both are part of the byte-fidelity contract shared with the corpus.
+        // Canonical order = businessKey then syncId (frozen contract examples/sync/v1/README.md:16).
+        // Document ends with exactly one trailing \n (frozen contract, Windows parity frozen.rs:236).
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
             sb.append("{\"syncId\":").append(jsonString(e.syncId))
             sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
@@ -99,10 +99,11 @@ object DomainSerializer {
 
     // ---- Snippets ----
     fun serializeSnippets(domain: SnippetDomain): String {
-        // Canonical order = syncId ascending; document ends with a newline.
+        // Canonical order = businessKey then syncId (frozen contract examples/sync/v1/README.md:20).
+        // Document ends with exactly one trailing \n (frozen contract, Windows parity frozen.rs:268).
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
             sb.append("{\"syncId\":").append(jsonString(e.syncId))
             sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
@@ -253,15 +254,19 @@ object DomainSerializer {
         } catch (_: Exception) { null }
     }
 
+    // F3 — far-future clock cap: 24h tolerance, per-record skip, never whole-file
+    const val CLOCK_SKEW_TOLERANCE_MS: Long = 24 * 60 * 60 * 1000L
+    private fun isFuture(updatedAt: Long): Boolean = updatedAt > System.currentTimeMillis() + CLOCK_SKEW_TOLERANCE_MS
+
     /** Per-record validation — invalid records are skipped at ingest. */
     private fun DictionaryRecord.isValid(): Boolean =
-        validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 &&
+        validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt > 0) &&
             spoken.isNotBlank() && corrected.isNotEmpty() &&
             spoken.codePointCount(0, spoken.length) <= 4096 && corrected.codePointCount(0, corrected.length) <= 4096
 
     private fun SnippetRecord.isValid(): Boolean =
-        validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 &&
+        validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt > 0) &&
             trigger.isNotBlank() && expansion.isNotEmpty() &&
             trigger.codePointCount(0, trigger.length) <= 4096 && expansion.codePointCount(0, expansion.length) <= 8192
@@ -272,9 +277,10 @@ object DomainSerializer {
             timestampMs >= 0 &&
             wordCount in 0..1_000_000 &&
             chars in 0..10_000_000 &&
-            durationMs in 0..86_400_000L * 7
+            durationMs in 0..86_400_000L * 7 &&
+            !isFuture(updatedAt)
 
     private fun SettingsRecord.isValid(): Boolean =
-        key in SettingsRecord.ALLOWED_KEYS && deviceId.isNotEmpty() && updatedAt > 0 &&
+        key in SettingsRecord.ALLOWED_KEYS && deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             value.codePointCount(0, value.length) <= 1024
 }

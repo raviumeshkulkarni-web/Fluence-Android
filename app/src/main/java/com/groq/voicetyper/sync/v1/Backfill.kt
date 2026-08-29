@@ -24,6 +24,10 @@ object Backfill {
     fun eventIdForDictation(dictationSyncId: String): String =
         UUID.nameUUIDFromBytes("fluence-stat-v1:$dictationSyncId".toByteArray()).toString()
 
+    /** Stable UUID for a pre-v5 history row whose syncId was never assigned. */
+    fun syncIdForHistoryRow(historyRowId: Long): String =
+        UUID.nameUUIDFromBytes("fluence-history-v1:$historyRowId".toByteArray()).toString()
+
     /** Deterministic UUIDv5-style id (SHA-1, version/variant bits set). */
     fun eventIdFor(day: String, accountHash: String, index: Int): String =
         uuidV5("fluence-stats-backfill", "$day:$accountHash:$index")

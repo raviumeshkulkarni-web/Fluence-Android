@@ -129,6 +129,7 @@ class SyncManager(
     /** Complete sign-in with the account email chosen in the account picker. */
     fun completeSignIn(accountEmail: String) {
         auth.completeSignIn(accountEmail)
+        AccountHash.of(accountEmail)?.let { V1Stores.settingsStore(context).activateAccount(it) }
         // Refresh the ownership cache now (not only on next Activity create),
         // or isForeign would misclassify the previous account's rows.
         SyncAccounts.refresh(context)

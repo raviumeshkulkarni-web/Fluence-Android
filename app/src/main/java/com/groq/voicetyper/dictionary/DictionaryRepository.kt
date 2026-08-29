@@ -155,6 +155,7 @@ object DictionaryRepository {
                         deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                         dirty = true,
                         everPushed = false,
+                        syncAccount = currentHash,
                         syncState = "local"
                     )
                 )
@@ -175,10 +176,11 @@ object DictionaryRepository {
                             replacementText = trimmedReplacement,
                             isEnabled = isEnabled,
                             deletedAt = null,
-                            // Re-create after delete is a NEWER state than the
-                            // tombstone under pure LWW - bump updatedAt.
-                            updatedAt = MutationClock.next(context),
-                            dirty = true,
+                             // Re-create after delete is a NEWER state than the
+                             // tombstone under pure LWW - bump updatedAt.
+                             updatedAt = MutationClock.next(context),
+                             deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                             dirty = true,
                             syncState = if (base?.serverFileId != null) "dirty" else base?.syncState ?: "local"
                         )
                     )
@@ -199,6 +201,7 @@ object DictionaryRepository {
             entry.copy(
                 isEnabled = isEnabled,
                 updatedAt = MutationClock.next(context),
+                deviceId = entry.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                 dirty = true,
                 syncState = if (entry.serverFileId != null) "dirty" else entry.syncState
             )
@@ -223,6 +226,7 @@ object DictionaryRepository {
                 existing.copy(
                     replacementText = correctedText.trim(),
                     updatedAt = MutationClock.next(context),
+                    deviceId = existing.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                     dirty = true,
                     syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
                 )
@@ -238,6 +242,9 @@ object DictionaryRepository {
                 entry.copy(
                     deletedAt = now,
                     updatedAt = now,
+                    deviceId = entry.deviceId
+                        ?: context?.let { com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(it) }
+                        ?: "legacy",
                     dirty = true,
                     everPushed = true,
                     syncState = "dirty"

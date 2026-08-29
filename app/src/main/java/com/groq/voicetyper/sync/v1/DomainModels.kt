@@ -1,9 +1,11 @@
 package com.groq.voicetyper.sync.v1
 
+import java.text.Normalizer
+
 /**
  * Frozen Sync v1.2 domain models — deterministic, cross-platform.
- * BusinessKey = lower(trim(spoken|trigger)) — single winner per key, always
- * recomputed from content (never trusted from the wire).
+ * BusinessKey = NFC(lower(trim(spoken|trigger))) — single winner per key, always
+ * recomputed from content (never trusted from the wire). NFC symmetric on both platforms.
  * Clock: wall UTC ms + maxSeen floor; winner = max(updatedAt, deviceId).
  * Tombstones are ordinary records: they win exactly when they are newest.
  */
@@ -20,7 +22,8 @@ data class DictionaryRecord(
 ) {
     val tombstoneBit: Int get() = if (deletedAt != null) 1 else 0
     companion object {
-        fun businessKeyOf(spoken: String): String = spoken.trim().lowercase()
+        fun businessKeyOf(spoken: String): String =
+            Normalizer.normalize(spoken.trim(), Normalizer.Form.NFC).lowercase()
     }
 }
 
@@ -36,7 +39,8 @@ data class SnippetRecord(
 ) {
     val tombstoneBit: Int get() = if (deletedAt != null) 1 else 0
     companion object {
-        fun businessKeyOf(trigger: String): String = trigger.trim().lowercase()
+        fun businessKeyOf(trigger: String): String =
+            Normalizer.normalize(trigger.trim(), Normalizer.Form.NFC).lowercase()
     }
 }
 

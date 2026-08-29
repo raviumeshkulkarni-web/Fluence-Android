@@ -83,14 +83,15 @@ object Merge {
             val existing = map[rec.eventId]
             if (existing == null) map[rec.eventId] = rec
             else {
-                val winner = when {
-                    rec.updatedAt != existing.updatedAt -> if (rec.updatedAt > existing.updatedAt) rec else existing
-                    rec.deviceId < existing.deviceId -> rec
-                    else -> existing
+                val winner = if (compareWinner(existing.updatedAt, existing.deviceId, rec.updatedAt, rec.deviceId) >= 0) {
+                    existing
+                } else {
+                    rec
                 }
                 map[rec.eventId] = winner
             }
         }
         return map.values.sortedWith(compareBy({ it.day }, { it.eventId }))
     }
+
 }

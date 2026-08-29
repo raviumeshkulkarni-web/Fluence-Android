@@ -26,7 +26,7 @@ object V1Stores {
 
     fun dictionaryStore(context: Context): RoomDictionaryV1Store {
         val db = FluenceDatabase.getInstance(context.applicationContext)
-        return RoomDictionaryV1Store(db)
+        return RoomDictionaryV1Store(db, context.applicationContext)
     }
 
     fun statStore(context: Context): RoomStatV1Store {
@@ -109,7 +109,10 @@ fun excludeQuarantined(rows: List<CustomDictionaryEntry>): List<CustomDictionary
 // Dictionary
 // ----------------------------------------------------------------------
 
-class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.DictionaryV1Store {
+class RoomDictionaryV1Store(
+    private val db: FluenceDatabase,
+    private val context: Context
+) : V1SyncEngine.DictionaryV1Store {
 
     private val dao: CustomDictionaryDao = db.customDictionaryDao()
     private val metaDao: SyncMetadataDao = db.syncMetadataDao()
@@ -122,22 +125,32 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
         // identities to legacy rows, then give any stamped row lacking an LWW
         // timestamp a valid one (monotonic clock). Without this, a legacy row
         // would serialize updatedAt=0 and fail cross-platform validation.
-        val claimed = dao.getSyncRowsUnstamped()
+        val claimed = dao.getSyncRows(hash)
         if (claimed.isEmpty()) return
         val meta = metaDao.getByHash(hash)
         val fallbackDeviceId = meta?.deviceId.orEmpty()
         val nextTs = Clock.nextUpdatedAt(Clock.nowWallMs(), meta?.maxSeen ?: 0L)
         for (row in claimed) {
-            val fixed = row.copy(
-                syncAccount = hash,
-                syncId = row.syncId ?: java.util.UUID.randomUUID().toString(),
-                updatedAt = if ((row.updatedAt ?: 0L) <= 0L)
-                    (row.createdAt?.takeIf { it > 0 } ?: nextTs) else row.updatedAt,
-                deviceId = row.deviceId ?: fallbackDeviceId,
-                dirty = true,
-                everPushed = false
-            )
-            dao.update(fixed)
+            val owned = row.syncAccount == hash
+            val needsRepair = row.syncAccount == null ||
+                (owned && (row.syncId.isNullOrBlank() ||
+                    (row.updatedAt ?: 0L) <= 0L ||
+                    row.deviceId.isNullOrBlank()))
+            if (needsRepair) {
+                val updated = if ((row.updatedAt ?: 0L) <= 0L)
+                    (row.createdAt?.takeIf { it > 0 } ?: nextTs) else row.updatedAt
+                val fixed = row.copy(
+                    syncAccount = hash,
+                    syncId = row.syncId?.takeIf { it.isNotBlank() }
+                        ?: java.util.UUID.randomUUID().toString(),
+                    updatedAt = updated,
+                    deviceId = row.deviceId?.takeIf { it.isNotBlank() }
+                        ?: fallbackDeviceId.ifBlank { DeviceIdProvider.getDeviceId(context) },
+                    dirty = true,
+                    everPushed = false
+                )
+                dao.update(fixed)
+            }
         }
     }
 
@@ -153,12 +166,13 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
     ) = db.withTransaction {
         val existing = dao.getAllByAccount(hash)
         val bySyncId = existing.associateBy { it.syncId }
-        // Windows parity: the account's row set is replaced by the merged
-        // winners. Records that LOST the merge (superseded by a newer remote
-        // tombstone or edit) must not linger locally as live ghosts.
+        // Replace only clean rows that lost the merge. A dirty row may have
+        // been created or edited after the pre-pass snapshot; retaining it is
+        // required so a successful network pass cannot erase a concurrent
+        // local change. It will be reconciled on the next pass.
         val mergedIds = merged.map { it.syncId }.toSet()
         for (row in existing) {
-            if (row.syncId !in mergedIds) {
+            if (row.syncId !in mergedIds && !row.dirty) {
                 dao.hardDeleteBySyncId(row.syncId ?: continue)
             }
         }
@@ -244,7 +258,7 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
 
     private fun CustomDictionaryEntry.toLocal() = V1SyncEngine.DictionaryLocal(
         syncId = syncId ?: "",
-        businessKey = spokenText.trim().lowercase(),
+        businessKey = DictionaryRecord.businessKeyOf(spokenText),
         spoken = spokenText,
         corrected = replacementText,
         isEnabled = isEnabled,
@@ -287,30 +301,45 @@ class RoomStatV1Store(
         val toClear = mutableListOf<String>()
         for (rec in merged) {
             val before = statDao.getByEventId(rec.eventId)
-            statDao.insertIgnore(
-                StatSyncEntry(
-                    eventId = rec.eventId,
-                    day = rec.day,
-                    wordCount = rec.wordCount,
-                    durationMs = rec.durationMs,
-                    updatedAt = rec.updatedAt,
-                    deletedAt = rec.deletedAt,
-                    deviceId = rec.deviceId,
-                    accountHash = hash,
-                    dirty = false,
-                    everPushed = true,
-                    chars = rec.chars,
-                    timestampMs = rec.timestampMs
-                )
+            // Never let one account's event id overwrite another account's
+            // local row. Event ids are unique in the legacy Room schema.
+            if (before?.accountHash != null && before.accountHash != hash) continue
+
+            // A local edit made after the GET→PUT snapshot still wins if its
+            // LWW stamp is newer (or ties on the device id). Otherwise the
+            // merged remote winner must replace the stale dirty row; INSERT
+            // IGNORE would leave that row dirty forever.
+            if (before != null && before.dirty &&
+                (before.updatedAt > rec.updatedAt ||
+                    (before.updatedAt == rec.updatedAt &&
+                        (before.deviceId ?: "") >= rec.deviceId))) {
+                continue
+            }
+
+            val replacement = StatSyncEntry(
+                id = before?.id ?: 0L,
+                eventId = rec.eventId,
+                day = rec.day,
+                wordCount = rec.wordCount,
+                durationMs = rec.durationMs,
+                updatedAt = rec.updatedAt,
+                deletedAt = rec.deletedAt,
+                deviceId = rec.deviceId,
+                accountHash = hash,
+                dirty = false,
+                everPushed = true,
+                chars = rec.chars,
+                timestampMs = rec.timestampMs
             )
             if (before == null) {
-                // newly inserted
-                toClear.add(rec.eventId)
-            } else if (!before.dirty) {
-                // already clean - safe to mark pushed
+                if (statDao.insertIgnore(replacement) != -1L) {
+                    // newly inserted
+                    toClear.add(rec.eventId)
+                }
+            } else {
+                statDao.insert(replacement)
                 toClear.add(rec.eventId)
             }
-            // else: existing dirty (mid-pass creation) -> keep dirty=true
         }
         if (toClear.isNotEmpty()) {
             statDao.clearDirtyByEventIds(hash, toClear.distinct())
@@ -329,17 +358,19 @@ class RoomStatV1Store(
      * rows when any exist, else stats_daily aggregates. UTC day bucketing;
      * deterministic eventIds make re-runs idempotent under union dedup.
      */
-    override suspend fun backfillIfNeeded(hash: String, deviceId: String): Boolean {
+    override suspend fun backfillIfNeeded(hash: String, deviceId: String): Boolean = db.withTransaction {
         val now = System.currentTimeMillis()
         val liveRows = historyDao.getAllLiveRows()
         val records = if (liveRows.isNotEmpty()) {
             Backfill.fromTranscriptionRows(
                 liveRows.map { row ->
+                    val stableSyncId = row.syncId?.takeIf { it.isNotBlank() }
+                        ?: Backfill.syncIdForHistoryRow(row.id).also { historyDao.assignSyncId(row.id, it) }
                     Backfill.TranscriptionRowLite(
                         timestampMs = row.timestamp,
                         wordCount = StatsCalculator.wordCountOf(row.text),
                         durationMs = row.durationMs,
-                        syncId = row.syncId ?: "",
+                        syncId = stableSyncId,
                         chars = row.text.length
                     )
                 },
@@ -373,7 +404,7 @@ class RoomStatV1Store(
                 inserted++
             }
         }
-        return records.isNotEmpty()
+        records.isNotEmpty()
     }
 
     private fun StatSyncEntry.toLocal() = V1SyncEngine.StatLocal(
@@ -419,15 +450,22 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
 
     override suspend fun stampUnstamped(hash: String) {
         val all = SnippetPreferences.allEntries(context)
-        val needsStamp = all.any { it.syncAccount == null }
+        val needsStamp = all.any {
+            it.syncAccount == null ||
+                (it.syncAccount == hash && (it.effectiveSyncId().isNullOrBlank() ||
+                    (it.updatedAt ?: 0L) <= 0L || it.deviceId.isNullOrBlank()))
+        }
         if (!needsStamp) return
         val now = System.currentTimeMillis()
         SnippetPreferences.saveAll(context, all.map { s ->
-            if (s.syncAccount == null) {
+            if (s.syncAccount == null || s.syncAccount == hash &&
+                (s.effectiveSyncId().isNullOrBlank() || (s.updatedAt ?: 0L) <= 0L || s.deviceId.isNullOrBlank())) {
                 s.copy(
+                    uuid = s.effectiveSyncId() ?: java.util.UUID.randomUUID().toString(),
                     syncAccount = hash,
-                    deviceId = s.deviceId ?: DeviceIdProvider.getDeviceId(context),
-                    updatedAt = s.updatedAt ?: s.createdAt ?: now,
+                    deviceId = s.deviceId?.takeIf { it.isNotBlank() } ?: DeviceIdProvider.getDeviceId(context),
+                    createdAt = s.createdAt?.takeIf { it > 0L } ?: now,
+                    updatedAt = s.updatedAt?.takeIf { it > 0L } ?: s.createdAt?.takeIf { it > 0L } ?: now,
                     dirty = true,
                     everPushed = false
                 )

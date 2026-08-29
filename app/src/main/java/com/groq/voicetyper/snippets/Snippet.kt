@@ -38,6 +38,6 @@ data class Snippet(
     /** Wire identity (v1.2 name for the legacy [uuid] field). */
     fun effectiveSyncId(): String? = uuid
 
-    /** Canonical business key — always derived from content. */
-    fun businessKey(): String = trigger.trim().lowercase()
+    /** Canonical business key — always derived from content, NFC-normalized. */
+    fun businessKey(): String = java.text.Normalizer.normalize(trigger.trim(), java.text.Normalizer.Form.NFC).lowercase()
 }
