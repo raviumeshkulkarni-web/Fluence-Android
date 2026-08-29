@@ -107,6 +107,12 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
                 // still respects the persisted maxSeen floor (MutationClock):
                 // a backwards wall-clock jump must not let this edit lose on
                 // LWW against rows this device already pushed.
+                //
+                // Intentional: setMeta here persists the current value as the
+                // pre-pass snapshot so that applyMergedAndClearDirty can detect
+                // any FURTHER change the user makes during the GET→PUT window
+                // (snapshot ≠ live ⇒ defer). This is the equivalent of the
+                // bySyncId pre-capture in RoomDictionaryV1Store.
                 val at = MutationClock.next(context)
                 setMeta(hash, m.syncKey, current, at)
                 out.add(local(m.syncKey, current, at, dirty = true))

@@ -191,6 +191,13 @@ class RoomDictionaryV1Store(private val db: FluenceDatabase) : V1SyncEngine.Dict
                 // key remains valid without silently ignoring the import.
                 val collision = dao.getByBusinessKeyIncludingDeleted(rec.businessKey, hash)
                 if (collision != null && collision.syncId != rec.syncId && collision.syncId != null) {
+                    // Mid-pass LWW guard (mirrors decideDictionaryApply on the bySyncId
+                    // path above): if a concurrent write made this collision row dirty
+                    // and strictly newer than the remote winner since loadByAccount ran,
+                    // the local state already wins on LWW — leave it dirty to ride next PUT.
+                    if (collision.dirty && (collision.updatedAt ?: 0L) > rec.updatedAt) {
+                        continue
+                    }
                     dao.update(
                         collision.copy(
                             spokenText = rec.spoken,

@@ -161,7 +161,11 @@ class Migration78Test {
             FluenceDatabase.MIGRATION_5_6,
             FluenceDatabase.MIGRATION_6_7,
             FluenceDatabase.MIGRATION_7_8,
-            FluenceDatabase.MIGRATION_8_9
+            FluenceDatabase.MIGRATION_8_9,
+            FluenceDatabase.MIGRATION_9_10,
+            FluenceDatabase.MIGRATION_10_11,
+            FluenceDatabase.MIGRATION_11_12,
+            FluenceDatabase.MIGRATION_12_13
         )
         .allowMainThreadQueries()
         .build()
