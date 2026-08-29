@@ -28,19 +28,10 @@ object SecurityUtils {
         cachedPrefs?.let { return it }
         synchronized(prefsLock) {
             cachedPrefs?.let { return it }
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-
-            val prefs = EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-            cachedPrefs = prefs
-            return prefs
+            // Guarded build: keystore invalidation (PIN/biometric change) must
+            // degrade to a signed-out store instead of crashing every launch.
+            cachedPrefs = SecurePrefsStore.open(context, PREFS_NAME)
+            return cachedPrefs!!
         }
     }
 

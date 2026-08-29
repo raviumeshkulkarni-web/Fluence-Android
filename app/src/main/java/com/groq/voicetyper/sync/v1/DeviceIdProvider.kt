@@ -8,16 +8,22 @@ import java.util.UUID
 
 object DeviceIdProvider {
     private const val PREFS_NAME = "fluence_sync_secure_prefs"
+    // Plain fallback MUST use a distinct file: writing plaintext under the
+    // encrypted file's name would poison EncryptedSharedPreferences for a
+    // later healthy session (see AccountStore's documented invariant).
+    private const val PLAIN_FALLBACK_NAME = "fluence_sync_device_id_plain"
     private const val KEY_DEVICE_ID = "sync_device_id"
 
     fun getDeviceId(context: Context): String {
         // The device id is an identifier, not a secret. Keep the encrypted
         // store as the normal path, but do not make dictionary/snippet writes
         // fail when Android's keystore is temporarily unavailable (and allow
-        // lightweight test contexts that do not provide a keystore).
+        // lightweight test contexts that do not provide a keystore). The
+        // fallback deliberately lives in its OWN file so the encrypted store
+        // is never read or written through plain SharedPreferences.
         val prefs = runCatching { encryptedPrefs(context) }
             .getOrElse {
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                context.getSharedPreferences(PLAIN_FALLBACK_NAME, Context.MODE_PRIVATE)
             }
         var id = prefs.getString(KEY_DEVICE_ID, null)
         if (id == null) {

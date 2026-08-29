@@ -2,8 +2,6 @@ package com.groq.voicetyper.sync.auth
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.groq.voicetyper.sync.v1.SyncError
@@ -114,17 +112,7 @@ class SyncAuthSession(
         const val PREFS_NAME = "fluence_sync_secure_prefs"
         const val KEY_ACCOUNT_EMAIL = "sync_account_email"
 
-        fun buildDefaultPrefs(context: Context): SharedPreferences {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            return EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
+        fun buildDefaultPrefs(context: Context): SharedPreferences =
+            com.groq.voicetyper.SecurePrefsStore.open(context, PREFS_NAME)
         }
-    }
 }

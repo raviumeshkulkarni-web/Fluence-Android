@@ -108,16 +108,16 @@ class AudioRecorder(private val context: Context) {
             _amplitude.value = 0f
 
             try {
-                mediaRecorder?.apply {
-                    stop()
-                    release()
-                }
+                mediaRecorder?.stop()
             } catch (e: RuntimeException) {
                 // stop() can fail if recording duration was too short
                 Log.e(TAG, "Stop recording failed (recording too short?)", e)
                 outputFile?.delete()
                 outputFile = null
             } finally {
+                // release() must run even when stop() throws, or the MediaRecorder
+                // HAL instance leaks and a later start() fails with -38.
+                safeRelease(mediaRecorder)
                 mediaRecorder = null
             }
 
@@ -132,13 +132,11 @@ class AudioRecorder(private val context: Context) {
             _amplitude.value = 0f
 
             try {
-                mediaRecorder?.apply {
-                    stop()
-                    release()
-                }
+                mediaRecorder?.stop()
             } catch (e: Exception) {
                 Log.e(TAG, "Cancel recording failed", e)
             } finally {
+                safeRelease(mediaRecorder)
                 mediaRecorder = null
                 outputFile?.delete()
                 outputFile = null
@@ -146,9 +144,9 @@ class AudioRecorder(private val context: Context) {
         }
     }
 
-    private fun safeRelease(recorder: MediaRecorder) {
+    private fun safeRelease(recorder: MediaRecorder?) {
         try {
-            recorder.release()
+            recorder?.release()
         } catch (e: Exception) {
             Log.w(TAG, "Release failed during cleanup", e)
         }

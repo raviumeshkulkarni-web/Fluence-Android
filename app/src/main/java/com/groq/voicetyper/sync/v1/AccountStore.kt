@@ -42,18 +42,10 @@ object AccountStore {
         cachedPrefs?.let { return it }
         synchronized(prefsLock) {
             cachedPrefs?.let { return it }
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            val prefs = EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-            cachedPrefs = prefs
-            return prefs
+            // Guarded build: keystore invalidation degrades to a signed-out
+            // in-memory store rather than crashing the sync worker at startup.
+            cachedPrefs = com.groq.voicetyper.SecurePrefsStore.open(context, PREFS_NAME)
+            return cachedPrefs!!
         }
     }
 }
