@@ -9,7 +9,7 @@ import org.junit.Test
 
 class V1StoresDecisionTest {
 
-    private fun rec(updatedAt: Long) = DictionaryRecord(
+    private fun rec(updatedAt: Long, deviceId: String = "d") = DictionaryRecord(
         syncId = "11111111-1111-4111-8111-111111111111",
         businessKey = "hello",
         spoken = "hello",
@@ -17,37 +17,45 @@ class V1StoresDecisionTest {
         isEnabled = true,
         updatedAt = updatedAt,
         deletedAt = null,
-        deviceId = "d"
+        deviceId = deviceId
     )
 
     @Test
     fun newerDirtyLocalWinsOverOlderMergedWinner() {
         // current is dirty and newer than rec -> should NOT apply
-        assertFalse(decideDictionaryApply(currentUpdatedAt = 2000L, currentDirty = true, rec = rec(1000L)))
+        assertFalse(decideDictionaryApply(currentUpdatedAt = 2000L, currentDeviceId = "d", currentDirty = true, rec = rec(1000L)))
     }
 
     @Test
     fun olderDirtyLocalLosesToNewerMerged() {
         // current is dirty but older than rec -> should apply
-        assertTrue(decideDictionaryApply(currentUpdatedAt = 1000L, currentDirty = true, rec = rec(2000L)))
+        assertTrue(decideDictionaryApply(currentUpdatedAt = 1000L, currentDeviceId = "d", currentDirty = true, rec = rec(2000L)))
     }
 
     @Test
     fun cleanLocalAlwaysAppliesEvenIfNewer() {
         // current is clean (not dirty) even if newer -> should apply (overwrite)
-        assertTrue(decideDictionaryApply(currentUpdatedAt = 3000L, currentDirty = false, rec = rec(1000L)))
+        assertTrue(decideDictionaryApply(currentUpdatedAt = 3000L, currentDeviceId = "d", currentDirty = false, rec = rec(1000L)))
     }
 
     @Test
     fun dirtyWithNullUpdatedAtTreatedAsZero() {
-        assertTrue(decideDictionaryApply(currentUpdatedAt = null, currentDirty = true, rec = rec(1L)))
-        assertFalse(decideDictionaryApply(currentUpdatedAt = 5L, currentDirty = true, rec = rec(0L)))
+        assertTrue(decideDictionaryApply(currentUpdatedAt = null, currentDeviceId = "d", currentDirty = true, rec = rec(1L)))
+        assertFalse(decideDictionaryApply(currentUpdatedAt = 5L, currentDeviceId = "d", currentDirty = true, rec = rec(0L)))
     }
 
     @Test
     fun equalTimestampsDirtyDoesNotWin() {
-        // equal -> not greater, so should apply
-        assertTrue(decideDictionaryApply(currentUpdatedAt = 1000L, currentDirty = true, rec = rec(1000L)))
+        // equal with same device -> not greater, so should apply (tie not won)
+        assertTrue(decideDictionaryApply(currentUpdatedAt = 1000L, currentDeviceId = "d", currentDirty = true, rec = rec(1000L, deviceId = "d")))
+    }
+
+    @Test
+    fun equalTimestampTieBreakLargerDeviceIdWins() {
+        // equal timestamp but local device larger -> local wins, should NOT apply
+        assertFalse(decideDictionaryApply(currentUpdatedAt = 1000L, currentDeviceId = "z", currentDirty = true, rec = rec(1000L, deviceId = "a")))
+        // equal timestamp but local device smaller -> local loses, should apply
+        assertTrue(decideDictionaryApply(currentUpdatedAt = 1000L, currentDeviceId = "a", currentDirty = true, rec = rec(1000L, deviceId = "z")))
     }
 }
 

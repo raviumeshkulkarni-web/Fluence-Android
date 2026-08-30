@@ -64,8 +64,11 @@ object MutationClock {
     }
 }
 
-fun decideDictionaryApply(currentUpdatedAt: Long?, currentDirty: Boolean, rec: com.groq.voicetyper.sync.v1.DictionaryRecord): Boolean {
-    return !(currentDirty && (currentUpdatedAt ?: 0L) > rec.updatedAt)
+fun decideDictionaryApply(currentUpdatedAt: Long?, currentDeviceId: String?, currentDirty: Boolean, rec: com.groq.voicetyper.sync.v1.DictionaryRecord): Boolean {
+    if (!currentDirty) return true
+    val curAt = currentUpdatedAt ?: 0L
+    val curDev = currentDeviceId ?: ""
+    return Clock.compareWinner(curAt, curDev, rec.updatedAt, rec.deviceId) <= 0
 }
 
 /**
@@ -94,7 +97,10 @@ fun decideSnippetRetention(local: List<Snippet>, mergedIds: Set<String>, current
  * content and dirty flag so it rides the next PUT instead of being clobbered.
  */
 fun decideSnippetApply(current: Snippet, rec: SnippetRecord): Boolean {
-    return !(current.dirty && (current.updatedAt ?: 0L) > rec.updatedAt)
+    if (!current.dirty) return true
+    val curAt = current.updatedAt ?: 0L
+    val curDev = current.deviceId ?: ""
+    return Clock.compareWinner(curAt, curDev, rec.updatedAt, rec.deviceId) <= 0
 }
 
 /**
@@ -181,7 +187,7 @@ class RoomDictionaryV1Store(
         for (rec in merged) {
             val current = bySyncId[rec.syncId]
             if (current != null) {
-                if (!decideDictionaryApply(current.updatedAt, current.dirty, rec)) {
+                if (!decideDictionaryApply(current.updatedAt, current.deviceId, current.dirty, rec)) {
                     skipClear.add(rec.syncId)
                     continue
                 }
@@ -207,9 +213,9 @@ class RoomDictionaryV1Store(
                 if (collision != null && collision.syncId != rec.syncId && collision.syncId != null) {
                     // Mid-pass LWW guard (mirrors decideDictionaryApply on the bySyncId
                     // path above): if a concurrent write made this collision row dirty
-                    // and strictly newer than the remote winner since loadByAccount ran,
-                    // the local state already wins on LWW — leave it dirty to ride next PUT.
-                    if (collision.dirty && (collision.updatedAt ?: 0L) > rec.updatedAt) {
+                    // and it wins LWW over the remote winner since loadByAccount ran,
+                    // leave it dirty to ride next PUT.
+                    if (collision.dirty && Clock.compareWinner(collision.updatedAt ?: 0L, collision.deviceId ?: "", rec.updatedAt, rec.deviceId) > 0) {
                         continue
                     }
                     dao.update(
