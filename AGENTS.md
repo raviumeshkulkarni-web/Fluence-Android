@@ -7,7 +7,7 @@ This repository contains canonical documentation under `/docs`.
 Agents must consult the relevant document before modifying a subsystem.
 
 Examples:
-
+- "E:\App dev" Gradle is installed here, you will never clutter system directory
 - docs/RELEASE_PIPELINE.md
 - docs/ARCHITECTURE.md
 - docs/SYNC.md

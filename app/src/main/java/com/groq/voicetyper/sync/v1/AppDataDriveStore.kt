@@ -170,6 +170,69 @@ class AppDataDriveStore(
         }
     }
 
+    // Test-only fault injection: check __fault.json for corrupt/duplicate simulation.
+    // Format: {"remaining":1,"op":"get_domain_content","corrupt":true,"corrupt_body":"not json"} or {"duplicate":true}
+    // Checks both external and internal locations; internal is the hotspot-safe path used by the test harness
+    // (adb push via run-as). The file is consumed (remaining--) on each matching fault.
+    private fun readFault(): org.json.JSONObject? {
+        if (!com.groq.voicetyper.BuildConfig.DEBUG) return null
+        return try {
+            val candidates = listOf(
+                java.io.File("/sdcard/__fault.json"),
+                java.io.File("/data/data/com.groq.voicetyper.debug.ui/files/__fault.json"),
+                java.io.File("/data/user/0/com.groq.voicetyper.debug.ui/files/__fault.json")
+            )
+            val f = candidates.firstOrNull { it.exists() } ?: return null
+            org.json.JSONObject(f.readText())
+        } catch (_: Exception) { null }
+    }
+    private fun consumeFault(): Boolean {
+        return try {
+            val candidates = listOf(
+                java.io.File("/sdcard/__fault.json"),
+                java.io.File("/data/data/com.groq.voicetyper.debug.ui/files/__fault.json"),
+                java.io.File("/data/user/0/com.groq.voicetyper.debug.ui/files/__fault.json")
+            )
+            val target = candidates.firstOrNull { it.exists() } ?: return false
+            val raw = target.readText()
+            val obj = org.json.JSONObject(raw)
+            val remaining = obj.optLong("remaining", 1)
+            if (remaining <= 0) return false
+            if (remaining - 1 == 0L) {
+                target.delete()
+            } else {
+                obj.put("remaining", remaining - 1)
+                target.writeText(obj.toString(2))
+            }
+            true
+        } catch (_: Exception) { false }
+    }
+    private fun maybeInjectCorruptBody(op: String): ByteArray? {
+        if (!com.groq.voicetyper.BuildConfig.DEBUG) return null
+        val obj = readFault() ?: return null
+        if (!obj.optBoolean("corrupt", false)) return null
+        val filter = obj.optString("op", "")
+        if (filter.isNotEmpty() && filter != op && filter != "any") return null
+        val remaining = obj.optLong("remaining", 1)
+        if (remaining <= 0) return null
+        consumeFault()
+        val body = obj.optString("corrupt_body", "corrupt")
+        android.util.Log.w("FluenceSync", "FAULT INJECTED corrupt_body op=$op remaining=$remaining body=${body.take(50)}")
+        return body.toByteArray(Charsets.UTF_8)
+    }
+    private fun maybeInjectDuplicate(op: String): Boolean {
+        if (!com.groq.voicetyper.BuildConfig.DEBUG) return false
+        val obj = readFault() ?: return false
+        if (!obj.optBoolean("duplicate", false)) return false
+        val filter = obj.optString("op", "")
+        if (filter.isNotEmpty() && filter != op && filter != "any") return false
+        val remaining = obj.optLong("remaining", 1)
+        if (remaining <= 0) return false
+        consumeFault()
+        android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate op=$op remaining=$remaining")
+        return true
+    }
+
     /** List domain file with exact name — handle 0/1/>1 (duplicate) */
     fun listDomainFile(domain: DomainFile): List<FileMetaLite> {
         val v1 = ensureV1Folder()
@@ -187,6 +250,29 @@ class AppDataDriveStore(
                 pageToken = page.second
             }
         } while (pageToken != null)
+        if (maybeInjectDuplicate("list_v1_files")) {
+            val dictName = domainFileName(DomainFile.DICTIONARY)
+            val targetName = domainFileName(domain)
+            if (targetName == dictName) {
+                val first = all.firstOrNull { it.name == dictName }
+                if (first != null) {
+                    val dup = FileMetaLite("${first.fileId}-dup", first.name, "999")
+                    android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate listDomainFile: cloning ${first.fileId} -> ${dup.fileId}")
+                    all.add(dup)
+                } else if (all.isNotEmpty()) {
+                    val f = all[0]
+                    val dup = FileMetaLite("${f.fileId}-dup", f.name, "999")
+                    android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate listDomainFile: cloning ${f.fileId} -> ${dup.fileId}")
+                    all.add(dup)
+                } else {
+                    val dup1 = FileMetaLite("dup-1", dictName, "1")
+                    val dup2 = FileMetaLite("dup-2", dictName, "2")
+                    android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate listDomainFile: synthetic pair dup-1/dup-2")
+                    all.add(dup1)
+                    all.add(dup2)
+                }
+            }
+        }
         return all
     }
 
@@ -203,10 +289,42 @@ class AppDataDriveStore(
             return DomainFetch(null, null)
         }
 
+        // Corrupt-body injection: return malformed bytes for the first file, simulating a corrupt remote envelope.
+        maybeInjectCorruptBody("get_domain_content")?.let { corrupt ->
+            val target = files.first()
+            preferredDomainFileIds[domain] = target.fileId
+            validDuplicateFileIds.remove(domain)
+            android.util.Log.w("FluenceSync", "FAULT INJECTED corrupt getDomain domain=$domain fileId=${target.fileId} bytes=${corrupt.size}")
+            return DomainFetch(corrupt, target.version)
+        }
+
         val valid = mutableListOf<Pair<FileMetaLite, ByteArray>>()
         var firstCorrupt: Pair<FileMetaLite, ByteArray>? = null
         var largestOversized = 0
         for (meta in files) {
+            // Synthetic duplicate file: return a valid but distinct envelope without touching Drive.
+            // DIRECT PRODUCTION: debug-only.
+            if (com.groq.voicetyper.BuildConfig.DEBUG && (meta.fileId.endsWith("-dup") || meta.fileId.startsWith("dup-"))) {
+                val synthetic = org.json.JSONObject().apply {
+                    put("v", 1)
+                    val arr = org.json.JSONArray()
+                    val e = org.json.JSONObject().apply {
+                        put("syncId", "00000000-0000-4000-8000-000000000001")
+                        put("businessKey", "duplicateTest")
+                        put("spoken", "duplicateTest")
+                        put("corrected", "DuplicateAA")
+                        put("isEnabled", true)
+                        put("updatedAt", 1788100000000L)
+                        put("deletedAt", org.json.JSONObject.NULL)
+                        put("deviceId", "dup-device-0000")
+                    }
+                    arr.put(e)
+                    put("entries", arr)
+                }.toString().toByteArray(Charsets.UTF_8)
+                android.util.Log.w("FluenceSync", "DUPLICATE INJECTED getDomain fileId=${meta.fileId} synthetic valid")
+                valid.add(meta to synthetic)
+                continue
+            }
             val bytes = call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
                 if (resp.code == 404) return@use null
                 val responseBody = resp.body?.bytes() ?: ByteArray(0)
