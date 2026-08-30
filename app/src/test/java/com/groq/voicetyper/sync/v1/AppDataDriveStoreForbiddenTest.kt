@@ -1,5 +1,7 @@
 package com.groq.voicetyper.sync.v1
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,5 +47,25 @@ class AppDataDriveStoreForbiddenTest {
         assertTrue(classifyForbidden("") is SyncError.Retryable)
         assertTrue(classifyForbidden("{}") is SyncError.Retryable)
         assertTrue(classifyForbidden("""{"error":{}}""") is SyncError.Retryable)
+    }
+
+    @Test
+    fun parse_retry_after_reads_integer_seconds() {
+        assertNull(parseRetryAfterMs(null))
+        assertEquals(5_000L, parseRetryAfterMs("5")!!)
+        assertEquals(5_000L, parseRetryAfterMs(" 5 ")!!)
+        assertNull("zero (immediate) is not a delay", parseRetryAfterMs("0"))
+        assertNull(parseRetryAfterMs("-3"))
+        assertNull(parseRetryAfterMs("abc"))
+        assertNull("absent header -> null", parseRetryAfterMs(""))
+    }
+
+    @Test
+    fun rate_limited_carries_the_retry_after_delay() {
+        // A 429 with a parsed delay surfaces RateLimited { Some(delay) }; the
+        // steady-state 429 (no usable header) stays a plain Retryable.
+        assertTrue(SyncError.RateLimited(5_000L).retryAfterMs == 5_000L)
+        assertNull(SyncError.RateLimited(null).retryAfterMs)
+        assertTrue(SyncError.RateLimited(5_000L).message.orEmpty().contains("rate limited"))
     }
 }

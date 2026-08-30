@@ -80,6 +80,24 @@ class SyncSchedulerCore(
 
     private val backoff = SyncBackoff()
 
+    /**
+     * An explicit `Retry-After` delay (ms) surfaced by a throttled Drive
+     * response; consumed by the `RETRYABLE` branch of [completePass] so a
+     * rate-limited API is honored rather than retried too eagerly. Set by the
+     * sync manager when a [com.groq.voicetyper.sync.v1.SyncError.RateLimited]
+     * is classified during a pass.
+     */
+    var pendingRetryAfterMs: Long? = null
+        private set
+
+    /** Record an explicit `Retry-After` delay (ms) to be honored by the next
+     *  retryable [completePass]. Callers may pass a smaller value than one
+     *  already pending — the pending max is kept, mirroring Windows. */
+    fun noteRetryAfter(ms: Long?) {
+        if (ms == null) return
+        pendingRetryAfterMs = maxOf(ms, pendingRetryAfterMs ?: 0L)
+    }
+
     var running: Boolean = false
         private set
     var pending: Boolean = false
@@ -105,6 +123,7 @@ class SyncSchedulerCore(
         lastOutcome = null
         pending = false
         nextAttemptMs = 0L
+        pendingRetryAfterMs = null
         backoff.reset()
     }
 
@@ -119,7 +138,12 @@ class SyncSchedulerCore(
                 backoff.reset()
             }
             PassOutcomeKind.RETRYABLE -> {
-                nextAttemptMs = now + backoff.next()
+                // When the response carried an explicit `Retry-After`, wait at
+                // least that long too (never sooner than the header demands).
+                val retryAfter = pendingRetryAfterMs
+                pendingRetryAfterMs = null
+                val delay = retryAfter?.let { maxOf(backoff.next(), it) } ?: backoff.next()
+                nextAttemptMs = now + delay
             }
             PassOutcomeKind.REJECTED -> {
                 // Permanent rejections must NOT backoff-escalate: reset and let

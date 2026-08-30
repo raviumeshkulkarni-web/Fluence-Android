@@ -57,7 +57,10 @@ object MutationClock {
             val seen = if (hash != null) {
                 try { runBlocking { V1Stores.metadataDao(context).getByHash(hash)?.maxSeen ?: 0L } } catch (_: Exception) { 0L }
             } else 0L
-            maxOf(System.currentTimeMillis(), seen + 1L)
+            val wall = System.currentTimeMillis()
+            // Same sticky-future-clock cap as Clock.nextUpdatedAt: a runaway
+            // wall clock must not inflate this edit's stamp forever.
+            minOf(maxOf(wall, seen + 1L), wall + Clock.MAX_CLOCK_SKEW_MS)
         } catch (_: Exception) {
             System.currentTimeMillis()
         }

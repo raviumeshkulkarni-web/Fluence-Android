@@ -58,6 +58,23 @@ class V1SyncEngineTest {
         fun failNextPutWithStaleVersion(live: String?) = staleInjections.addLast(live)
     }
 
+    /** Drive that never reflects a PUT on the next GET (eventual-consistency lag). */
+    private class LaggingFakeDrive(
+        var bytes: ByteArray? = null,
+        var version: String? = null,
+        var putCount: Int = 0,
+    ) : V1SyncEngine.DomainGateway {
+        override fun getDomain(domain: DomainFile): AppDataDriveStore.DomainFetch =
+            AppDataDriveStore.DomainFetch(bytes?.copyOf(), version)
+
+        override fun putDomain(domain: DomainFile, data: ByteArray, expectedVersion: String?): String {
+            putCount++
+            // The write succeeds but stays invisible to a subsequent GET; the
+            // reported version never matches the PUT's return value.
+            return "v-$putCount"
+        }
+    }
+
     private class FakeDictStore(
         val rows: MutableList<DictionaryLocal>,
         var applyCalls: Int = 0,
@@ -345,6 +362,42 @@ class V1SyncEngineTest {
     }
 
     @Test
+    fun post_upload_verification_miss_keeps_rows_unpushed() = runBlocking {
+        // B-3: the PUT succeeds but the pushed revision is not yet live on a
+        // re-GET (Drive eventual consistency). The engine must NOT clear dirty
+        // or mark pushed — it returns a non-uploaded outcome so the next pass
+        // re-heals instead of stamping a possibly-not-yet-live write as pushed.
+        val local = dictRec("l1", "brb", at = 300L)
+        val store = FakeDictStore(mutableListOf(localOf(local, dirty = true)))
+        val drive = LaggingFakeDrive(bytes = null, version = null)
+        val result = V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(1, drive.putCount)       // the create write happened
+        assertFalse(result.uploaded)          // but not reported uploaded
+        assertEquals(0, store.applyCalls)     // rows never cleared/pushed
+        assertTrue(store.rows.single().dirty) // stays dirty so the next pass re-heals
+    }
+
+    @Test
+    fun post_upload_verification_is_reenforced_on_update_path() = runBlocking {
+        // B-3 update path: a pre-existing remote is updated but the new version
+        // is not yet visible. Each PUT succeeds, verification misses every time,
+        // so the bounded retries exhaust and the rows stay unpushed.
+        val local = dictRec("l1", "brb", at = 300L)
+        val store = FakeDictStore(mutableListOf(localOf(local, dirty = true)))
+        val drive = LaggingFakeDrive(
+            bytes = DomainSerializer.serializeDictionary(
+                DictionaryDomain(entries = listOf(dictRec("l1", "brb", at = 100L)))
+            ).toByteArray(),
+            version = "2"
+        )
+        val result = V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals(V1SyncEngine.MAX_ATTEMPTS, drive.putCount) // retried to exhaustion
+        assertFalse(result.uploaded)
+        assertEquals(0, store.applyCalls)
+        assertTrue(store.rows.single().dirty)
+    }
+
+    @Test
     fun empty_local_and_empty_remote_is_a_noop() = runBlocking {
         val store = FakeDictStore(mutableListOf())
         val drive = FakeDrive(bytes = null)
@@ -494,6 +547,39 @@ class V1SyncEngineTest {
         V1SyncEngine.syncSettings(store, drive, "hash", "device-a", MaxSeenRef(0L))
         assertEquals(0, drive.putCount)
         assertEquals(remote.entries.associate { it.key to it.value }, store.values.mapValues { it.value.first })
+    }
+
+    @Test
+    fun staleRetryDelayMs_growsAndJittersWithinBounds() {
+        // Attempt 1 (no retry yet) must never sleep.
+        assertEquals(0L, staleRetryDelayMs(1, { 0.0 }))
+        assertEquals(0L, staleRetryDelayMs(1, { 1.0 }))
+
+        // Attempt 2 -> base 50ms, jittered into [25, 75] for rand in [0,1).
+        assertEquals(25L, staleRetryDelayMs(2, { 0.0 }))
+        assertEquals(75L, staleRetryDelayMs(2, { 1.0 }))
+
+        // Attempt 3 -> 100ms base -> [50, 150].
+        assertEquals(50L, staleRetryDelayMs(3, { 0.0 }))
+        assertEquals(150L, staleRetryDelayMs(3, { 1.0 }))
+
+        // Attempt 4 -> 200ms base -> [100, 300].
+        assertEquals(100L, staleRetryDelayMs(4, { 0.0 }))
+        assertEquals(300L, staleRetryDelayMs(4, { 1.0 }))
+
+        // The cap holds no matter how many attempts accumulate.
+        assertTrue("delay never exceeds the cap", staleRetryDelayMs(20, { 1.0 }) <= 600L)
+        for (a in 2..8) {
+            assertTrue(staleRetryDelayMs(a, { 1.0 }) <= 600L)
+            assertTrue(staleRetryDelayMs(a, { 0.0 }) >= staleRetryDelayMs(a, { 1.0 }) / 3)
+        }
+
+        // Default source (real jitter) stays in [0, cap].
+        val rnd = java.util.Random(42)
+        for (a in 2..8) {
+            val d = staleRetryDelayMs(a, { rnd.nextDouble() })
+            assertTrue("attempt $a delay $d within [0, 600]", d in 0..600L)
+        }
     }
 
     // ------------------------------------------------------------------

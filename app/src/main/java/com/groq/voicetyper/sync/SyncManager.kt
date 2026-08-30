@@ -183,6 +183,10 @@ class SyncManager(
                     android.util.Log.e("FluenceSync", "v1.2 pass failed: ${e::class.simpleName} ${e.message}")
                     outcome = when (e) {
                         is com.groq.voicetyper.sync.v1.SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
+                        is com.groq.voicetyper.sync.v1.SyncError.RateLimited -> {
+                            scheduler.noteRetryAfter(e.retryAfterMs)
+                            PassOutcomeKind.RETRYABLE
+                        }
                         is com.groq.voicetyper.sync.v1.SyncError.Retryable,
                         is com.groq.voicetyper.sync.v1.SyncError.StaleVersion -> PassOutcomeKind.RETRYABLE
                         is com.groq.voicetyper.sync.v1.SyncError.Fatal,
@@ -296,6 +300,12 @@ class SyncManager(
             domainOutcome(result)
         } catch (e: com.groq.voicetyper.sync.v1.SyncError.StaleVersion) {
             android.util.Log.w("FluenceSync", "domain $domain kept changing; will converge next pass")
+            PassOutcomeKind.RETRYABLE
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.RateLimited) {
+            // Explicit Retry-After: surface the delay so the scheduler waits at
+            // least that long before retrying, instead of hammering Drive.
+            scheduler.noteRetryAfter(e.retryAfterMs)
+            android.util.Log.w("FluenceSync", "domain $domain rate limited; retry after ${e.retryAfterMs ?: "?(scheduler backoff)"}ms")
             PassOutcomeKind.RETRYABLE
         } catch (e: com.groq.voicetyper.sync.v1.SyncError.Retryable) {
             android.util.Log.w("FluenceSync", "domain $domain retryable: ${e.message}")

@@ -95,18 +95,18 @@ object V1SyncEngine {
                         throw SyncError.Rejected("dictionary roundtrip key mismatch")
                     }
                 } ?: throw SyncError.Rejected("dictionary roundtrip produced null")
-                val uploaded = try {
+                val uploadedVersion = try {
                     drive.putDomain(DomainFile.DICTIONARY, bytes, fetch.version)
-                    true
                 } catch (e: SyncError.StaleVersion) {
-                    if (attempts < MAX_ATTEMPTS) false else throw e
+                    if (attempts < MAX_ATTEMPTS) null else throw e
                 }
-                if (uploaded) {
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.DICTIONARY, uploadedVersion)) {
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(true, true, attemptsUsed = attempts)
                 }
-                continue // stale version  full re-GETMERGEPUT
+                waitForStaleRetry(attempts) // break the lockstep livelock
+                continue // stale version: full re-GET -> MERGE -> PUT
             } else {
                 // No remote file yet: create from local state.
                 val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
@@ -117,7 +117,10 @@ object V1SyncEngine {
                 DomainSerializer.parseDictionary(bytes2)?.let { parsed ->
                     if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("dictionary roundtrip size mismatch")
                 } ?: throw SyncError.Rejected("dictionary roundtrip null")
-                drive.putDomain(DomainFile.DICTIONARY, bytes2, null)
+                val createdVersion = drive.putDomain(DomainFile.DICTIONARY, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.DICTIONARY, createdVersion)) {
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
                 localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                 advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                 return SyncResult(true, true, attemptsUsed = attempts)
@@ -170,17 +173,17 @@ object V1SyncEngine {
                         throw SyncError.Rejected("snippets roundtrip key mismatch")
                     }
                 } ?: throw SyncError.Rejected("snippets roundtrip null")
-                val uploaded = try {
+                val uploadedVersion = try {
                     drive.putDomain(DomainFile.SNIPPETS, bytes, fetch.version)
-                    true
                 } catch (e: SyncError.StaleVersion) {
-                    if (attempts < MAX_ATTEMPTS) false else throw e
+                    if (attempts < MAX_ATTEMPTS) null else throw e
                 }
-                if (uploaded) {
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.SNIPPETS, uploadedVersion)) {
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(true, true, attemptsUsed = attempts)
                 }
+                waitForStaleRetry(attempts) // break the lockstep livelock
                 continue
             } else {
                 val merged = Merge.mergeSnippets(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
@@ -190,7 +193,10 @@ object V1SyncEngine {
                 DomainSerializer.parseSnippets(bytes2)?.let { parsed ->
                     if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("snippets roundtrip size mismatch")
                 } ?: throw SyncError.Rejected("snippets roundtrip null")
-                drive.putDomain(DomainFile.SNIPPETS, bytes2, null)
+                val createdVersion = drive.putDomain(DomainFile.SNIPPETS, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.SNIPPETS, createdVersion)) {
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
                 localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                 advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                 return SyncResult(true, true, attemptsUsed = attempts)
@@ -253,17 +259,17 @@ object V1SyncEngine {
                         throw SyncError.Rejected("stats roundtrip key mismatch")
                     }
                 } ?: throw SyncError.Rejected("stats roundtrip null")
-                val uploaded = try {
+                val uploadedVersion = try {
                     drive.putDomain(DomainFile.STATS, bytes, fetch.version)
-                    true
                 } catch (e: SyncError.StaleVersion) {
-                    if (attempts < MAX_ATTEMPTS) false else throw e
+                    if (attempts < MAX_ATTEMPTS) null else throw e
                 }
-                if (uploaded) {
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.STATS, uploadedVersion)) {
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(true, true, attemptsUsed = attempts)
                 }
+                waitForStaleRetry(attempts) // break the lockstep livelock
                 continue
             } else {
                 val merged = Merge.mergeStats(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
@@ -276,7 +282,11 @@ object V1SyncEngine {
                 DomainSerializer.parseStats(bytes2)?.let { parsed ->
                     if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("stats roundtrip size mismatch")
                 } ?: throw SyncError.Rejected("stats roundtrip null")
-                drive.putDomain(DomainFile.STATS, bytes2, null)
+                val statCreatedVersion = drive.putDomain(DomainFile.STATS, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.STATS, statCreatedVersion)) {
+                    localStore.setBackfillDone(accountHash, true)
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
                 localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                 advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                 return SyncResult(true, true, attemptsUsed = attempts)
@@ -328,17 +338,17 @@ object V1SyncEngine {
                         throw SyncError.Rejected("settings roundtrip key mismatch")
                     }
                 } ?: throw SyncError.Rejected("settings roundtrip null")
-                val uploaded = try {
+                val uploadedVersion = try {
                     drive.putDomain(DomainFile.SETTINGS, bytes, fetch.version)
-                    true
                 } catch (e: SyncError.StaleVersion) {
-                    if (attempts < MAX_ATTEMPTS) false else throw e
+                    if (attempts < MAX_ATTEMPTS) null else throw e
                 }
-                if (uploaded) {
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.SETTINGS, uploadedVersion)) {
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(true, true, attemptsUsed = attempts)
                 }
+                waitForStaleRetry(attempts) // break the lockstep livelock
                 continue
             } else {
                 val merged = Merge.mergeSettings(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
@@ -348,7 +358,10 @@ object V1SyncEngine {
                 DomainSerializer.parseSettings(bytes2)?.let { parsed ->
                     if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("settings roundtrip size mismatch")
                 } ?: throw SyncError.Rejected("settings roundtrip null")
-                drive.putDomain(DomainFile.SETTINGS, bytes2, null)
+                val createdVersion = drive.putDomain(DomainFile.SETTINGS, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.SETTINGS, createdVersion)) {
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
                 localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                 advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                 return SyncResult(true, true, attemptsUsed = attempts)
@@ -360,6 +373,29 @@ object V1SyncEngine {
     /** Monotonic clock floor: maxSeen never moves backwards. */
     private fun advanceMaxSeen(maxSeenRef: MaxSeenRef, observed: Long) {
         if (observed > maxSeenRef.value) maxSeenRef.value = observed
+    }
+
+    /**
+     * B-3 post-upload verification — re-list version only. After a PUT reports a
+     * version, re-GET and confirm that revision is actually live before marking
+     * the rows pushed. Google Drive's eventual consistency makes a transient
+     * miss expected; a miss leaves the rows dirty so the next pass re-heals.
+     */
+    private fun uploadIsLive(drive: DomainGateway, domain: DomainFile, uploadedVersion: String): Boolean =
+        try {
+            drive.getDomain(domain).version == uploadedVersion
+        } catch (e: Exception) {
+            false
+        }
+
+    /**
+     * Jittered backoff before a StaleVersion re-fetch. De-correlates contending
+     * devices that would otherwise invalidate each other's CAS in lockstep.
+     * `attempts` is the 1-based attempt just consumed (first retry -> 2).
+     */
+    private suspend fun waitForStaleRetry(attempts: Int) {
+        if (attempts < 2) return
+        kotlinx.coroutines.delay(staleRetryDelayMs(attempts))
     }
 
     /** Mutable maxSeen cell; the orchestrator persists it to sync_metadata. */
@@ -470,3 +506,20 @@ object V1SyncEngine {
 }
 
 fun generateDeviceId(): String = UUID.randomUUID().toString()
+
+private const val STALE_RETRY_BASE_MS = 50L
+private const val STALE_RETRY_MAX_MS = 600L
+
+/**
+ * Jittered backoff (ms) before a StaleVersion retry. Mirrors the Windows
+ * engine: `base * 2^(attempt-2)`, capped, jittered into [0.5x, 1.5x] via
+ * [rand] (uniform 0..1). Attempt 1 never delays. Exposed for deterministic
+ * unit testing; production passes a `java.util.Random`.
+ */
+internal fun staleRetryDelayMs(attempts: Int, rand: () -> Double = { randSource.nextDouble() }): Long {
+    if (attempts < 2) return 0L
+    val base = minOf(STALE_RETRY_MAX_MS, (STALE_RETRY_BASE_MS shl minOf(attempts - 2, 5)).toLong())
+    return minOf(STALE_RETRY_MAX_MS, (base * (0.5 + rand() * 1.0)).toLong())
+}
+
+private val randSource = java.util.Random()

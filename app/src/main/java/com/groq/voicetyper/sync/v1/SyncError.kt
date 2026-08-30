@@ -15,6 +15,14 @@ package com.groq.voicetyper.sync.v1
  */
 sealed class SyncError(message: String? = null) : Exception(message) {
     class Retryable(message: String) : SyncError(message)
+    /**
+     * A transient 429 that carried a `Retry-After` header. Same retryable
+     * scheduling path as [Retryable], but the header's explicit delay (ms)
+     * must gate the next attempt (see SyncSchedulerCore) so a throttled API
+     * is not hammered before it says we may retry. `null` when no usable
+     * header was present — the scheduler falls back to its backoff.
+     */
+    class RateLimited(val retryAfterMs: Long?) : SyncError("rate limited")
     class StaleVersion(val liveVersion: String?) : SyncError("remote changed during sync: ${liveVersion ?: "<none>"}")
     class Fatal(message: String) : SyncError(message)
     class Rejected(message: String) : SyncError(message)

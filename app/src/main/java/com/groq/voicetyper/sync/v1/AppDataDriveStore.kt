@@ -111,17 +111,27 @@ class AppDataDriveStore(
      * Map an HTTP status to a [SyncError]. Non-2xx statuses that carry a body
      * only read it via [bodyProvider], and only when classified (403) — a
      * success path never consumes the stream, so callers can still read it.
+     * A 429 surfacing a `Retry-After` header becomes [SyncError.RateLimited]
+     * so the scheduler honors the explicit delay.
      */
-    private fun classify(status: Int, bodyProvider: () -> String = { "" }) {
+    private fun classify(response: Response, status: Int, bodyProvider: () -> String = { "" }) {
         when (status) {
             in 200..299 -> return
             401 -> throw SyncError.AuthRequired
             403 -> throw classifyForbidden(bodyProvider())
-            429 -> throw SyncError.Retryable("rate limited")
+            429 -> {
+                val retryAfterMs = readRetryAfterMs(response)
+                if (retryAfterMs != null) throw SyncError.RateLimited(retryAfterMs)
+                throw SyncError.Retryable("rate limited")
+            }
             in 500..599 -> throw SyncError.Retryable("Drive HTTP $status")
             else -> throw SyncError.Rejected("Drive HTTP $status")
         }
     }
+
+    /** Read a Drive `429 Retry-After` header into an explicit delay in ms. */
+    private fun readRetryAfterMs(response: Response): Long? =
+        parseRetryAfterMs(response.header("Retry-After"))
 
     /** Ensure appDataFolder/fluence/v1 exists, handling duplicate folders (pick first). */
     fun ensureV1Folder(): String {
@@ -130,7 +140,7 @@ class AppDataDriveStore(
         val query = URLEncoder.encode("'$fluenceId' in parents and mimeType = '$FOLDER_MIME' and name = 'v1' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
             val body = resp.body?.string().orEmpty()
-            classify(resp.code) { body }
+            classify(resp, resp.code) { body }
             val id = parseFirstId(body)
             v1FolderId = id ?: createFolder("v1", fluenceId)
             return v1FolderId!!
@@ -142,7 +152,7 @@ class AppDataDriveStore(
         val query = URLEncoder.encode("name = 'fluence' and mimeType = '$FOLDER_MIME' and trashed = false and 'appDataFolder' in parents", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
             val body = resp.body?.string().orEmpty()
-            classify(resp.code) { body }
+            classify(resp, resp.code) { body }
             val id = parseFirstId(body)
             fluenceFolderId = id ?: createFolder("fluence", "appDataFolder")
             return fluenceFolderId!!
@@ -155,7 +165,7 @@ class AppDataDriveStore(
             .toRequestBody("application/json".toMediaType())
         call(bearer("$apiBase/files?fields=id").post(body)).use { resp ->
             val responseBody = resp.body?.string().orEmpty()
-            classify(resp.code) { responseBody }
+            classify(resp, resp.code) { responseBody }
             return parseId(responseBody) ?: throw SyncError.Retryable("folder create missing id")
         }
     }
@@ -171,7 +181,7 @@ class AppDataDriveStore(
             val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
             call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version),nextPageToken&pageSize=1000$token")).use { resp ->
                 val body = resp.body?.string().orEmpty()
-                classify(resp.code) { body }
+                classify(resp, resp.code) { body }
                 val page = parseFileListLite(body)
                 all += page.first
                 pageToken = page.second
@@ -200,7 +210,7 @@ class AppDataDriveStore(
             val bytes = call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
                 if (resp.code == 404) return@use null
                 val responseBody = resp.body?.bytes() ?: ByteArray(0)
-                classify(resp.code) { responseBody.toString(Charsets.UTF_8) }
+                classify(resp, resp.code) { responseBody.toString(Charsets.UTF_8) }
                 responseBody
             } ?: continue
             if (bytes.size > MAX_DOMAIN_BYTES) {
@@ -285,7 +295,7 @@ class AppDataDriveStore(
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
                 val responseBody = resp.body?.string().orEmpty()
-                classify(resp.code) { responseBody }
+                classify(resp, resp.code) { responseBody }
                 parseVersion(responseBody)
                     ?: throw SyncError.Retryable("create succeeded but no file version was returned")
             }
@@ -313,7 +323,7 @@ class AppDataDriveStore(
         val body = relatedBody(metadata, name, bytes)
         call(bearer("$uploadBase/files/$fileId?uploadType=multipart&fields=version").patch(body)).use { resp ->
             val responseBody = resp.body?.string().orEmpty()
-            classify(resp.code) { responseBody }
+            classify(resp, resp.code) { responseBody }
             val newVersion = parseVersion(responseBody)
             if (newVersion != null) return newVersion
         }
@@ -321,7 +331,7 @@ class AppDataDriveStore(
         // detection stays armed for the next pass.
         call(bearer("$apiBase/files/$fileId?fields=version")).use { resp ->
             val responseBody = resp.body?.string().orEmpty()
-            classify(resp.code) { responseBody }
+            classify(resp, resp.code) { responseBody }
             return parseVersion(responseBody)
                 ?: throw SyncError.Retryable("update succeeded but no file version was returned")
         }
@@ -355,7 +365,7 @@ class AppDataDriveStore(
     private fun deleteDomainFile(fileId: String) {
         call(bearer("$apiBase/files/$fileId").delete()).use { resp ->
             if (resp.code == 404) return
-            classify(resp.code) { resp.body?.string().orEmpty() }
+            classify(resp, resp.code) { resp.body?.string().orEmpty() }
         }
     }
 
@@ -407,6 +417,20 @@ class AppDataDriveStore(
     }
 
     data class FileMetaLite(val fileId: String, val name: String, val version: String?)
+}
+
+/**
+ * Parse a `Retry-After` header into an explicit delay in ms. Drive sends
+ * integer seconds (RFC 7231 `Retry-After`); an HTTP-date form is intentionally
+ * ignored (cannot be mapped to a relative delay easily) — the scheduler falls
+ * back to its exponential backoff in that case. Returns null when the value is
+ * absent, unparseable, or non-positive. Pure and offline-testable.
+ */
+fun parseRetryAfterMs(headerValue: String?): Long? {
+    val trimmed = headerValue?.trim() ?: return null
+    val secs = trimmed.toLongOrNull() ?: return null
+    if (secs <= 0L) return null
+    return secs * 1000L
 }
 
 /**

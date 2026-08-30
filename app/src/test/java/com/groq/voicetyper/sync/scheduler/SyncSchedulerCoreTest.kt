@@ -149,6 +149,36 @@ class SyncSchedulerCoreTest {
         assertTrue(core.pollTick())
         assertFalse(core.pending)
     }
+
+    @Test
+    fun retryAfterHeaderIsHonoredByTheBackoff() {
+        val core = core()
+        now = 0L
+        // Drive says "retry after 5s" on the first 429: the scheduler must wait
+        // at least 5s, not the 1s base backoff, before the next attempt.
+        core.beginPass()
+        core.noteRetryAfter(5_000L)
+        core.completePass(PassOutcomeKind.RETRYABLE)
+        assertEquals(5_000L, core.nextAttemptMs)
+
+        // A later retry with no hint uses the (now doubled) backoff normally,
+        // proving the hint is consumed once and not sticky.
+        now = 5_000L
+        core.beginPass()
+        core.completePass(PassOutcomeKind.RETRYABLE)
+        assertEquals(7_000L, core.nextAttemptMs) // 5000 + 2000
+    }
+
+    @Test
+    fun noteRetryAfter_keepsTheMaxAcrossDomains() {
+        val core = core()
+        core.noteRetryAfter(3_000L)
+        core.noteRetryAfter(9_000L)
+        core.noteRetryAfter(1_000L) // smaller — ignored
+        core.beginPass()
+        core.completePass(PassOutcomeKind.RETRYABLE)
+        assertEquals("the largest Retry-After wins", 9_000L, core.nextAttemptMs)
+    }
 }
 
 class SyncBackoffTest {

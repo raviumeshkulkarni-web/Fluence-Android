@@ -8,11 +8,28 @@ package com.groq.voicetyper.sync.v1
  * can never resurrect over a newer local deletion.
  */
 object Clock {
+    /**
+     * Upper bound on how far a locally-stamped updatedAt may run ahead of real
+     * wall time (15 minutes). Without this cap, a wall-clock jump into the
+     * future (user/NTP/clock drift) makes maxSeen sticky: every subsequent
+     * local edit is stamped with an absurd updatedAt that permanently outranks
+     * legitimate remote state, wedging LWW convergence on every device.
+     */
+    const val MAX_CLOCK_SKEW_MS = 900_000L
+
     fun nowWallMs(): Long = System.currentTimeMillis()
 
-    /** Next updatedAt = max(wall, maxSeen + 1) */
+    /**
+     * Next updatedAt = max(wall, maxSeen + 1), capped at wall + MAX_CLOCK_SKEW_MS.
+     *
+     * The cap stops a runaway local clock from manufacturing forever-dominant
+     * timestamps, while staying strictly below a genuinely held remote value.
+     * Local monotonicity is preserved: as wall advances, the capped stamp
+     * advances with it. A small legitimately-future maxSeen (accurate peer
+     * clock) is not over-capped.
+     */
     fun nextUpdatedAt(wallMs: Long, maxSeen: Long): Long {
-        return maxOf(wallMs, maxSeen + 1)
+        return minOf(maxOf(wallMs, maxSeen + 1), wallMs + MAX_CLOCK_SKEW_MS)
     }
 
     /** Compare two records by (updatedAt, deviceId) lexicographically max. */

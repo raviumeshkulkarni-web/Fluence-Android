@@ -110,6 +110,22 @@ class MergeTest {
         assertEquals(1001L, Clock.nextUpdatedAt(wallMs = 500L, maxSeen = 1000L))
     }
 
+    @Test
+    fun clock_nextUpdatedAt_caps_sticky_future_maxSeen() {
+        // A runaway wall clock (maxSeen far in the future vs the given wall)
+        // must not inflate the stamp beyond wall + MAX_CLOCK_SKEW_MS.
+        val wall = 1_000_000L
+        val runaway = wall + 4 * Clock.MAX_CLOCK_SKEW_MS
+        assertEquals(
+            wall + Clock.MAX_CLOCK_SKEW_MS,
+            Clock.nextUpdatedAt(wallMs = wall, maxSeen = runaway)
+        )
+        // But a small legitimate future maxSeen (accurate peer clock) is NOT
+        // over-capped: it stays dominant so a genuine remote record wins LWW.
+        val smallFuture = wall + 120_000L
+        assertEquals(smallFuture + 1L, Clock.nextUpdatedAt(wallMs = wall, maxSeen = smallFuture))
+    }
+
     // ------------------------------------------------------------------
     // businessKey
     // ------------------------------------------------------------------
