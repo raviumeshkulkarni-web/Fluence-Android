@@ -6,9 +6,10 @@ import java.util.UUID
  * Frozen v1.2 engine — one domain file per pass.
  *
  * Per domain: stamp NULL→accountHash atomically → GET (duplicate-safe) →
- * corruption auto-skip on unparseable envelope → MERGE (pure LWW winner
- * max(updatedAt, deviceId); stats union by eventId; settings per-key LWW over
- * the frozen five) → PUT with version-number staleness detection.
+ * corrupt envelope treated as absent (repaired via CAS-protected push when any
+ * usable local state exists) → MERGE (pure LWW winner max(updatedAt, deviceId);
+ * stats union by eventId; settings per-key LWW over the frozen five) → PUT with
+ * version-number staleness detection.
  *
  * Concurrency: Drive v3 does not honor If-Match, so freshness is verified via
  * the file `version` revision immediately before write. On StaleVersion the
@@ -59,12 +60,26 @@ object V1SyncEngine {
             attempts++
             val fetch = drive.getDomain(DomainFile.DICTIONARY)
             if (fetch.bytes != null) {
+                // Corrupt-but-size-valid remote (AppDataDriveStore guarantees:
+                // oversize already surfaced as Rejected, corrupt bytes returned
+                // with the corrupt file's version + preferred write target).
+                // Treat it as absent for merging; the merged state then repairs
+                // it in place via a CAS-protected put (Windows parity).
                 val remoteDomain = DomainSerializer.parseDictionary(fetch.bytes!!)
-                    ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
-                val merged = Merge.mergeDictionaries(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
-                val remoteSorted = remoteDomain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val remoteWasCorrupt = remoteDomain == null
+                val merged = Merge.mergeDictionaries(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                    ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        // No usable local state and nothing dirty — never
+                        // fabricate an upload (Windows parity: no-op skip).
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -129,10 +144,18 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.SNIPPETS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseSnippets(fetch.bytes!!)
-                    ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
-                val merged = Merge.mergeSnippets(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteDomain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })) || fetch.hasDuplicateValidFiles
+                val remoteWasCorrupt = remoteDomain == null
+                val merged = Merge.mergeSnippets(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                    ?: emptyList()
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
@@ -201,14 +224,21 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.STATS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseStats(fetch.bytes!!)
-                    ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                val remoteWasCorrupt = remoteDomain == null
                 // Stats are an append-only wire ledger. Never remove a legacy
                 // aggregate merely because a dictation event exists for the
                 // same day; the aggregate may contain data from another peer.
-                val merged = Merge.mergeStats(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
-                val remoteSorted = remoteDomain.entries.sortedWith(compareBy({ it.day }, { it.eventId }))
+                val merged = Merge.mergeStats(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.day }, { it.eventId }))
+                    ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
@@ -273,11 +303,17 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.SETTINGS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseSettings(fetch.bytes!!)
-                    ?: return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
-                val merged = Merge.mergeSettings(localStore.loadByAccount(accountHash).map { it.toRecord() }, remoteDomain.entries)
-                val remoteSorted = remoteDomain.entries.sortedBy { it.key }
+                val remoteWasCorrupt = remoteDomain == null
+                val merged = Merge.mergeSettings(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedBy { it.key } ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
                     // Remote already converged: persist merged winners locally
                     // anyway, or a fresh device never materializes pulled data.
                     localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)

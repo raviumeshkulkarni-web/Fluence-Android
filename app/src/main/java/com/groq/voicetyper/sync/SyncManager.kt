@@ -274,33 +274,42 @@ class SyncManager(
         accountHash: String,
         deviceId: String,
         maxSeenRef: V1SyncEngine.MaxSeenRef
-    ): PassOutcomeKind = try {
-        when (domain) {
-            DomainFile.DICTIONARY ->
-                V1SyncEngine.syncDictionary(V1Stores.dictionaryStore(context), drive, accountHash, deviceId, maxSeenRef)
-            DomainFile.SNIPPETS ->
-                V1SyncEngine.syncSnippets(V1Stores.snippetStore(context), drive, accountHash, deviceId, maxSeenRef)
-            DomainFile.STATS ->
-                V1SyncEngine.syncStats(V1Stores.statStore(context), drive, accountHash, deviceId, maxSeenRef)
-            DomainFile.SETTINGS ->
-                V1SyncEngine.syncSettings(V1Stores.settingsStore(context), drive, accountHash, deviceId, maxSeenRef)
+    ): PassOutcomeKind {
+        return try {
+            val result = when (domain) {
+                DomainFile.DICTIONARY ->
+                    V1SyncEngine.syncDictionary(V1Stores.dictionaryStore(context), drive, accountHash, deviceId, maxSeenRef)
+                DomainFile.SNIPPETS ->
+                    V1SyncEngine.syncSnippets(V1Stores.snippetStore(context), drive, accountHash, deviceId, maxSeenRef)
+                DomainFile.STATS ->
+                    V1SyncEngine.syncStats(V1Stores.statStore(context), drive, accountHash, deviceId, maxSeenRef)
+                DomainFile.SETTINGS ->
+                    V1SyncEngine.syncSettings(V1Stores.settingsStore(context), drive, accountHash, deviceId, maxSeenRef)
+            }
+            if (result.skippedCorrupt) {
+                // A corrupt remote envelope could not be repaired this pass (no
+                // usable local state). Surface retryable, not silent success: the
+                // next pass re-attempts the repair as soon as local state exists
+                // and never reports a corrupt domain as fully synced.
+                android.util.Log.w("FluenceSync", "domain $domain corrupt remote skipped; will retry")
+            }
+            domainOutcome(result)
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.StaleVersion) {
+            android.util.Log.w("FluenceSync", "domain $domain kept changing; will converge next pass")
+            PassOutcomeKind.RETRYABLE
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.Retryable) {
+            android.util.Log.w("FluenceSync", "domain $domain retryable: ${e.message}")
+            PassOutcomeKind.RETRYABLE
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.Rejected) {
+            android.util.Log.e("FluenceSync", "domain $domain rejected: ${e.message}")
+            PassOutcomeKind.FATAL
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.Fatal) {
+            android.util.Log.e("FluenceSync", "domain $domain fatal: ${e.message}")
+            PassOutcomeKind.FATAL
+        } catch (e: com.groq.voicetyper.sync.v1.SyncError.AuthRequired) {
+            android.util.Log.e("FluenceSync", "domain $domain auth required: ${e.message}")
+            PassOutcomeKind.AUTH_REQUIRED
         }
-        PassOutcomeKind.SUCCESS
-    } catch (e: com.groq.voicetyper.sync.v1.SyncError.StaleVersion) {
-        android.util.Log.w("FluenceSync", "domain $domain kept changing; will converge next pass")
-        PassOutcomeKind.RETRYABLE
-    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Retryable) {
-        android.util.Log.w("FluenceSync", "domain $domain retryable: ${e.message}")
-        PassOutcomeKind.RETRYABLE
-    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Rejected) {
-        android.util.Log.e("FluenceSync", "domain $domain rejected: ${e.message}")
-        PassOutcomeKind.FATAL
-    } catch (e: com.groq.voicetyper.sync.v1.SyncError.Fatal) {
-        android.util.Log.e("FluenceSync", "domain $domain fatal: ${e.message}")
-        PassOutcomeKind.FATAL
-    } catch (e: com.groq.voicetyper.sync.v1.SyncError.AuthRequired) {
-        android.util.Log.e("FluenceSync", "domain $domain auth required: ${e.message}")
-        PassOutcomeKind.AUTH_REQUIRED
     }
 
     private fun publish() {
@@ -373,3 +382,11 @@ class SyncManager(
         }
     }
 }
+
+/** Maps a [V1SyncEngine.SyncResult] (one that was not thrown as a classified
+ *  error) to the pass outcome. Corrupt domains that could not be repaired this
+ *  pass must never read as silent success, so they surface
+ *  [PassOutcomeKind.RETRYABLE] and are re-attempted on the next pass.
+ *  (Intentional Windows-parity divergence: Windows reports plain Ok.) */
+internal fun domainOutcome(result: V1SyncEngine.SyncResult): PassOutcomeKind =
+    if (result.skippedCorrupt) PassOutcomeKind.RETRYABLE else PassOutcomeKind.SUCCESS

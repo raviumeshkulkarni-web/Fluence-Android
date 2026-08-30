@@ -36,12 +36,15 @@ class V1SyncEngineTest {
         /** Queue of stale-version injections before a successful PUT. */
         val staleInjections: ArrayDeque<String?> = ArrayDeque(),
         val puts: MutableList<ByteArray> = mutableListOf(),
+        /** expectedVersion argument passed to every putDomain attempt (CAS target). */
+        val putVersions: MutableList<String?> = mutableListOf(),
     ) : V1SyncEngine.DomainGateway {
         override fun getDomain(domain: DomainFile): AppDataDriveStore.DomainFetch =
             AppDataDriveStore.DomainFetch(bytes?.copyOf(), version)
 
         override fun putDomain(domain: DomainFile, data: ByteArray, expectedVersion: String?): String {
             putCount++
+            putVersions.add(expectedVersion)
             if (staleInjections.isNotEmpty()) {
                 val live = staleInjections.removeFirst()
                 throw SyncError.StaleVersion(live)
@@ -170,6 +173,85 @@ class V1SyncEngineTest {
         assertTrue(result.skippedCorrupt)
         assertEquals("corrupt file is never deleted or rewritten", 0, drive.putCount)
         assertEquals(0, store.applyCalls)
+    }
+
+    // ------------------------------------------------------------------
+    // B1: corrupt-but-size-valid remote is REPAIRED (Windows parity) — never
+    // permanently skipped. Oversized is already surfaced as Rejected by
+    // AppDataDriveStore before the engine sees it (store-level).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun corrupt_remote_with_local_state_is_repaired_via_cas_push() = runBlocking {
+        val local = dictRec("l1", "brb", at = 300L)
+        val drive = FakeDrive(bytes = "{ not json".toByteArray(), version = "9")
+        val store = FakeDictStore(mutableListOf(localOf(local)))
+        val maxSeen = MaxSeenRef(0L)
+        val result = V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", maxSeen)
+        assertFalse("repair must not be reported as skipped", result.skippedCorrupt)
+        assertTrue(result.uploaded)
+        assertTrue(result.merged)
+        assertEquals("corrupt file repaired in place, not recreated", 1, drive.putCount)
+        assertEquals("CAS target = corrupt file's version", "9", drive.putVersions.single())
+        // Payload is the canonical serialized merged state (local LWW winner,
+        // sorted businessKey/syncId) — never a fabricated/empty envelope.
+        val uploaded = DomainSerializer.parseDictionary(drive.puts.single())!!
+        assertEquals(listOf(local), uploaded.entries)
+        assertEquals(1, store.applyCalls)
+        assertEquals(300L, maxSeen.value)
+    }
+
+    @Test
+    fun corrupt_remote_with_local_state_stale_retry_reruns_get_merge_put_with_cas() = runBlocking {
+        val local = dictRec("l1", "brb", at = 300L)
+        val drive = FakeDrive(bytes = "{ not json".toByteArray(), version = "9")
+        drive.failNextPutWithStaleVersion("2")
+        val store = FakeDictStore(mutableListOf(localOf(local)))
+        val result = V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertTrue(result.uploaded)
+        assertTrue("staleness during repair must trigger a full re-GET→MERGE→PUT", result.attemptsUsed >= 2)
+        assertEquals(2, drive.putCount)
+        // Every repair attempt CAS-targets the corrupt file's revision.
+        assertEquals(listOf("9", "9"), drive.putVersions)
+    }
+
+    @Test
+    fun corrupt_remote_repairs_for_every_domain_with_version_cas() = runBlocking {
+        // Dictionary
+        val dStore = FakeDictStore(mutableListOf(localOf(dictRec("l1", "brb", at = 300L))))
+        val dDrive = FakeDrive(bytes = "{ not json".toByteArray(), version = "9")
+        val dRes = V1SyncEngine.syncDictionary(dStore, dDrive, "hash", "device-a", MaxSeenRef(0L))
+        assertTrue(dRes.uploaded)
+        assertFalse(dRes.skippedCorrupt)
+        assertEquals("9", dDrive.putVersions.single())
+
+        // Snippets
+        val sStore = FakeSnippetStore(
+            mutableListOf(
+                V1SyncEngine.SnippetLocal(uuidOf("s1"), "sig", "sig", "hey", true, 100L, null, "device-a", "hash", dirty = false, everPushed = true)
+            )
+        )
+        val sDrive = FakeDrive(bytes = "{ not json".toByteArray(), version = "11")
+        val sRes = V1SyncEngine.syncSnippets(sStore, sDrive, "hash", "device-a", MaxSeenRef(0L))
+        assertTrue(sRes.uploaded)
+        assertFalse(sRes.skippedCorrupt)
+        assertEquals("11", sDrive.putVersions.single())
+
+        // Stats
+        val stStore = FakeStatStore().apply { rows += StatRecord(uuidOf("e1"), "2026-08-30", 10, 100, 200, "d") }
+        val stDrive = FakeDrive(bytes = "{ not json".toByteArray(), version = "13")
+        val stRes = V1SyncEngine.syncStats(stStore, stDrive, "hash", "device-a", MaxSeenRef(0L))
+        assertTrue(stRes.uploaded)
+        assertFalse(stRes.skippedCorrupt)
+        assertEquals("13", stDrive.putVersions.single())
+
+        // Settings
+        val setStore = FakeSettingsStore(mutableMapOf("language" to ("en" to 100L)))
+        val setDrive = FakeDrive(bytes = "{ not json".toByteArray(), version = "17")
+        val setRes = V1SyncEngine.syncSettings(setStore, setDrive, "hash", "device-a", MaxSeenRef(0L))
+        assertTrue(setRes.uploaded)
+        assertFalse(setRes.skippedCorrupt)
+        assertEquals("17", setDrive.putVersions.single())
     }
 
     @Test
