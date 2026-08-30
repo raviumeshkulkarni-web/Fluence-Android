@@ -83,4 +83,18 @@ class SyncAuthSessionTest {
         assertNull(session.accessTokenOrNull())
         assertFalse(session.hasValidAccessToken())
     }
+
+    @Test
+    fun invalidateAccessToken_clearsCachedToken_andIsIdempotent() {
+        session.completeSignIn("user@example.com")
+        session.invalidateAccessToken()
+        // A rejected token is dropped so the next pass mints a fresh one.
+        assertNull(session.accessTokenOrNull())
+        assertFalse(session.hasValidAccessToken())
+        session.invalidateAccessToken()
+        assertNull(session.accessTokenOrNull())
+        assertFalse(session.hasValidAccessToken())
+        // Sign-in state itself is unaffected — only the token is cleared.
+        assertTrue(session.isSignedIn())
+    }
 }

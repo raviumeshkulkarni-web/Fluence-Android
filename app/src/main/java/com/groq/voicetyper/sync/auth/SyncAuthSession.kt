@@ -19,10 +19,19 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class SyncAuthSession(
     private val context: Context,
-    prefsProvider: (Context) -> SharedPreferences = ::buildDefaultPrefs
+    private val prefsProvider: (Context) -> SharedPreferences = ::buildDefaultPrefs
 ) : TokenProvider {
 
-    private val prefs: SharedPreferences = prefsProvider(context)
+    private var prefs: SharedPreferences = prefsProvider(context)
+
+    /**
+     * True when the last [open] degraded to the in-memory fallback because the
+     * Android keystore key could not be built/decrypted. In that state the
+     * signed-in state is unreliable (starts signed-out) and should be
+     * presented truthfully instead of as a Drive authorization failure.
+     */
+    @Volatile var storageDegraded: Boolean = com.groq.voicetyper.SecurePrefsStore.isDegraded(prefs)
+        private set
 
     // Memory-only access token.
     @Volatile private var accessToken: String? = null
@@ -74,6 +83,16 @@ class SyncAuthSession(
     /** The current access token, or null when absent/expired. */
     fun accessTokenOrNull(): String? = if (hasValidAccessToken()) accessToken else null
 
+    /**
+     * Discard a Drive-rejected access token so the next
+     * [refreshAccessTokenIfNeeded] mints a fresh one instead of handing back
+     * the same cached token Play Services still believes is valid.
+     */
+    fun invalidateAccessToken() {
+        accessToken = null
+        expiresAtMs.set(0L)
+    }
+
     fun hasValidAccessToken(): Boolean {
         if (accessToken == null) return false
         return expiresAtMs.get() == 0L || System.currentTimeMillis() < expiresAtMs.get()
@@ -99,8 +118,15 @@ class SyncAuthSession(
     /** Whether a sign-in state exists (account email present). */
     fun isSignedIn(): Boolean = accountEmail != null
 
-    /** Re-read persisted state. */
+    /**
+     * Re-read persisted state. The encrypted store is re-opened every time so
+     * a transient keystore failure (degraded in-memory fallback) is not held
+     * for the rest of the process: once the keystore recovers, the real
+     * prefs — including a previously committed account email — are read again.
+     */
     fun reloadFromStorage() {
+        prefs = prefsProvider(context)
+        storageDegraded = com.groq.voicetyper.SecurePrefsStore.isDegraded(prefs)
         accountEmail = prefs.getString(KEY_ACCOUNT_EMAIL, null)
     }
 

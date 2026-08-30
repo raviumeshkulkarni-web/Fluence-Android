@@ -14,4 +14,6 @@ data class SyncStatus(
     val lastError: String? = null,
     /** A Google consent dialog is needed before sync can proceed. */
     val recoveryPending: Boolean = false,
+    /** Secure storage degraded: signed-in state is unknown, not a Drive auth failure. */
+    val secureStorageUnavailable: Boolean = false,
 )

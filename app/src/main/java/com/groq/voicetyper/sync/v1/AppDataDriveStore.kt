@@ -11,6 +11,15 @@ import okhttp3.Response
 import org.json.JSONObject
 
 /**
+ * On-demand access-token refresher used for the single silent 401 retry.
+ * Returns a fresh token, or throws [SyncError] (e.g. [SyncError.AuthRequired]
+ * when consent is needed or the account is gone) to stop the pass.
+ */
+fun interface AccessTokenRefresher {
+    fun refresh(staleToken: String): String
+}
+
+/**
  * Drive appDataFolder domain store — frozen v1.2 (drive.appdata).
  * Path: appDataFolder/fluence/v1/{dictionary,snippets,stats,settings}.json
  *
@@ -30,7 +39,8 @@ import org.json.JSONObject
  * payload size caps.
  */
 class AppDataDriveStore(
-    private val accessToken: String,
+    private var accessToken: String,
+    private val tokenRefresher: AccessTokenRefresher? = null,
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
@@ -41,11 +51,15 @@ class AppDataDriveStore(
 ) : V1SyncEngine.DomainGateway {
     private var fluenceFolderId: String? = null
     private var v1FolderId: String? = null
-    // GET and PUT are performed through this same instance. Remember the
+// GET and PUT are performed through this same instance. Remember the
     // deterministic valid target so version-checking and updating cannot
     // accidentally switch to a corrupt/oversized sibling.
     private val preferredDomainFileIds = mutableMapOf<DomainFile, String>()
     private val validDuplicateFileIds = mutableMapOf<DomainFile, List<String>>()
+    // Bound the silent token recovery to one retry per pass (per store
+    // instance). A second 401 means the refreshed authorization is genuinely
+    // insufficient and must surface as AuthRequired, never loop.
+    private var authRetried = false
 
     data class DomainFetch(
         val bytes: ByteArray?,
@@ -69,11 +83,28 @@ class AppDataDriveStore(
         Request.Builder().url(url).header("Authorization", "Bearer $accessToken")
 
     private fun call(builder: Request.Builder): Response {
-        val req = builder.build()
-        val response = try { client.newCall(req).execute() }
-        catch (e: SocketTimeoutException) { throw SyncError.Retryable("Drive timeout") }
-        catch (e: java.io.IOException) { throw SyncError.Retryable(e.message ?: "Drive transport failure") }
+        var request = builder.build()
+        var response = execute(request)
+        if (response.code == 401 && !authRetried) {
+            val refresher = tokenRefresher ?: return response
+            response.close()
+            authRetried = true
+            val freshToken = refresher.refresh(accessToken)
+            accessToken = freshToken
+            request = request.newBuilder()
+                .header("Authorization", "Bearer $freshToken")
+                .build()
+            response = execute(request)
+        }
         return response
+    }
+
+    private fun execute(request: Request): Response = try {
+        client.newCall(request).execute()
+    } catch (e: SocketTimeoutException) {
+        throw SyncError.Retryable("Drive timeout")
+    } catch (e: java.io.IOException) {
+        throw SyncError.Retryable(e.message ?: "Drive transport failure")
     }
 
     /**

@@ -79,8 +79,14 @@ object SecurePrefsStore {
         return InMemorySharedPreferences(encryptedName)
     }
 
+    /** True when [prefs] is the in-memory fallback (keystore unavailable). */
+    fun isDegraded(prefs: SharedPreferences): Boolean = prefs is DegradedPrefs
+
+    /** Marker for the non-persistent error fallback (see [InMemorySharedPreferences]). */
+    internal interface DegradedPrefs
+
     /** In-memory, per-process, non-persistent store. Never touches disk. */
-    private class InMemorySharedPreferences(name: String) : SharedPreferences {
+    private class InMemorySharedPreferences(name: String) : SharedPreferences, DegradedPrefs {
 
         private val values: MutableMap<String, Any?> = inMemoryStores.getOrPut(name) { ConcurrentHashMap() }
 

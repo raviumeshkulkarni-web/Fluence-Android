@@ -1,13 +1,16 @@
 package com.groq.voicetyper.sync
 
 import android.content.Context
+import com.groq.voicetyper.sync.auth.GoogleOAuth
 import com.groq.voicetyper.sync.auth.SyncAuthSession
 import com.groq.voicetyper.sync.scheduler.PassOutcomeKind
 import com.groq.voicetyper.sync.scheduler.SyncSchedulerCore
 import com.groq.voicetyper.sync.scheduler.worstOutcome
 import com.groq.voicetyper.sync.v1.AccountHash
+import com.groq.voicetyper.sync.v1.AccessTokenRefresher
 import com.groq.voicetyper.sync.v1.AppDataDriveStore
 import com.groq.voicetyper.sync.v1.DomainFile
+import com.groq.voicetyper.sync.v1.SyncError
 import com.groq.voicetyper.sync.v1.SyncMetadata
 import com.groq.voicetyper.sync.v1.V1Stores
 import com.groq.voicetyper.sync.v1.V1SyncEngine
@@ -120,12 +123,6 @@ class SyncManager(
         return true
     }
 
-    /** Re-read persisted auth + prefs into the status flow. */
-    fun refreshStatus() {
-        auth.reloadFromStorage()
-        refreshFlags()
-    }
-
     /** Complete sign-in with the account email chosen in the account picker. */
     fun completeSignIn(accountEmail: String) {
         auth.completeSignIn(accountEmail)
@@ -171,6 +168,9 @@ class SyncManager(
         try {
             SyncPassGate.mutex.withLock {
                 auth.reloadFromStorage()
+                // A recovered keystore can restore a previously committed email
+                // mid-process — refresh ownership so rows aren't hidden as foreign.
+                if (auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
                 if (!auth.isSignedIn()) {
                     scheduler.completePass(PassOutcomeKind.AUTH_REQUIRED)
                     publish()
@@ -222,10 +222,23 @@ class SyncManager(
         } catch (e: TimeoutCancellationException) {
             throw com.groq.voicetyper.sync.v1.SyncError.Retryable("token mint timeout")
         }
-        val token = auth.accessTokenOrNull() ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
+        val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
         val accountHash = AccountHash.of(auth.accountEmail)
-            ?: throw com.groq.voicetyper.sync.v1.SyncError.AuthRequired
-        val drive = AppDataDriveStore(token)
+            ?: throw SyncError.AuthRequired
+        val drive = AppDataDriveStore(
+            token,
+            tokenRefresher = AccessTokenRefresher { staleToken ->
+                // Drive rejected the token mid-pass: invalidate the session
+                // cache and Play Services' own cache, then mint a fresh one
+                // silently. One bounded retry — a second rejection below is a
+                // genuine authorization problem (consent revoked, account
+                // removed) and surfaces as AuthRequired/RecoveryRequired.
+                auth.invalidateAccessToken()
+                runCatching { GoogleOAuth.clearDriveToken(context, staleToken) }
+                auth.refreshAccessTokenIfNeeded()
+                auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
+            }
+        )
         val deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context)
 
         // Per-account metadata: atomic NULL→stamped rows + maxSeen/backfillDone.
@@ -299,9 +312,22 @@ class SyncManager(
             lastSyncAtMs = scheduler.lastSyncAtMs ?: persistedLastSyncAtMs,
             lastError = scheduler.lastOutcome?.takeIf { it != PassOutcomeKind.SUCCESS }?.name,
             recoveryPending = auth.recoveryIntent != null,
+            secureStorageUnavailable = auth.storageDegraded,
         )
         _status.value = status
         listener(status)
+    }
+
+    /**
+     * Re-read persisted auth into the status flow and, when the signed-in
+     * account changed (e.g. recovered from a transient secure-storage
+     * failure), refresh the ownership cache so previously hidden rows are
+     * shown again instead of lingering as "foreign".
+     */
+    fun refreshStatus() {
+        auth.reloadFromStorage()
+        if (auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
+        refreshFlags()
     }
 
     /**
@@ -326,6 +352,7 @@ class SyncManager(
             signedIn = auth.isSignedIn(),
             account = auth.accountEmail,
             syncEnabled = isSyncEnabled(),
+            secureStorageUnavailable = auth.storageDegraded,
         )
     }
 

@@ -213,13 +213,14 @@ fun SyncScreen(
                                     text = when {
                                         !status.signedIn -> "Sign in to enable cross-device sync"
                                         status.running -> "Syncing changes\u2026"
+                                        status.secureStorageUnavailable -> "Secure storage unavailable"
                                         status.lastError != null -> "Attention required"
                                         !status.syncEnabled -> "Sync paused"
                                         status.lastSyncAtMs != null -> "Connected & Synced"
                                         else -> "Connected"
                                     },
                                     color = when {
-                                        status.lastError != null -> Error
+                                        status.lastError != null || status.secureStorageUnavailable -> Error
                                         status.signedIn -> TextSecondary
                                         else -> TextTertiary
                                     },
@@ -252,6 +253,8 @@ fun SyncScreen(
                             Text(
                                 text = when {
                                     status.running -> "Sync in progress\u2026"
+                                    status.secureStorageUnavailable ->
+                                        "Credentials couldn't be read — reauth will retry secure storage"
                                     status.lastError != null -> syncOutcomeMessage(status.lastError)
                                     status.lastSyncAtMs != null -> {
                                         "Last synced: " + DateFormat.getDateTimeInstance(
@@ -261,12 +264,12 @@ fun SyncScreen(
                                     }
                                     else -> "Ready to sync"
                                 },
-                                color = if (status.lastError != null) Error else TextSecondary,
+                                color = if (status.lastError != null || status.secureStorageUnavailable) Error else TextSecondary,
                                 style = FluenceTypography.bodySmall
                             )
                         }
 
-                        if (status.recoveryPending && status.signedIn) {
+                        if (status.signedIn && status.recoveryPending) {
                             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
                             Text(
                                 text = "\u27a1\ufe0f Reconnect to Google Drive",
@@ -275,6 +278,22 @@ fun SyncScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onConsentClick() }
+                                    .padding(vertical = FluenceSpacing.Xs)
+                            )
+                        } else if (status.signedIn && status.lastError == "AUTH_REQUIRED" &&
+                            status.secureStorageUnavailable == false && !status.running
+                        ) {
+                            // Persistent authorization failure (empty consent
+                            // intent): the pass already retried the token once
+                            // silently, so surface a one-tap reauthorize action.
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                            Text(
+                                text = "\u27a1\ufe0f Reauthorize Google Drive",
+                                color = Error,
+                                style = FluenceTypography.labelMedium,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSignInClick() }
                                     .padding(vertical = FluenceSpacing.Xs)
                             )
                         }
@@ -411,6 +430,15 @@ fun SyncScreen(
                 }
             } else {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    if (status.secureStorageUnavailable) {
+                        Text(
+                            text = "Secure storage is temporarily unavailable — your Drive credentials couldn't be read. Sync resumes automatically once it recovers.",
+                            color = Error,
+                            style = FluenceTypography.bodySmall,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     Button(
                         onClick = onSignInClick,
                         colors = ButtonDefaults.buttonColors(
@@ -502,7 +530,7 @@ internal fun syncOutcomeMessage(lastError: String?): String = when (lastError) {
     null -> ""
     "RETRYABLE" -> "Paused temporarily — will retry automatically"
     "FATAL" -> "Sync stopped — try 'Sync Now', or sign in again"
-    "AUTH_REQUIRED" -> "Session expired — tap Sign in to reconnect"
+    "AUTH_REQUIRED" -> "Google Drive access needs reauthorization"
     "REJECTED" -> "Data too large to sync"
     else -> "Last pass: $lastError"
 }
