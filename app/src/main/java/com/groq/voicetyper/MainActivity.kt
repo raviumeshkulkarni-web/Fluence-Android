@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
         val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions
             .Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
+            .requestScopes(com.google.android.gms.common.api.Scope(GoogleOAuth.OAUTH_SCOPE.substringAfter("oauth2:")))
             .build()
         com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(this, gso)
     }

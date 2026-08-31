@@ -111,7 +111,7 @@ private data class DashboardStats(
     val weeklyWords: String,
     val weeklySavedHours: Double,
     val weeklySpokenHours: Double,
-    val dayWordCounts: List<Int>,
+    val dayTranscriptionCounts: List<Int>,
     val dayLabels: List<String>
 )
 
@@ -164,10 +164,11 @@ private fun computeDashboardStats(
     val weekDictMs = weekRows.sumOf { it.ms }
     val weekSpokenHours = weekDictMs / 3_600_000.0
 
-    val dayWordCounts = (0..6).map { i ->
+    // Symmetrical to Windows: daily graph shows transcription count, not words
+    val dayTranscriptionCounts = (0..6).map { i ->
         val day = StatsCalculator.utcDateOf(StatsCalculator.utcWeekStartMs(System.currentTimeMillis()) +
             i * TimeUnit.DAYS.toMillis(1))
-        dailyMap[day]?.words?.toInt() ?: 0
+        dailyMap[day]?.count?.toInt() ?: 0
     }
 
     val dayLabels = (0..6).map { i -> dayLabel(i) }
@@ -180,7 +181,7 @@ private fun computeDashboardStats(
         weeklyWords = abbreviate(weekWords),
         weeklySavedHours = weekSavedHours,
         weeklySpokenHours = weekSpokenHours,
-        dayWordCounts = dayWordCounts,
+        dayTranscriptionCounts = dayTranscriptionCounts,
         dayLabels = dayLabels
     )
 }
@@ -456,7 +457,7 @@ fun HomeScreen(
                                 weeklyWords = dashboardStats.weeklyWords,
                                 weeklySavedHours = dashboardStats.weeklySavedHours,
                                 weeklySpokenHours = dashboardStats.weeklySpokenHours,
-                                dayWordCounts = dashboardStats.dayWordCounts,
+                                dayTranscriptionCounts = dashboardStats.dayTranscriptionCounts,
                                 dayLabels = dashboardStats.dayLabels
                             )
                         }
@@ -874,12 +875,11 @@ private fun WeeklyActivityChart(
     weeklyWords: String,
     weeklySavedHours: Double,
     weeklySpokenHours: Double,
-    dayWordCounts: List<Int>,
+    dayTranscriptionCounts: List<Int>,
     dayLabels: List<String>
 ) {
-    val maxCount = dayWordCounts.max().coerceAtLeast(1)
-    // Desktop-parity amethyst gradient — matches Fluence-Windows
-    // design-tokens.css --color-chart-bar-a/b (rgba 139,69,216 0.55→0.12).
+    val maxCount = dayTranscriptionCounts.max().coerceAtLeast(1)
+    // Symmetrical to Windows — bars with soft amethyst gradient, transcription count
     val barGradient = Brush.verticalGradient(
         colors = listOf(BrandAmethyst.copy(alpha = 0.55f), BrandAmethyst.copy(alpha = 0.12f))
     )
@@ -890,19 +890,24 @@ private fun WeeklyActivityChart(
             .background(Panel, FluenceShapes.Medium)
             .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
             .semantics(mergeDescendants = true) {
-                contentDescription = "Weekly activity: $weeklyWords words transcribed in 7 days, $weeklySavedHours hours saved"
+                contentDescription = "Weekly activity: $weeklyWords words, ${dayTranscriptionCounts.sum()} transcriptions in 7 days"
             }
             .padding(FluenceSpacing.Md)
     ) {
+        // Symmetrical header — matches Windows: uppercase mono
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Weekly Activity",
-                color = TextPrimary,
-                style = FluenceTypography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                text = "WEEKLY ACTIVITY",
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall.copy(
+                    fontFamily = GeistMonoFont,
+                    letterSpacing = 0.8.sp,
+                    fontWeight = FontWeight.Medium
+                )
             )
             val savedText = if (weeklySavedHours < 1.0) "${(weeklySavedHours * 60).toInt()}m"
                 else String.format(Locale.US, "%.1fh", weeklySavedHours)
@@ -911,7 +916,7 @@ private fun WeeklyActivityChart(
             Text(
                 text = "$weeklyWords words \u00b7 ${savedText} saved \u00b7 ${spokenText} spoken",
                 color = TextTertiary,
-                style = FluenceTypography.labelSmall
+                style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont, fontSize = 10.sp)
             )
         }
 
@@ -922,7 +927,7 @@ private fun WeeklyActivityChart(
             horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Sm)
         ) {
             val motionPrefs = LocalMotionPreferences.current
-            dayWordCounts.forEachIndexed { index, count ->
+            dayTranscriptionCounts.forEachIndexed { index, count ->
                 val targetFraction = count.toFloat() / maxCount
                 val animatedFraction by animateFloatAsState(
                     targetValue = targetFraction,
@@ -937,7 +942,7 @@ private fun WeeklyActivityChart(
                     Text(
                         text = if (count > 0) count.toString() else "",
                         color = TextTertiary,
-                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp),
+                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp, fontFamily = GeistMonoFont),
                         modifier = Modifier.heightIn(min = 14.dp)
                     )
                     Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
@@ -947,8 +952,6 @@ private fun WeeklyActivityChart(
                             .height(100.dp),
                         contentAlignment = Alignment.BottomCenter
                     ) {
-                        // Baseline lane — gives every day a visible track so the
-                        // chart reads as a dashboard even on low-activity days.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -967,7 +970,7 @@ private fun WeeklyActivityChart(
                     Text(
                         text = dayLabels[index],
                         color = TextTertiary,
-                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp)
+                        style = FluenceTypography.labelSmall.copy(fontSize = 10.sp, fontFamily = GeistMonoFont)
                     )
                 }
             }

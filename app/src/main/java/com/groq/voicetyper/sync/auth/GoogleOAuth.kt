@@ -22,10 +22,23 @@ object GoogleOAuth {
     /**
      * Silent token mint/renew for [accountEmail]. Throws [RecoveryRequired]
      * when the user must approve the consent dialog once.
+     * Kept for callers that only have an email (e.g. SyncAuthSession fallback).
      */
     fun getDriveAccessToken(context: Context, accountEmail: String): String =
         try {
             GoogleAuthUtil.getToken(context, accountEmail, OAUTH_SCOPE)
+        } catch (e: UserRecoverableAuthException) {
+            throw RecoveryRequired(e.intent, e.message ?: "consent required")
+        }
+
+    /**
+     * Preferred overload — uses the stable Android Account object (mirrors
+     * Fluence Capture's UserIdentityManager.getAndroidAccount()).
+     * More robust across email renames than the String variant.
+     */
+    fun getDriveAccessToken(context: Context, account: android.accounts.Account): String =
+        try {
+            GoogleAuthUtil.getToken(context, account, OAUTH_SCOPE)
         } catch (e: UserRecoverableAuthException) {
             throw RecoveryRequired(e.intent, e.message ?: "consent required")
         }

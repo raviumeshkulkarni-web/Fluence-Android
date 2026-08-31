@@ -252,9 +252,9 @@ fun SyncScreen(
                             Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                             Text(
                                 text = when {
-                                    status.running -> "Sync in progress\u2026"
+                                    status.running -> "Syncing…"
                                     status.secureStorageUnavailable ->
-                                        "Credentials couldn't be read — reauth will retry secure storage"
+                                        "Please restart the app to restore sync"
                                     status.lastError != null -> syncOutcomeMessage(status.lastError)
                                     status.lastSyncAtMs != null -> {
                                         "Last synced: " + DateFormat.getDateTimeInstance(
@@ -269,32 +269,22 @@ fun SyncScreen(
                             )
                         }
 
-                        if (status.signedIn && status.recoveryPending) {
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                        val needsReconnect = status.signedIn && (status.recoveryPending || status.lastError == "AUTH_REQUIRED") && !status.running && !status.secureStorageUnavailable
+                        if (needsReconnect) {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+                            Button(
+                                onClick = { if (status.recoveryPending) onConsentClick() else onSignInClick() },
+                                colors = ButtonDefaults.buttonColors(containerColor = TextPrimary, contentColor = Canvas),
+                                shape = FluenceShapes.Medium,
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) {
+                                Text(text = "Reconnect", style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "\u27a1\ufe0f Reconnect to Google Drive",
-                                color = Error,
-                                style = FluenceTypography.labelMedium,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onConsentClick() }
-                                    .padding(vertical = FluenceSpacing.Xs)
-                            )
-                        } else if (status.signedIn && status.lastError == "AUTH_REQUIRED" &&
-                            status.secureStorageUnavailable == false && !status.running
-                        ) {
-                            // Persistent authorization failure (empty consent
-                            // intent): the pass already retried the token once
-                            // silently, so surface a one-tap reauthorize action.
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                            Text(
-                                text = "\u27a1\ufe0f Reauthorize Google Drive",
-                                color = Error,
-                                style = FluenceTypography.labelMedium,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSignInClick() }
-                                    .padding(vertical = FluenceSpacing.Xs)
+                                text = "We could not connect to Google Drive. Tap to reconnect.",
+                                color = TextSecondary,
+                                style = FluenceTypography.bodySmall
                             )
                         }
                     }
@@ -432,7 +422,7 @@ fun SyncScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (status.secureStorageUnavailable) {
                         Text(
-                            text = "Secure storage is temporarily unavailable — your Drive credentials couldn't be read. Sync resumes automatically once it recovers.",
+                            text = "Sync is temporarily unavailable. Please restart the app.",
                             color = Error,
                             style = FluenceTypography.bodySmall,
                             modifier = Modifier.fillMaxWidth()
@@ -499,7 +489,7 @@ fun SyncScreen(
                     )
                     Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     Text(
-                        text = "Sync covers your custom dictionary, snippets, usage stats, and preferences — stored privately in your Google Drive app storage (Fluence Sync folder) under your ownership, never sent to third-party servers. Your transcription history and transcripts never leave this device.",
+                        text = "Your dictionary and settings are backed up securely to your Google Drive. Only you can access them. Transcripts never leave this device.",
                         color = TextSecondary,
                         style = FluenceTypography.bodySmall,
                         lineHeight = 18.sp
@@ -525,12 +515,12 @@ fun SyncScreen(
     }
 }
 
-/** Human-readable copy for the last pass outcome (raw enum names otherwise). */
+/** Simple status for non-technical users. */
 internal fun syncOutcomeMessage(lastError: String?): String = when (lastError) {
     null -> ""
-    "RETRYABLE" -> "Paused temporarily — will retry automatically"
-    "FATAL" -> "Sync stopped — try 'Sync Now', or sign in again"
-    "AUTH_REQUIRED" -> "Google Drive access needs reauthorization"
+    "RETRYABLE" -> "Sync will retry automatically"
+    "FATAL" -> "Sync paused. Tap Sync now to try again"
+    "AUTH_REQUIRED" -> "Please reconnect your Google account"
     "REJECTED" -> "Data too large to sync"
-    else -> "Last pass: $lastError"
+    else -> "Sync needs attention"
 }

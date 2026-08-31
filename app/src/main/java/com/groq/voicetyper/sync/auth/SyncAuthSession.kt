@@ -61,12 +61,19 @@ class SyncAuthSession(
      * Mint/renew the Drive access token via Play Services. A missing account
      * or pending consent surfaces as [SyncError.AuthRequired]; transient
      * Play Services failures are [SyncError.Retryable].
+     * Prefers the stable Android Account object (Capture pattern) with email fallback.
      */
     fun refreshAccessTokenIfNeeded() {
         if (hasValidAccessToken()) return
         val email = accountEmail ?: throw SyncError.AuthRequired
+        // Prefer Account object (survives email renames); fall back to email string.
+        val androidAccount = runCatching { GoogleSignIn.getLastSignedInAccount(context)?.account }.getOrNull()
         accessToken = try {
-            val token = GoogleOAuth.getDriveAccessToken(context, email)
+            val token = if (androidAccount != null) {
+                GoogleOAuth.getDriveAccessToken(context, androidAccount)
+            } else {
+                GoogleOAuth.getDriveAccessToken(context, email)
+            }
             recoveryIntent = null // consent granted — clear pending recovery
             token
         } catch (e: GoogleOAuth.RecoveryRequired) {
@@ -87,8 +94,10 @@ class SyncAuthSession(
      * Discard a Drive-rejected access token so the next
      * [refreshAccessTokenIfNeeded] mints a fresh one instead of handing back
      * the same cached token Play Services still believes is valid.
+     * Also clears the Play Services token cache (mirrors Capture's clearToken on 401).
      */
     fun invalidateAccessToken() {
+        accessToken?.let { stale -> runCatching { GoogleOAuth.clearDriveToken(context, stale) } }
         accessToken = null
         expiresAtMs.set(0L)
     }
@@ -100,6 +109,7 @@ class SyncAuthSession(
 
     /** Sign out: clear memory, encrypted storage, and the Play Services account selection. */
     fun signOut() {
+        accessToken?.let { stale -> runCatching { GoogleOAuth.clearDriveToken(context, stale) } }
         accessToken = null
         expiresAtMs.set(0L)
         accountEmail = null
