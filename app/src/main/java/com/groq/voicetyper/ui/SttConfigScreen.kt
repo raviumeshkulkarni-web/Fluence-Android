@@ -723,10 +723,14 @@ fun SttConfigScreen(
                                 Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
-                            SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
-                            SecurityUtils.saveSttModel(context, "custom", customModel)
-                            Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
+                            try {
+                                SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
+                                SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
+                                SecurityUtils.saveSttModel(context, "custom", customModel)
+                                Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
+                            } catch (e: IllegalArgumentException) {
+                                Toast.makeText(context, e.message ?: "Base URL must use https://", Toast.LENGTH_SHORT).show()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                         shape = FluenceShapes.Medium,

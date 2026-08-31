@@ -285,13 +285,14 @@ abstract class FluenceDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
+                // Do NOT re-add allowMainThreadQueries — Room will throw
+                // IllegalStateException on main-thread queries; all callers must use Dispatchers.IO.
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
-                    .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }
             }

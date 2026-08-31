@@ -77,7 +77,15 @@ object SecurityUtils {
         return getSharedPrefs(context).getString("stt_base_url_$preset", defaultUrl) ?: defaultUrl
     }
 
+    private fun requireHttps(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isNotEmpty() && !trimmed.startsWith("https://", ignoreCase = true)) {
+            throw IllegalArgumentException("Base URL must use https://")
+        }
+    }
+
     fun saveSttBaseUrl(context: Context, preset: String, url: String) {
+        requireHttps(url)
         getSharedPrefs(context).edit().putString("stt_base_url_$preset", url.trim()).apply()
     }
 
@@ -112,6 +120,7 @@ object SecurityUtils {
     }
 
     fun saveLlmBaseUrl(context: Context, preset: String, url: String) {
+        requireHttps(url)
         getSharedPrefs(context).edit().putString("llm_base_url_$preset", url.trim()).apply()
     }
 

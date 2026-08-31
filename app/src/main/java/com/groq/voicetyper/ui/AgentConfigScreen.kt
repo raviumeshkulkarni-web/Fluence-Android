@@ -375,13 +375,17 @@ fun AgentConfigScreen(
                             Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
-                        SecurityUtils.saveProviderApiKey(context, "llm", selectedProvider, apiKey)
-                        SecurityUtils.saveLlmPreset(context, selectedProvider)
-                        SecurityUtils.saveLlmModel(context, selectedProvider, model)
-                        if (selectedProvider == "custom") {
-                            SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
+                        try {
+                            SecurityUtils.saveProviderApiKey(context, "llm", selectedProvider, apiKey)
+                            SecurityUtils.saveLlmPreset(context, selectedProvider)
+                            SecurityUtils.saveLlmModel(context, selectedProvider, model)
+                            if (selectedProvider == "custom") {
+                                SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
+                            }
+                            Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
+                        } catch (e: IllegalArgumentException) {
+                            Toast.makeText(context, e.message ?: "Base URL must use https://", Toast.LENGTH_SHORT).show()
                         }
-                        Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                     shape = FluenceShapes.Medium,
