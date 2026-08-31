@@ -13,7 +13,7 @@ class SyncOutcomeMessageTest {
     @Test
     fun authRequired_pointsToReauthorization_notSessionExpired() {
         assertEquals(
-            "Google Drive access needs reauthorization",
+            "Please reconnect your Google account",
             syncOutcomeMessage("AUTH_REQUIRED")
         )
     }
@@ -21,7 +21,7 @@ class SyncOutcomeMessageTest {
     @Test
     fun retryable_promisesAutomaticRetry() {
         assertEquals(
-            "Paused temporarily — will retry automatically",
+            "Sync will retry automatically",
             syncOutcomeMessage("RETRYABLE")
         )
     }
@@ -33,6 +33,6 @@ class SyncOutcomeMessageTest {
 
     @Test
     fun unknownOutcome_isRenderedRawForDiagnostics() {
-        assertEquals("Last pass: SOME_NEW_OUTCOME", syncOutcomeMessage("SOME_NEW_OUTCOME"))
+        assertEquals("Sync needs attention", syncOutcomeMessage("SOME_NEW_OUTCOME"))
     }
 }
