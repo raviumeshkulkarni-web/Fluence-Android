@@ -45,6 +45,16 @@ jobs:
     - name: Run Unit Tests
       run: ./gradlew testDebugUnitTest
 
+    - name: Upload Unit Test Reports
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-test-reports
+        path: |
+          app/build/reports/tests/testDebugUnitTest/
+          app/build/test-results/testDebugUnitTest/
+        retention-days: 7
+
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
