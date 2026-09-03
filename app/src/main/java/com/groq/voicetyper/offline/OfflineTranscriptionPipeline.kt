@@ -131,6 +131,8 @@ class OfflineTranscriptionPipeline(
         val verified = when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReady(context)
             OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.isModelReady(context)
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReady(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
+            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReady(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
         }
         if (!verified) {
             throw IllegalStateException(

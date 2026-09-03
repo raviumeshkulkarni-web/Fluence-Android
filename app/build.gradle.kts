@@ -154,6 +154,9 @@ dependencies {
     // Offline speech-to-text engine (SenseVoice-Small via sherpa-onnx)
     implementation(files("libs/sherpa-onnx-1.13.2.aar"))
     
+    // Experimental offline streaming engine (Moonshine v2 isolated native runtime)
+    implementation(files("libs/moonshine-voice-0.1.5-isolated.aar"))
+    
     debugImplementation(libs.androidx.compose.ui.tooling)
     
     // Unit Testing
