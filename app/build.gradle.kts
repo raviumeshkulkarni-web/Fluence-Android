@@ -28,8 +28,8 @@ android {
         applicationId = "com.groq.voicetyper"
         minSdk = 26
         targetSdk = 34
-        versionCode = 43
-        versionName = "1.15.5"
+        versionCode = 44
+        versionName = "1.16.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -153,6 +153,9 @@ dependencies {
     
     // Offline speech-to-text engine (SenseVoice-Small via sherpa-onnx)
     implementation(files("libs/sherpa-onnx-1.13.2.aar"))
+    
+    // Experimental offline streaming engine (Moonshine v2 isolated native runtime)
+    implementation(files("libs/moonshine-voice-0.1.5-isolated.aar"))
     
     debugImplementation(libs.androidx.compose.ui.tooling)
     

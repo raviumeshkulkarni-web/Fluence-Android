@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePipelineProvider
@@ -116,21 +115,24 @@ object TranscriptionSessionManager {
     private fun isEngineModelReady(context: Context, engineType: OfflineEngineType): Boolean {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
-            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.isModelReadySync(context)
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
+            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
         }
     }
 
     private fun getModelDir(context: Context, engineType: OfflineEngineType): File {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.getModelDir(context)
-            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.getModelDir(context)
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.getModelDir(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
+            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.getModelDir(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
         }
     }
 
     private fun getModelName(engineType: OfflineEngineType): String {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> "sensevoice-small"
-            OfflineEngineType.MOONSHINE_BASE -> "moonshine-base-v1"
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> "moonshine-v2-small-streaming"
+            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> "moonshine-v2-medium-streaming"
         }
     }
 
@@ -144,22 +146,30 @@ object TranscriptionSessionManager {
     fun preWarmOfflinePipeline(context: Context) {
         val isOfflineMode = OfflinePreferences.isOfflineModeEnabled(context)
         val engineType = OfflinePreferences.getEngineType(context)
-        if (isOfflineMode && isEngineModelReady(context, engineType)) {
-            preWarmJob?.cancel()
-            preWarmJob = scope.launch {
-                delay(600) // Let entry animations finish
-                withContext(Dispatchers.IO) {
-                    try {
+        if (!isOfflineMode || !isEngineModelReady(context, engineType)) return
+        preWarmJob?.cancel()
+        preWarmJob = scope.launch {
+            delay(600) // Let entry animations finish
+            withContext(Dispatchers.IO) {
+                try {
+                    if (engineType.isStreaming) {
+                        val type = when (engineType) {
+                            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL
+                            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM
+                            else -> null
+                        }
+                        if (type != null) {
+                            com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.prewarm(context, type)
+                        }
+                    } else {
                         val modelDir = getModelDir(context, engineType).absolutePath
                         val pipeline = OfflinePipelineProvider.getInstance(context, engineType)
                         pipeline.initialize(modelDir)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
-                    } catch (e: Error) {
-                        // Catch native JNI errors (UnsatisfiedLinkError, NoSuchFieldError, etc.)
-                        // to prevent killing the entire app process
-                        Log.e(TAG, "FATAL: Pre-warm hit a JNI/native error. Disabling offline mode.", e)
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
+                } catch (e: Error) {
+                    Log.e(TAG, "FATAL: Pre-warm hit a JNI/native error. Disabling offline mode.", e)
                 }
             }
         }
@@ -221,16 +231,18 @@ object TranscriptionSessionManager {
         val isStreamingConfigured = SecurityUtils.isStreamingEnabled(context)
         // Agent Mode is orthogonal to the transcription mode: the streaming Final is
         // routed through the same command-processing path as batch (deliverTranscript).
-        val useStreaming = isStreamingConfigured && !isOffline && (sttPreset == "mistral" || sttPreset == "custom")
+        val useOnlineStreaming = isStreamingConfigured && !isOffline && (sttPreset == "mistral" || sttPreset == "custom")
+        val useOfflineStreaming = useOffline && engineType.isStreaming
+        val useStreaming = useOnlineStreaming || useOfflineStreaming
         activeStreaming = useStreaming
         activeOffline = if (useStreaming) false else useOffline
-        activeEngineType = if (useOffline) engineType else null
+        activeEngineType = if (useOffline || useOfflineStreaming) engineType else null
         _partialText.value = ""
 
         registerNoisyReceiver(context)
 
         if (useStreaming) {
-            startStreamingSessionInternal(context, listener)
+            startStreamingSessionInternal(context, listener, if (useOfflineStreaming) engineType else null)
         } else if (useOffline) {
 
             _recordingState.value = RecordingState.RECORDING
@@ -335,14 +347,26 @@ object TranscriptionSessionManager {
         }
     }
 
-    private fun startStreamingSessionInternal(context: Context, listener: SessionListener) {
+    private fun startStreamingSessionInternal(
+        context: Context,
+        listener: SessionListener,
+        offlineEngineType: OfflineEngineType? = null
+    ) {
         val generation = sessionGeneration
         _recordingState.value = RecordingState.RECORDING
 
         val capture = com.groq.voicetyper.streaming.StreamingAudioCapture()
         streamingAudioCapture = capture
 
-        val transcriber = com.groq.voicetyper.streaming.MistralVoxtralTranscriber()
+        val isOfflineEngine = offlineEngineType != null && offlineEngineType.isStreaming
+        val transcriber: com.groq.voicetyper.streaming.StreamingTranscriber = if (isOfflineEngine) {
+            com.groq.voicetyper.streaming.MoonshineV2StreamingTranscriber(
+                getModelDir(context, offlineEngineType!!),
+                offlineEngineType.modelArch
+            )
+        } else {
+            com.groq.voicetyper.streaming.MistralVoxtralTranscriber()
+        }
         streamingTranscriber = transcriber
 
         amplitudeCollectJob?.cancel()
@@ -409,9 +433,9 @@ object TranscriptionSessionManager {
 
         streamingCollectJob?.cancel()
         streamingCollectJob = scope.launch(Dispatchers.IO) {
-            val sttPreset = SecurityUtils.getSttPreset(context)
-            val apiKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
-            if (apiKey.isNullOrBlank()) {
+            val sttPreset = if (isOfflineEngine) "offline" else SecurityUtils.getSttPreset(context)
+            val apiKey = if (isOfflineEngine) "" else (SecurityUtils.getProviderApiKey(context, "stt", sttPreset) ?: "")
+            if (!isOfflineEngine && apiKey.isBlank()) {
                 withContext(Dispatchers.Main) {
                     if (sessionGeneration == generation) {
                         showError("API Key is missing for STT provider: ${sttPreset.uppercase()}")
@@ -424,19 +448,21 @@ object TranscriptionSessionManager {
                 return@launch
             }
 
-            val baseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
+            val baseUrl = if (isOfflineEngine) "" else SecurityUtils.getSttBaseUrl(context, sttPreset)
             // The stored preset model (e.g. voxtral-mini-latest) is the batch
             // model; Mistral's realtime endpoint requires a realtime-compatible
             // model, so streaming sessions on the Mistral preset always use
             // voxtral-mini-realtime-latest. Custom providers keep their
             // configured model (they must expose a Mistral-compatible realtime
             // endpoint).
-            val model = if (sttPreset.equals("mistral", ignoreCase = true)) {
+            val model = if (isOfflineEngine) {
+                getModelName(offlineEngineType!!)
+            } else if (sttPreset.equals("mistral", ignoreCase = true)) {
                 MISTRAL_STREAMING_MODEL
             } else {
                 SecurityUtils.getSttModel(context, sttPreset)
             }
-            val language = getEffectiveLanguage(context)
+            val language = if (isOfflineEngine) "en" else getEffectiveLanguage(context)
 
             try {
                 transcriber.connect(baseUrl, apiKey, model, language).collect { event ->
@@ -881,6 +907,7 @@ object TranscriptionSessionManager {
                 cancelPreWarm()
                 if (sessionGeneration != generation) return@launch
                 OfflinePipelineProvider.releaseInstance()
+                com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.releaseAll()
             }
         }
     }
@@ -933,6 +960,7 @@ object TranscriptionSessionManager {
                 // runBlocking on this background thread ensures release() is awaited
                 kotlinx.coroutines.runBlocking {
                     OfflinePipelineProvider.releaseInstance()
+                    com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.releaseAll()
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "destroy: Error releasing offline pipeline", e)

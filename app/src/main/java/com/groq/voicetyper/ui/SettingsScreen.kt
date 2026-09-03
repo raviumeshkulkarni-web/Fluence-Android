@@ -1,5 +1,6 @@
 package com.groq.voicetyper.ui
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
@@ -41,6 +42,7 @@ import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.offline.ModelAssetManager
+import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.snippets.SnippetPreferences
@@ -156,7 +158,7 @@ fun SettingsScreen(
             llmPreset.value = SecurityUtils.getLlmPreset(context)
             llmModel.value = SecurityUtils.getLlmModel(context, llmPreset.value)
             offlineEnabled.value = OfflinePreferences.isOfflineModeEnabled(context)
-            modelReady.value = ModelAssetManager.isModelReadySync(context)
+            modelReady.value = offlineModelReady(context)
             duckingEnabled.value = AudioFocusPreferences.isDuckingEnabled(context)
             excludedAppCount.value = PrivacyPreferences.getExcludedPackages(context).size
         }
@@ -377,5 +379,17 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+private fun offlineModelReady(context: Context): Boolean {
+    return when (OfflinePreferences.getEngineType(context)) {
+        OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
+        OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING ->
+            com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(
+                context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
+        OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING ->
+            com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(
+                context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
     }
 }

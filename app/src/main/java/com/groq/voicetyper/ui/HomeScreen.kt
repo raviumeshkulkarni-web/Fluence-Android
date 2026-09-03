@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.history.DailyStat
@@ -738,7 +739,11 @@ private fun HomeStatusBanner(
         Text("\u00b7", color = TextTertiary, style = FluenceTypography.bodySmall)
         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
         Text(
-            "$sttProvider \u00b7 $sttModel",
+            text = if (OfflinePreferences.isOfflineModeEnabled(context)) {
+                "${offlineModelLabel(context)} (Offline)"
+            } else {
+                "$sttProvider \u00b7 $sttModel"
+            },
             color = TextSecondary,
             style = FluenceTypography.labelMedium,
             maxLines = 1,
@@ -746,6 +751,10 @@ private fun HomeStatusBanner(
             modifier = Modifier.weight(1f)
         )
     }
+}
+
+private fun offlineModelLabel(context: Context): String {
+    return OfflinePreferences.getEngineType(context).displayName
 }
 
 @Composable
