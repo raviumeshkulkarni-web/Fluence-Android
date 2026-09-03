@@ -48,6 +48,15 @@
 -keep class ai.onnxruntime.** { *; }
 -keepclassmembers class ai.onnxruntime.** { *; }
 
+# --- Moonshine Voice (v2 offline streaming JNI) ---
+# The native lib binds via name-mangled JNI symbols (Java_ai_moonshine_voice_*),
+# so the package and native method names must survive R8 — same treatment as Sherpa.
+-keep class ai.moonshine.voice.** { *; }
+-keepclassmembers class ai.moonshine.voice.** { *; }
+-keepclasseswithmembernames class ai.moonshine.voice.** {
+    native <methods>;
+}
+
 
 # --- General ---
 # Keep annotations
