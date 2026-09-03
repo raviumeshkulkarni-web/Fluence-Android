@@ -150,7 +150,6 @@ class OfflineTranscriber(
         fun create(engineType: OfflineEngineType = OfflineEngineType.SENSEVOICE): OfflineTranscriber {
             val engine: RecognizerEngine = when (engineType) {
                 OfflineEngineType.SENSEVOICE -> SherpaRecognizerEngine()
-                OfflineEngineType.MOONSHINE_BASE -> MoonshineRecognizerEngine()
                 OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING,
                 OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> {
                     throw IllegalArgumentException("Streaming engine $engineType cannot be created as a batch OfflineTranscriber")

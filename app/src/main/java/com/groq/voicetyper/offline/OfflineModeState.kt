@@ -38,15 +38,15 @@ object OfflinePreferences {
 
     /**
      * Returns the selected offline engine type.
-     * Defaults to SENSEVOICE for backward compatibility with existing users.
+     * Defaults to the recommended Fast (English) model for new users.
      */
     fun getEngineType(context: Context): OfflineEngineType {
         val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_ENGINE_TYPE, null)
         return try {
-            OfflineEngineType.valueOf(saved ?: OfflineEngineType.SENSEVOICE.name)
+            OfflineEngineType.valueOf(saved ?: OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING.name)
         } catch (_: Exception) {
-            OfflineEngineType.SENSEVOICE
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING
         }
     }
 

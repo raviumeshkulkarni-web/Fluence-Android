@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePipelineProvider
@@ -116,7 +115,6 @@ object TranscriptionSessionManager {
     private fun isEngineModelReady(context: Context, engineType: OfflineEngineType): Boolean {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
-            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.isModelReadySync(context)
             OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
             OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
         }
@@ -125,7 +123,6 @@ object TranscriptionSessionManager {
     private fun getModelDir(context: Context, engineType: OfflineEngineType): File {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.getModelDir(context)
-            OfflineEngineType.MOONSHINE_BASE -> MoonshineModelManager.getModelDir(context)
             OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.getModelDir(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
             OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.getModelDir(context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
         }
@@ -134,7 +131,6 @@ object TranscriptionSessionManager {
     private fun getModelName(engineType: OfflineEngineType): String {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> "sensevoice-small"
-            OfflineEngineType.MOONSHINE_BASE -> "moonshine-base-v1"
             OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> "moonshine-v2-small-streaming"
             OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> "moonshine-v2-medium-streaming"
         }
@@ -150,22 +146,30 @@ object TranscriptionSessionManager {
     fun preWarmOfflinePipeline(context: Context) {
         val isOfflineMode = OfflinePreferences.isOfflineModeEnabled(context)
         val engineType = OfflinePreferences.getEngineType(context)
-        if (isOfflineMode && !engineType.isStreaming && isEngineModelReady(context, engineType)) {
-            preWarmJob?.cancel()
-            preWarmJob = scope.launch {
-                delay(600) // Let entry animations finish
-                withContext(Dispatchers.IO) {
-                    try {
+        if (!isOfflineMode || !isEngineModelReady(context, engineType)) return
+        preWarmJob?.cancel()
+        preWarmJob = scope.launch {
+            delay(600) // Let entry animations finish
+            withContext(Dispatchers.IO) {
+                try {
+                    if (engineType.isStreaming) {
+                        val type = when (engineType) {
+                            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL
+                            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM
+                            else -> null
+                        }
+                        if (type != null) {
+                            com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.prewarm(context, type)
+                        }
+                    } else {
                         val modelDir = getModelDir(context, engineType).absolutePath
                         val pipeline = OfflinePipelineProvider.getInstance(context, engineType)
                         pipeline.initialize(modelDir)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
-                    } catch (e: Error) {
-                        // Catch native JNI errors (UnsatisfiedLinkError, NoSuchFieldError, etc.)
-                        // to prevent killing the entire app process
-                        Log.e(TAG, "FATAL: Pre-warm hit a JNI/native error. Disabling offline mode.", e)
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Pre-initialization of offline pipeline failed", e)
+                } catch (e: Error) {
+                    Log.e(TAG, "FATAL: Pre-warm hit a JNI/native error. Disabling offline mode.", e)
                 }
             }
         }
@@ -903,6 +907,7 @@ object TranscriptionSessionManager {
                 cancelPreWarm()
                 if (sessionGeneration != generation) return@launch
                 OfflinePipelineProvider.releaseInstance()
+                com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.releaseAll()
             }
         }
     }
@@ -955,6 +960,7 @@ object TranscriptionSessionManager {
                 // runBlocking on this background thread ensures release() is awaited
                 kotlinx.coroutines.runBlocking {
                     OfflinePipelineProvider.releaseInstance()
+                    com.groq.voicetyper.offline.v2.MoonshineV2ResidentManager.releaseAll()
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "destroy: Error releasing offline pipeline", e)

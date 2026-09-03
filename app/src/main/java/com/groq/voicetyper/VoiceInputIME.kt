@@ -299,7 +299,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                         android.util.Log.e("VoiceInputIME", "Failed to switch keyboard", e)
                     }
                 },
-                isOfflineReady = ModelAssetManager.isModelReadySync(this),
+                isOfflineReady = isOfflineModelReady(),
                 isOfflineMode = isOfflineMode
             )
         }
@@ -489,6 +489,18 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
     private fun isCurrentTargetAllowed(): Boolean {
         return !PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
+    }
+
+    private fun isOfflineModelReady(): Boolean {
+        return when (OfflinePreferences.getEngineType(this)) {
+            OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(this)
+            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING ->
+                com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(
+                    this, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.SMALL)
+            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING ->
+                com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(
+                    this, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
+        }
     }
 
     private fun updateScreenOnFlag(keepScreenOn: Boolean) {

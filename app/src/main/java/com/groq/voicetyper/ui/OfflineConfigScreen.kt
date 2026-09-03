@@ -2,10 +2,12 @@ package com.groq.voicetyper.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -13,13 +15,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.groq.voicetyper.offline.MoonshineModelManager
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
@@ -39,30 +43,23 @@ fun OfflineConfigScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var offlineEnabled by remember { mutableStateOf(false) }
-    var selectedEngineType by remember { mutableStateOf(OfflineEngineType.SENSEVOICE) }
+    var selectedEngineType by remember { mutableStateOf(OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING) }
 
-    // SenseVoice
+    // Multilingual (SenseVoice)
     var modelReady by remember { mutableStateOf(false) }
     var modelCorrupt by remember { mutableStateOf(false) }
     var modelVerifying by remember { mutableStateOf(true) }
     var modelSize by remember { mutableStateOf(0L) }
     val downloadProgress by ModelAssetManager.progress.collectAsState()
 
-    // Moonshine Base v1
-    var moonshineReady by remember { mutableStateOf(false) }
-    var moonshineCorrupt by remember { mutableStateOf(false) }
-    var moonshineVerifying by remember { mutableStateOf(true) }
-    var moonshineSize by remember { mutableStateOf(0L) }
-    val moonshineDownloadProgress by MoonshineModelManager.progress.collectAsState()
-
-    // Moonshine v2 Small Streaming
+    // Fast (English) - v2 Small Streaming
     var v2SmallReady by remember { mutableStateOf(false) }
     var v2SmallCorrupt by remember { mutableStateOf(false) }
     var v2SmallVerifying by remember { mutableStateOf(true) }
     var v2SmallSize by remember { mutableStateOf(0L) }
     val v2SmallDownloadProgress by MoonshineV2ModelManager.getProgress(MoonshineV2ModelType.SMALL).collectAsState()
 
-    // Moonshine v2 Medium Streaming
+    // Pro (English) - v2 Medium Streaming
     var v2MediumReady by remember { mutableStateOf(false) }
     var v2MediumCorrupt by remember { mutableStateOf(false) }
     var v2MediumVerifying by remember { mutableStateOf(true) }
@@ -74,7 +71,6 @@ fun OfflineConfigScreen(
         selectedEngineType = OfflinePreferences.getEngineType(context)
 
         modelSize = ModelAssetManager.getModelSizeOnDisk(context)
-        moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
         v2SmallSize = MoonshineV2ModelManager.getModelSizeOnDisk(context, MoonshineV2ModelType.SMALL)
         v2MediumSize = MoonshineV2ModelManager.getModelSizeOnDisk(context, MoonshineV2ModelType.MEDIUM)
 
@@ -82,11 +78,6 @@ fun OfflineConfigScreen(
         modelReady = ModelAssetManager.isModelReady(context)
         modelCorrupt = !modelReady && ModelAssetManager.isModelReadySync(context)
         modelVerifying = false
-
-        moonshineVerifying = true
-        moonshineReady = MoonshineModelManager.isModelReady(context)
-        moonshineCorrupt = !moonshineReady && MoonshineModelManager.isModelReadySync(context)
-        moonshineVerifying = false
 
         v2SmallVerifying = true
         v2SmallReady = MoonshineV2ModelManager.isModelReady(context, MoonshineV2ModelType.SMALL)
@@ -107,17 +98,6 @@ fun OfflineConfigScreen(
         } else if (downloadProgress.state == ModelAssetManager.DownloadState.IDLE) {
             modelReady = ModelAssetManager.isModelReadySync(context)
             modelSize = ModelAssetManager.getModelSizeOnDisk(context)
-        }
-    }
-
-    LaunchedEffect(moonshineDownloadProgress.state) {
-        if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.COMPLETED) {
-            moonshineReady = true
-            moonshineCorrupt = false
-            moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
-        } else if (moonshineDownloadProgress.state == MoonshineModelManager.DownloadState.IDLE) {
-            moonshineReady = MoonshineModelManager.isModelReadySync(context)
-            moonshineSize = MoonshineModelManager.getModelSizeOnDisk(context)
         }
     }
 
@@ -187,7 +167,6 @@ fun OfflineConfigScreen(
                     onCheckedChange = { checked ->
                         val selectedModelReady = when (selectedEngineType) {
                             OfflineEngineType.SENSEVOICE -> modelReady
-                            OfflineEngineType.MOONSHINE_BASE -> moonshineReady
                             OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
                             OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
                         }
@@ -209,42 +188,28 @@ fun OfflineConfigScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Engine Selector
+            // Model Selector
             Text(
-                text = "Transcription Engine",
+                text = "Choose a model",
                 color = TextPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Pick the option that fits how you dictate. You can change this any time.",
+                color = TextSecondary,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // SenseVoice
-                EngineRadioOption(
-                    title = "SenseVoice (Default)",
-                    subtitle = "Multilingual, ~239 MB",
-                    isSelected = selectedEngineType == OfflineEngineType.SENSEVOICE,
-                    onSelect = {
-                        selectedEngineType = OfflineEngineType.SENSEVOICE
-                        OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
-                    }
-                )
-
-                // Moonshine Base v1
-                EngineRadioOption(
-                    title = "Moonshine Base (Experimental)",
-                    subtitle = "English only batch, ~287 MB",
-                    isSelected = selectedEngineType == OfflineEngineType.MOONSHINE_BASE,
-                    onSelect = {
-                        selectedEngineType = OfflineEngineType.MOONSHINE_BASE
-                        OfflinePreferences.setEngineType(context, OfflineEngineType.MOONSHINE_BASE)
-                    }
-                )
-
-                // Moonshine v2 Small Streaming
-                EngineRadioOption(
-                    title = "Moonshine v2 Small Streaming (Experimental)",
-                    subtitle = "English streaming, ~142 MB, low latency",
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ModelOptionCard(
+                    title = "Fast (English)",
+                    description = "Quick, reliable English dictation for everyday use.",
+                    speedLevel = 4,
+                    accuracyLevel = 4,
+                    recommended = true,
                     isSelected = selectedEngineType == OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING,
                     onSelect = {
                         selectedEngineType = OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING
@@ -252,10 +217,25 @@ fun OfflineConfigScreen(
                     }
                 )
 
-                // Moonshine v2 Medium Streaming
-                EngineRadioOption(
-                    title = "Moonshine v2 Medium Streaming (Experimental)",
-                    subtitle = "English streaming, ~269 MB, high accuracy",
+                ModelOptionCard(
+                    title = "Fast (Multilingual)",
+                    description = "Dictate in many languages with fast, on-device transcription.",
+                    speedLevel = 5,
+                    accuracyLevel = 3,
+                    recommended = false,
+                    isSelected = selectedEngineType == OfflineEngineType.SENSEVOICE,
+                    onSelect = {
+                        selectedEngineType = OfflineEngineType.SENSEVOICE
+                        OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
+                    }
+                )
+
+                ModelOptionCard(
+                    title = "Pro (English)",
+                    description = "Our most accurate English model — ideal when every word matters. Slightly slower to respond.",
+                    speedLevel = 2,
+                    accuracyLevel = 5,
+                    recommended = false,
                     isSelected = selectedEngineType == OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING,
                     onSelect = {
                         selectedEngineType = OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING
@@ -266,9 +246,9 @@ fun OfflineConfigScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // SenseVoice Model Status
+            // Multilingual (SenseVoice) Model Status
             ModelDownloadCard(
-                title = "SenseVoice Model",
+                title = "Fast (Multilingual)",
                 sizeEstimate = "~239 MB",
                 isReady = modelReady,
                 isVerifying = modelVerifying,
@@ -290,47 +270,16 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "SenseVoice model deleted.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Fast (Multilingual) model deleted.", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Moonshine Base v1 Model Status
+            // Fast (English) Model Status - v2 Small
             ModelDownloadCard(
-                title = "Moonshine Base Model (Experimental)",
-                sizeEstimate = "~287 MB",
-                isReady = moonshineReady,
-                isVerifying = moonshineVerifying,
-                isCorrupt = moonshineCorrupt,
-                diskSize = moonshineSize,
-                downloadState = moonshineDownloadProgress.state.name,
-                bytesDownloaded = moonshineDownloadProgress.bytesDownloaded,
-                totalBytes = moonshineDownloadProgress.totalBytes,
-                errorMessage = moonshineDownloadProgress.errorMessage,
-                onDownload = { coroutineScope.launch { MoonshineModelManager.downloadModel(context) } },
-                onCancel = { MoonshineModelManager.cancelDownload() },
-                onDelete = {
-                    coroutineScope.launch {
-                        MoonshineModelManager.deleteModel(context)
-                        moonshineReady = false
-                        moonshineCorrupt = false
-                        moonshineSize = 0
-                        if (selectedEngineType == OfflineEngineType.MOONSHINE_BASE) {
-                            offlineEnabled = false
-                            OfflinePreferences.setOfflineModeEnabled(context, false)
-                        }
-                        Toast.makeText(context, "Moonshine Base model deleted.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Moonshine v2 Small Streaming Model Status
-            ModelDownloadCard(
-                title = "Moonshine v2 Small Streaming (Experimental)",
+                title = "Fast (English)",
                 sizeEstimate = "~142 MB",
                 isReady = v2SmallReady,
                 isVerifying = v2SmallVerifying,
@@ -352,16 +301,16 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "Moonshine v2 Small model deleted.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Fast (English) model deleted.", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Moonshine v2 Medium Streaming Model Status
+            // Pro (English) Model Status - v2 Medium
             ModelDownloadCard(
-                title = "Moonshine v2 Medium Streaming (Experimental)",
+                title = "Pro (English)",
                 sizeEstimate = "~269 MB",
                 isReady = v2MediumReady,
                 isVerifying = v2MediumVerifying,
@@ -383,7 +332,7 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "Moonshine v2 Medium model deleted.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Pro (English) model deleted.", Toast.LENGTH_SHORT).show()
                     }
                 }
             )
@@ -394,16 +343,22 @@ fun OfflineConfigScreen(
 }
 
 @Composable
-private fun EngineRadioOption(
+private fun ModelOptionCard(
     title: String,
-    subtitle: String,
+    description: String,
+    speedLevel: Int,
+    accuracyLevel: Int,
+    recommended: Boolean,
     isSelected: Boolean,
     onSelect: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
-    Row(
+    val borderColor = if (isSelected) TextPrimary else OutlineSubtle
+    Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(Panel, FluenceShapes.Medium)
+            .border(if (isSelected) 2.dp else 1.dp, borderColor, FluenceShapes.Medium)
             .pressScale(interaction)
             .selectable(
                 selected = isSelected,
@@ -411,32 +366,91 @@ private fun EngineRadioOption(
                 indication = null,
                 role = Role.RadioButton,
                 onClick = onSelect
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = null,
-            colors = RadioButtonDefaults.colors(
-                selectedColor = TextPrimary,
-                unselectedColor = TextSecondary
             )
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Column {
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = isSelected,
+                onClick = null,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = TextPrimary,
+                    unselectedColor = TextSecondary
+                )
+            )
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = title,
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            if (recommended) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .background(TextPrimary, CircleShape)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "Recommended",
+                        color = Canvas,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(modifier = Modifier.width(34.dp))
             Text(
-                text = subtitle,
+                text = description,
                 color = TextSecondary,
-                fontSize = 12.sp
+                fontSize = 13.sp
             )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MetricBar(label = "Speed", level = speedLevel)
+            Spacer(modifier = Modifier.width(12.dp))
+            MetricBar(label = "Accuracy", level = accuracyLevel)
+        }
+    }
+}
+
+@Composable
+private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
+    val safeLevel = level.coerceIn(0, maxLevel)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.semantics { contentDescription = "$label $safeLevel out of $maxLevel" }
+    ) {
+        Text(
+            text = label,
+            color = TextTertiary,
+            fontSize = 11.sp,
+            modifier = Modifier.width(52.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            repeat(maxLevel) { index ->
+                Box(
+                    modifier = Modifier
+                        .width(14.dp)
+                        .height(6.dp)
+                        .clip(CircleShape)
+                        .background(if (index < safeLevel) Success else TextDisabled)
+                )
+            }
         }
     }
 }
@@ -578,7 +592,7 @@ private fun ModelDownloadCard(
                     onClick = onDownload,
                     colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                     shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth().pressScale(remember { MutableInteractionSource() })
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Retry Download ($sizeEstimate)", color = TextPrimary, fontWeight = FontWeight.Bold)
                 }
