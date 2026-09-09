@@ -16,10 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
@@ -45,12 +42,9 @@ import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.sync.SyncManager
-import com.groq.voicetyper.sync.SyncStatus
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -235,51 +229,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Custom Dictionary
-            EntranceRow(3) {
-                SettingsRow(
-                    icon = Icons.Default.Book,
-                    title = "Custom Dictionary",
-                    summary = if (com.groq.voicetyper.dictionary.DictionaryPreferences.isDictionaryEnabled(context)) "Active \u00b7 Manual replacements" else "Disabled",
-                    onClick = { onNavigateTo(Screen.CustomDictionary) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Voice Snippets
-            EntranceRow(4) {
-                SettingsRow(
-                    icon = Icons.AutoMirrored.Filled.TextSnippet,
-                    title = "Voice Snippets",
-                    summary = if (SnippetPreferences.isSnippetsEnabled(context)) "Active \u00b7 Text expansion" else "Disabled",
-                    onClick = { onNavigateTo(Screen.Snippets) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Google Drive Sync
-            EntranceRow(5) {
-                val syncStatus by (syncManager?.status ?: remember { MutableStateFlow(SyncStatus()) }).collectAsState()
-                SettingsRow(
-                    icon = Icons.Default.CloudSync,
-                    title = "Google Drive Sync",
-                    summary = when {
-                        !syncStatus.signedIn -> "Not configured"
-                        !syncStatus.syncEnabled -> "Paused \u00b7 ${syncStatus.account ?: "Signed in"}"
-                        syncStatus.running -> "Syncing\u2026"
-                        syncStatus.lastError != null -> "Attention required \u00b7 ${syncStatus.account ?: "Signed in"}"
-                        else -> "Active \u00b7 ${syncStatus.account ?: "Signed in"}"
-                    },
-                    onClick = { onNavigateTo(Screen.SyncConfig) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             // Permissions & Services
-            EntranceRow(6) {
+            EntranceRow(3) {
                 SettingsRow(
                     icon = Icons.Default.Security,
                     title = "Permissions & Services",
@@ -291,7 +242,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Privacy & App Exclusions
-            EntranceRow(7) {
+            EntranceRow(4) {
                 SettingsRow(
                     icon = Icons.Default.Lock,
                     title = "Privacy & App Exclusions",
@@ -307,7 +258,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Audio Focus Ducking
-            EntranceRow(8) {
+            EntranceRow(5) {
                 Surface(
                     color = Panel,
                     shape = FluenceShapes.Medium,
@@ -370,7 +321,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // About
-            EntranceRow(9) {
+            EntranceRow(6) {
                 SettingsRow(
                     icon = Icons.Default.Info,
                     title = "About",

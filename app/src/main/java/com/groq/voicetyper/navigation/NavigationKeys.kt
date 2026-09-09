@@ -2,6 +2,7 @@ package com.groq.voicetyper.navigation
  
 sealed interface Screen {
     data object Home : Screen
+    data object History : Screen
     data object SettingsHub : Screen
     data object SttConfig : Screen
     data object AgentConfig : Screen
