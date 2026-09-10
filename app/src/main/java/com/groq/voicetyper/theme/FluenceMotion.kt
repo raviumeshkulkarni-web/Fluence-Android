@@ -1,10 +1,15 @@
 package com.groq.voicetyper.theme
 
+import android.content.Context
+import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 
 // ── Fluence Motion Constants ────────────────────────────────────────────────
 // DESIGN_SYSTEM.md §107–114 defines three motion tiers.
@@ -39,6 +44,24 @@ object FluenceSpring {
 data class MotionPreferences(val reducedMotion: Boolean)
 
 val LocalMotionPreferences = staticCompositionLocalOf { MotionPreferences(reducedMotion = false) }
+
+// ── System reduced-motion signal ────────────────────────────────────────────
+// Single source of truth for the "remove animations" accessibility toggle
+// (ANIMATOR_DURATION_SCALE == 0). FluenceTranscribeTheme provisions it
+// app-wide via LocalMotionPreferences; overlay/IME surfaces composed without
+// the theme wrapper read it here instead, so every surface honors the signal.
+fun isSystemReducedMotion(context: Context): Boolean =
+    Settings.Global.getFloat(
+        context.contentResolver,
+        Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f
+    ) == 0f
+
+@Composable
+fun rememberReducedMotion(): Boolean {
+    val context = LocalContext.current
+    return remember { isSystemReducedMotion(context) }
+}
 
 // ── Pre-built animation specs ───────────────────────────────────────────────
 

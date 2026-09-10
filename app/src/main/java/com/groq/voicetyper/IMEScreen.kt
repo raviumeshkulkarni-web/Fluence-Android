@@ -90,6 +90,7 @@ import com.groq.voicetyper.theme.IndigoAccent
 import com.groq.voicetyper.theme.Panel
 import com.groq.voicetyper.theme.TextPrimary
 import com.groq.voicetyper.theme.TextDisabled
+import com.groq.voicetyper.theme.rememberReducedMotion
 
 @Composable
 fun IMEScreen(
@@ -137,7 +138,10 @@ fun IMEScreen(
     val currentOnStartRecording by rememberUpdatedState(onStartRecording)
     val currentOnStopRecording by rememberUpdatedState(onStopRecording)
 
-    // Infinite transitions for smooth animations
+    // Infinite transitions for smooth animations. Reduced motion renders
+    // the ring statically instead of pinging (IME has no theme wrapper, so
+    // it reads the system signal directly).
+    val reducedMotion = rememberReducedMotion()
     val infiniteTransition = rememberInfiniteTransition(label = "aura")
 
     // Radar ping animation (when listening)
@@ -330,12 +334,14 @@ fun IMEScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                scaleX = pingScale
-                                scaleY = pingScale
+                                scaleX = if (reducedMotion) 1f else pingScale
+                                scaleY = if (reducedMotion) 1f else pingScale
                             }
                     ) {
                         drawCircle(
-                            color = (if (isAgentMode) AgentTeal else BrandAmethyst).copy(alpha = pingAlpha),
+                            color = (if (isAgentMode) AgentTeal else BrandAmethyst).copy(
+                                alpha = if (reducedMotion) 0.5f else pingAlpha
+                            ),
                             radius = size.minDimension / 2,
                             style = Stroke(width = 1.5.dp.toPx())
                         )

@@ -29,6 +29,7 @@ import com.groq.voicetyper.snippets.ui.SnippetsScreen
 import com.groq.voicetyper.sync.SyncManager
 import com.groq.voicetyper.sync.ui.SyncScreen
 import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.Sidebar
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
@@ -78,6 +79,8 @@ fun FluenceNavHost(
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
+    // Reduced motion: crossfade between screens instead of sliding them.
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
 
     LaunchedEffect(deepLinkToSettings) {
         if (deepLinkToSettings) {
@@ -162,7 +165,13 @@ fun FluenceNavHost(
         AnimatedContent(
             targetState = current,
             transitionSpec = {
-                if (isNavigatingForward) {
+                if (reducedMotion) {
+                    fadeIn(
+                        animationSpec = tween(FluenceMotion.durationImmediate, easing = FastOutSlowInEasing)
+                    ) togetherWith fadeOut(
+                        animationSpec = tween(FluenceMotion.durationImmediate, easing = FastOutSlowInEasing)
+                    )
+                } else if (isNavigatingForward) {
                     slideInHorizontally(
                         animationSpec = transitionSpec,
                         initialOffsetX = { it / 3 }

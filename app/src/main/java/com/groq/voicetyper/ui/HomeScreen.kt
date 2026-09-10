@@ -6,6 +6,14 @@ import android.content.Context
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -241,8 +249,18 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
             val allStepsDone = isKeyboardActive && isMicGranted && isApiKeySet && hasTranscriptions
-            if (!onboardingDismissed && !allStepsDone) {
-                FirstRunOnboardingCard(
+            val reducedMotion = LocalMotionPreferences.current.reducedMotion
+            AnimatedVisibility(
+                visible = !onboardingDismissed && !allStepsDone,
+                enter = if (reducedMotion) EnterTransition.None
+                else fadeIn(tween(FluenceMotion.durationStructural)) +
+                    expandVertically(tween(FluenceMotion.durationStructural)),
+                exit = if (reducedMotion) ExitTransition.None
+                else fadeOut(tween(FluenceMotion.durationStructural)) +
+                    shrinkVertically(tween(FluenceMotion.durationStructural)),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    FirstRunOnboardingCard(
                     isKeyboardActive = isKeyboardActive,
                     isMicGranted = isMicGranted,
                     isApiKeySet = isApiKeySet,
@@ -255,8 +273,9 @@ fun HomeScreen(
                             .edit().putBoolean("onboarding_dismissed", true).apply()
                         onboardingDismissed = true
                     }
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                    )
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                }
             }
 
             // Dashboard body: stat cards, then the chart card fills the rest.

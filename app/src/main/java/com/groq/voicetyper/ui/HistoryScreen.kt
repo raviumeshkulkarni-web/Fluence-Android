@@ -5,6 +5,15 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,7 +21,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -58,6 +67,8 @@ import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
+import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -132,6 +143,7 @@ fun HistoryScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
     var isKeyboardActive by remember { mutableStateOf(false) }
     var isMicGranted by remember { mutableStateOf(false) }
     var isApiKeySet by remember { mutableStateOf(false) }
@@ -303,9 +315,17 @@ fun HistoryScreen(
                 } else {
                     groupedEntries.forEachIndexed { index, (label, entries) ->
                         val isExpanded = label in expandedGroups
-                        val previewEntries = if (isExpanded) entries else entries.take(PREVIEW_COUNT)
                         val hiddenCount = entries.size - PREVIEW_COUNT
                         val showExpandButton = !isExpanded && hiddenCount > 0
+                        // Group expand/collapse animates the overflow rows
+                        // (fade + vertical expand over the structural tier);
+                        // reduced motion toggles them instantly.
+                        val rowEnter: EnterTransition = if (reducedMotion) EnterTransition.None
+                        else fadeIn(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            expandVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing))
+                        val rowExit: ExitTransition = if (reducedMotion) ExitTransition.None
+                        else fadeOut(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            shrinkVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing))
 
                         item(key = "header_$label") {
                             Column(
@@ -348,24 +368,30 @@ fun HistoryScreen(
                             }
                         }
 
-                        items(previewEntries, key = { "${label}_${it.id}" }) { entry ->
-                            HistoryTranscriptRow(
-                                entry = entry,
+                        itemsIndexed(entries, key = { _, entry -> "${label}_${entry.id}" }) { rowIndex, entry ->
+                            AnimatedVisibility(
+                                visible = rowIndex < PREVIEW_COUNT || isExpanded,
+                                enter = rowEnter,
+                                exit = rowExit,
                                 modifier = Modifier.animateItemPlacement(),
-                                isSelected = entry.id in selectedIds,
-                                isMultiSelect = isMultiSelect,
-                                onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
-                                onOpenDetail = { onOpenDetail(entry.id) },
-                                onCopy = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
-                                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                                },
-                                onDelete = {
-                                    pendingDeleteIds = listOf(entry.id)
-                                    showDeleteDialog = true
-                                }
-                            )
+                            ) {
+                                HistoryTranscriptRow(
+                                    entry = entry,
+                                    isSelected = entry.id in selectedIds,
+                                    isMultiSelect = isMultiSelect,
+                                    onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
+                                    onOpenDetail = { onOpenDetail(entry.id) },
+                                    onCopy = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
+                                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onDelete = {
+                                        pendingDeleteIds = listOf(entry.id)
+                                        showDeleteDialog = true
+                                    }
+                                )
+                            }
                         }
 
                         if (showExpandButton) {
@@ -384,18 +410,24 @@ fun HistoryScreen(
                             }
                         }
 
-                        if (isExpanded && entries.size > PREVIEW_COUNT) {
+                        if (entries.size > PREVIEW_COUNT) {
                             item(key = "collapse_$label") {
-                                TextButton(
-                                    onClick = { expandedGroups = expandedGroups - label },
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
-                                    contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
+                                AnimatedVisibility(
+                                    visible = isExpanded,
+                                    enter = rowEnter,
+                                    exit = rowExit,
                                 ) {
-                                    Text(
-                                        "Show less",
-                                        color = TextTertiary,
-                                        style = FluenceTypography.labelMedium
-                                    )
+                                    TextButton(
+                                        onClick = { expandedGroups = expandedGroups - label },
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
+                                        contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
+                                    ) {
+                                        Text(
+                                            "Show less",
+                                            color = TextTertiary,
+                                            style = FluenceTypography.labelMedium
+                                        )
+                                    }
                                 }
                             }
                         }

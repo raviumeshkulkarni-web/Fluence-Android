@@ -135,17 +135,12 @@ fun FluenceTranscribeTheme(
 
     val context = LocalContext.current
     val motionPrefs = remember {
-        // Reduced-motion signal: the system "remove animations" accessibility
-        // toggle zeroes ANIMATOR_DURATION_SCALE (TalkBack must NOT flip this
-        // flag — touch exploration is a different need). DESIGN_SYSTEM.md:
-        // reduced-motion preferences must be respected everywhere.
-        MotionPreferences(
-            reducedMotion = Settings.Global.getFloat(
-                context.contentResolver,
-                Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            ) == 0f
-        )
+        // Reduced-motion signal (see isSystemReducedMotion): the system
+        // "remove animations" accessibility toggle zeroes
+        // ANIMATOR_DURATION_SCALE (TalkBack must NOT flip this flag — touch
+        // exploration is a different need). DESIGN_SYSTEM.md: reduced-motion
+        // preferences must be respected everywhere.
+        MotionPreferences(reducedMotion = isSystemReducedMotion(context))
     }
 
     CompositionLocalProvider(

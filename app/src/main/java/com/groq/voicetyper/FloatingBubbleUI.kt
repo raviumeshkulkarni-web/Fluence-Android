@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.groq.voicetyper.theme.rememberReducedMotion
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -49,6 +50,9 @@ fun FloatingBubbleUI(
     onWidthUpdated: (Float) -> Unit
 ) {
     val context = LocalContext.current
+    // Overlay service: no theme wrapper here, so the system signal is read
+    // directly (same source the app theme provisions via CompositionLocal).
+    val reducedMotion = rememberReducedMotion()
     val view = androidx.compose.ui.platform.LocalView.current
     val isExpanded by BubbleController.isBubbleExpanded.collectAsState()
     val recordingState by BubbleController.recordingState.collectAsState()
@@ -60,7 +64,8 @@ fun FloatingBubbleUI(
     // Size animations for morphing transition.
     // tween(250ms) provides ~15 frames of smooth, perceivable animation.
     // FastOutSlowInEasing is Material Design's standard "elements moving into place" curve.
-    val animSpec = tween<Dp>(durationMillis = 250, easing = FastOutSlowInEasing)
+    val animSpec: FiniteAnimationSpec<Dp> = if (reducedMotion) snap() else
+        tween(durationMillis = 250, easing = FastOutSlowInEasing)
     val width by animateDpAsState(
         targetValue = if (isExpanded) 240.dp else 56.dp,
         animationSpec = animSpec,
@@ -118,7 +123,9 @@ fun FloatingBubbleUI(
     }
     val dimAlpha by animateFloatAsState(
         targetValue = if (dimmed) idleOpacity else 1f,
-        animationSpec = if (dimmed) {
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else if (dimmed) {
             tween(durationMillis = 400, easing = FastOutSlowInEasing)
         } else {
             tween(durationMillis = 200, easing = FastOutSlowInEasing)
@@ -212,7 +219,7 @@ fun FloatingBubbleUI(
             // animation, creating a visual "jump" on both left and right sides.
             Crossfade(
                 targetState = isExpanded,
-                animationSpec = tween(durationMillis = 200),
+                animationSpec = if (reducedMotion) snap() else tween(durationMillis = 200),
                 label = "bubbleContent"
             ) { targetExpanded ->
                 if (!targetExpanded) {
@@ -414,14 +421,17 @@ fun FluenceLogoIcon() {
 fun SiriWaveform() {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
+    val reducedMotion = rememberReducedMotion()
 
     val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
     val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else Color(0xFFF3E8FF)
 
-    // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling
+    // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
+    // Amplitude is live data (not decoration), so it still responds under
+    // reduced motion — only the decorative phase drift freezes.
     val smoothedAmplitude by animateFloatAsState(
         targetValue = (rawAmplitude * 6f).coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "amplitude"
     )
 
@@ -433,10 +443,12 @@ fun SiriWaveform() {
             val currentTime = withFrameNanos { it }
             val dt = (currentTime - lastTime) / 1e9f
             lastTime = currentTime
-            
+
             // Speed increases when voice detects (smoothedAmplitude is higher)
             val speed = 1f + smoothedAmplitude * 4f
-            phase = (phase + speed * dt * 2f * Math.PI.toFloat()) % (1000f * Math.PI.toFloat())
+            if (!reducedMotion) {
+                phase = (phase + speed * dt * 2f * Math.PI.toFloat()) % (1000f * Math.PI.toFloat())
+            }
         }
     }
 

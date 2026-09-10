@@ -1,8 +1,8 @@
 package com.groq.voicetyper.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -73,6 +72,7 @@ import com.groq.voicetyper.theme.BrandCyan
 import com.groq.voicetyper.theme.CardBorder
 import com.groq.voicetyper.theme.CardSurface
 import com.groq.voicetyper.theme.DialogSurface
+import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
@@ -523,12 +523,34 @@ fun ActivityChartCard(
                 )
             }
         } else {
-            FluenceActivityChart(
-                series = series,
-                range = range,
-                modifier = Modifier.fillMaxWidth(),
-                plotHeight = plotHeight,
-            )
+            // Range switching crossfades the old plot into the new one over
+            // the structural tier (Material fade-through). Reduced motion
+            // renders the new plot directly — no slide, no fade.
+            val reducedMotion = LocalMotionPreferences.current.reducedMotion
+            if (reducedMotion) {
+                FluenceActivityChart(
+                    series = series,
+                    range = range,
+                    modifier = Modifier.fillMaxWidth(),
+                    plotHeight = plotHeight,
+                )
+            } else {
+                Crossfade(
+                    targetState = series,
+                    animationSpec = tween(
+                        durationMillis = FluenceMotion.durationStructural,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "range_switch",
+                ) { fading ->
+                    FluenceActivityChart(
+                        series = fading,
+                        range = fading.range,
+                        modifier = Modifier.fillMaxWidth(),
+                        plotHeight = plotHeight,
+                    )
+                }
+            }
         }
     }
 }
@@ -553,35 +575,20 @@ fun FluenceActivityChart(
     val chipShadowPaint = remember { android.graphics.Paint() }
     val chipShadowPath = remember { android.graphics.Path() }
 
-    // Initial reveal draws the line on (~350ms); later data changes snap.
-    // Range switching crossfades separately below (~225ms).
-    var revealArmed by remember { mutableStateOf(true) }
-    val hasPoints = points.isNotEmpty()
-    val revealSpec = if (reducedMotion || !revealArmed) {
-        snap<Float>()
-    } else {
-        tween<Float>(durationMillis = 350, easing = FastOutSlowInEasing)
+    // Draw-on replay: every new series draws its line 0→1 over ~600ms
+    // while the crossfade blends the containers. Animatable (not
+    // animateFloatAsState) is required — it starts at 0 by construction,
+    // whereas animateFloatAsState starts at its target and never travels
+    // on a fresh composition. Reduced motion snaps to the finished line.
+    val revealAnim = remember(series) { Animatable(0f) }
+    LaunchedEffect(series) {
+        if (reducedMotion) revealAnim.snapTo(1f)
+        else revealAnim.animateTo(
+            1f,
+            tween(durationMillis = 600, easing = FastOutSlowInEasing)
+        )
     }
-    val reveal by animateFloatAsState(
-        targetValue = if (hasPoints) 1f else 0f,
-        animationSpec = revealSpec,
-        label = "chart_reveal",
-    )
-    LaunchedEffect(hasPoints) {
-        if (hasPoints) revealArmed = false
-    }
-
-    var switchVisible by remember(series.range) { mutableStateOf(reducedMotion) }
-    LaunchedEffect(series.range) { switchVisible = true }
-    val switchAlpha by animateFloatAsState(
-        targetValue = if (switchVisible) 1f else 0f,
-        animationSpec = if (reducedMotion) {
-            snap()
-        } else {
-            tween(durationMillis = 225, easing = FastOutSlowInEasing)
-        },
-        label = "range_switch",
-    )
+    val reveal = revealAnim.value
 
     var canvasWidthPx by remember { mutableFloatStateOf(0f) }
 
@@ -625,7 +632,6 @@ fun FluenceActivityChart(
             .fillMaxWidth()
             .height(plotHeight + PlotLabelHeight)
             .onSizeChanged { canvasWidthPx = it.width.toFloat() }
-            .alpha(switchAlpha)
             .pointerInput(series, canvasWidthPx) {
                 detectTapGestures(onTap = { offset ->
                     val index = nearestIndex(offset.x)
