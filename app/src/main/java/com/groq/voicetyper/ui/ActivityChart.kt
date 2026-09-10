@@ -42,6 +42,9 @@ import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -52,6 +55,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
@@ -66,6 +70,8 @@ import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.BrandCyan
+import com.groq.voicetyper.theme.CardBorder
+import com.groq.voicetyper.theme.CardSurface
 import com.groq.voicetyper.theme.DialogSurface
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
@@ -82,6 +88,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 // ── Fluence activity chart (Home) ────────────────────────────────────────────
@@ -92,10 +99,10 @@ import kotlin.math.roundToInt
 // ────────────────────────────────────────────────────────────────────────────
 
 enum class ChartRange(val tabLabel: String, val days: Int?) {
-    D7("7D", 7),
-    D30("30D", 30),
-    D90("90D", 90),
-    ALL("ALL", null);
+    D7("Last 7 days", 7),
+    D30("Last 30 days", 30),
+    D90("Last 90 days", 90),
+    ALL("All time", null);
 
     val accessibilityLabel: String
         get() = when (this) {
@@ -128,6 +135,41 @@ data class ActivitySeries(
     val totalMs: Long,
 )
 
+/**
+ * Prior-period momentum for the active range (Windows TrendBadge parity).
+ * Null for ALL and for uncovered prior windows — never a fabricated delta.
+ */
+data class TrendInfo(val delta: Long, val spanDays: Int)
+
+fun trendForRange(
+    daily: Map<String, DayCounters>,
+    range: ChartRange,
+    nowMs: Long = System.currentTimeMillis(),
+): TrendInfo? {
+    val span = when (range) {
+        ChartRange.D7 -> 7
+        ChartRange.D30 -> 30
+        ChartRange.D90 -> 90
+        ChartRange.ALL -> return null
+    }
+    val todayStart = dayStartUtc(nowMs)
+    // The prior window must be fully covered, or the delta would mislead.
+    val firstMs = daily.keys.mapNotNull(::dayMsOfKey).minOrNull() ?: return null
+    if (firstMs > todayStart - (2 * span - 1) * DAY_MS) return null
+    fun sumWindow(startMs: Long, endMs: Long): Long {
+        var total = 0L
+        var dayMs = startMs
+        while (dayMs < endMs) {
+            total += daily[StatsCalculator.utcDateOf(dayMs)]?.count ?: 0L
+            dayMs += DAY_MS
+        }
+        return total
+    }
+    val current = sumWindow(todayStart - (span - 1) * DAY_MS, todayStart + DAY_MS)
+    val prior = sumWindow(todayStart - (2 * span - 1) * DAY_MS, todayStart - (span - 1) * DAY_MS)
+    return TrendInfo(current - prior, span)
+}
+
 private const val DAY_MS = 86_400_000L
 private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
@@ -154,7 +196,11 @@ private fun mondayOf(dayStartMs: Long): Long {
     return dayStartMs - shiftDays * DAY_MS
 }
 
-/** Integer Y ticks for a session-count axis: 0 plus 1–2 nice round lines. */
+/**
+ * Integer Y ticks for a session-count axis: 0 plus nice round lines. When the
+ * nice max is divisible by 4 we add quarter lines, so e.g. 100 yields
+ * 0/25/50/75/100 — the ~5-line grid Windows produces with allowDecimals=false.
+ */
 fun niceSessionTicks(rawMax: Int): List<Int> {
     if (rawMax <= 0) return listOf(0)
     val exp = Math.pow(10.0, Math.floor(Math.log10(rawMax.toDouble()))).toInt()
@@ -167,7 +213,13 @@ fun niceSessionTicks(rawMax: Int): List<Int> {
     }
     val nice = niceFrac * exp
     val ticks = mutableListOf(0)
-    if (nice % 2 == 0) ticks.add(nice / 2)
+    if (nice % 4 == 0) {
+        ticks.add(nice / 4)
+        ticks.add(nice / 2)
+        ticks.add(3 * nice / 4)
+    } else if (nice % 2 == 0) {
+        ticks.add(nice / 2)
+    }
     ticks.add(nice)
     return ticks.sorted().distinct()
 }
@@ -182,9 +234,12 @@ fun buildActivitySeries(
     nowMs: Long = System.currentTimeMillis(),
 ): ActivitySeries {
     val weekdayFmt = SimpleDateFormat("EEE", Locale.US).apply { timeZone = UTC }
-    val dayMonthFmt = SimpleDateFormat("d MMM", Locale.US).apply { timeZone = UTC }
-    val dayMonthYearFmt = SimpleDateFormat("d MMM yyyy", Locale.US).apply { timeZone = UTC }
-    val monthAxisFmt = SimpleDateFormat("MMM yy", Locale.US).apply { timeZone = UTC }
+    // Windows daily/weekly axis order is month-then-day ("Sep 9"), months are
+    // "Sep 2026". Locale stays US-pinned (existing Android behavior) rather
+    // than following the system locale.
+    val dayMonthFmt = SimpleDateFormat("MMM d", Locale.US).apply { timeZone = UTC }
+    val dayMonthYearFmt = SimpleDateFormat("MMM d yyyy", Locale.US).apply { timeZone = UTC }
+    val monthAxisFmt = SimpleDateFormat("MMM yyyy", Locale.US).apply { timeZone = UTC }
     val monthFullFmt = SimpleDateFormat("MMM yyyy", Locale.US).apply { timeZone = UTC }
     val todayStart = dayStartUtc(nowMs)
     val currentYear = Calendar.getInstance(UTC).apply { timeInMillis = nowMs }.get(Calendar.YEAR)
@@ -336,10 +391,15 @@ private fun monotonePath(points: List<Offset>): Path {
  */
 val ChartPlotMinHeight = 224.dp
 val ChartPlotMaxHeight = 360.dp
+// The card pads itself top + bottom with Lg; Home must subtract this from
+// the plot budget or the card bottom (x-axis labels) lands below the fold.
+val ActivityChartCardVerticalPadding = FluenceSpacing.Lg * 2
 private val PlotLabelHeight = 24.dp
-private val YGutter = 30.dp
 private val PlotPadEnd = 10.dp
 private val PlotPadTop = 8.dp
+// Minimum horizontal room per X label — Windows thins ticks by pixel gap
+// (minTickGap), not by fixed stride; this is the density-aware equivalent.
+private val MinLabelGap = 48.dp
 
 @Composable
 fun ActivityRangeSelector(
@@ -351,8 +411,10 @@ fun ActivityRangeSelector(
         modifier = modifier
             .fillMaxWidth()
             .height(44.dp)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Small)
-            .clip(FluenceShapes.Small),
+            .background(Panel, FluenceShapes.Small)
+            .border(1.dp, CardBorder, FluenceShapes.Small)
+            .clip(FluenceShapes.Small)
+            .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ChartRange.entries.forEach { entry ->
@@ -362,6 +424,7 @@ fun ActivityRangeSelector(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
+                    .clip(FluenceShapes.ExtraSmall)
                     .background(if (isSelected) PanelElevated else Color.Transparent)
                     .selectable(
                         selected = isSelected,
@@ -374,13 +437,16 @@ fun ActivityRangeSelector(
                     .semantics { contentDescription = entry.accessibilityLabel },
                 contentAlignment = Alignment.Center,
             ) {
+                // Windows parity: selected is neutral elevated + primary text.
+                // Amethyst is never the selected-range treatment on Windows.
+                // Tab text is Hanken 12px medium in both states (Windows
+                // font-body label-sm); only color signals selection.
                 Text(
                     text = entry.tabLabel,
-                    color = if (isSelected) BrandAmethyst else TextTertiary,
-                    style = FluenceTypography.labelSmall.copy(
-                        fontFamily = GeistMonoFont,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                    ),
+                    color = if (isSelected) TextPrimary else TextSecondary,
+                    style = FluenceTypography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -392,7 +458,6 @@ fun ActivityChartCard(
     range: ChartRange,
     onRangeChange: (ChartRange) -> Unit,
     series: ActivitySeries,
-    summaryText: String,
     modifier: Modifier = Modifier,
     plotHeight: Dp = ChartPlotMinHeight,
     onChromeHeight: (Dp) -> Unit = {},
@@ -400,8 +465,8 @@ fun ActivityChartCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Panel, FluenceShapes.Medium)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .background(CardSurface, FluenceShapes.Medium)
+            .border(1.dp, CardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Lg),
     ) {
         val density = LocalDensity.current
@@ -418,21 +483,16 @@ fun ActivityChartCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Windows CardTitle treatment: 14px semibold uppercase secondary.
+            // The source string stays semantic ("Activity"); only the rendered
+            // text is uppercased so accessibility services keep the real word.
             Text(
-                text = "ACTIVITY",
-                color = TextTertiary,
-                style = FluenceTypography.labelSmall.copy(
-                    fontFamily = GeistMonoFont,
-                    letterSpacing = 0.8.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-            )
-            Text(
-                text = summaryText,
-                color = TextTertiary,
-                style = FluenceTypography.labelSmall.copy(
-                    fontFamily = GeistMonoFont,
-                    fontSize = 10.sp,
+                text = "Activity".uppercase(Locale.US),
+                color = TextSecondary,
+                style = FluenceTypography.labelMedium.copy(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.56.sp,
                 ),
             )
         }
@@ -451,7 +511,7 @@ fun ActivityChartCard(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "No activity in this range",
+                    text = "No activity in this range yet",
                     color = TextPrimary,
                     style = FluenceTypography.bodyMedium,
                 )
@@ -488,6 +548,11 @@ fun FluenceActivityChart(
 
     var selectedIndex by remember(series) { mutableStateOf(-1) }
 
+    // Reused native paint/path so the tooltip chip can cast the Windows
+    // shadow-md soft drop shadow without allocating per frame.
+    val chipShadowPaint = remember { android.graphics.Paint() }
+    val chipShadowPath = remember { android.graphics.Path() }
+
     // Initial reveal draws the line on (~350ms); later data changes snap.
     // Range switching crossfades separately below (~225ms).
     var revealArmed by remember { mutableStateOf(true) }
@@ -519,9 +584,27 @@ fun FluenceActivityChart(
     )
 
     var canvasWidthPx by remember { mutableFloatStateOf(0f) }
+
+    val labelStyle = TextStyle(
+        fontFamily = GeistMonoFont,
+        fontSize = 12.sp,
+        color = TextSecondary,
+    )
+    val maxCount = points.maxOf { it.count }.coerceAtLeast(1)
+    val ticks = niceSessionTicks(maxCount)
+    val niceMax = ticks.last().coerceAtLeast(1)
+    // Dynamic Y gutter: base 32dp grows to fit the widest tick label so
+    // four-digit counts never clip (Windows widens its Y gutter 32→44px when
+    // labels reach four digits). Shared by the draw pass and nearestIndex so
+    // touch mapping stays aligned with the drawn plot origin.
+    val yGutterPx = ticks.maxOfOrNull {
+        textMeasurer.measure(it.toString(), labelStyle).size.width
+    }?.plus(with(density) { 14.dp.toPx() })?.coerceAtLeast(with(density) { 32.dp.toPx() })
+        ?: with(density) { 32.dp.toPx() }
+
     fun nearestIndex(x: Float): Int {
         if (canvasWidthPx <= 0f) return -1
-        val plotLeft = with(density) { YGutter.toPx() }
+        val plotLeft = yGutterPx
         val plotRight = canvasWidthPx - with(density) { PlotPadEnd.toPx() }
         val gap = if (points.size < 2) 0f else (plotRight - plotLeft) / (points.size - 1)
         if (gap <= 0f) return 0
@@ -530,19 +613,13 @@ fun FluenceActivityChart(
 
     val peak = points.maxByOrNull { it.count }
     var description = "Activity, ${range.rangeName}: " +
-        "${series.totalSessions} transcriptions" +
-        (if (peak != null && peak.count > 0) ", peak ${peak.count} on ${peak.fullLabel}" else "")
+        "${series.totalSessions} sessions" +
+        (if (peak != null && peak.count > 0) ", peak ${peak.count} sessions on ${peak.fullLabel}" else "")
     val sel = selectedIndex
     if (sel in points.indices) {
         val p = points[sel]
         description += "; selected ${p.fullLabel}: ${p.count} sessions"
     }
-
-    val labelStyle = TextStyle(
-        fontFamily = GeistMonoFont,
-        fontSize = 10.sp,
-        color = TextTertiary,
-    )
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -577,15 +654,12 @@ fun FluenceActivityChart(
             },
     ) {
         val n = points.size
-        val plotLeft = YGutter.toPx()
+        val plotLeft = yGutterPx
         val plotRight = size.width - PlotPadEnd.toPx()
         val plotTop = PlotPadTop.toPx()
         val plotBottom = size.height - PlotLabelHeight.toPx()
         val plotW = (plotRight - plotLeft).coerceAtLeast(1f)
         val plotH = (plotBottom - plotTop).coerceAtLeast(1f)
-        val maxCount = points.maxOf { it.count }.coerceAtLeast(1)
-        val ticks = niceSessionTicks(maxCount)
-        val niceMax = ticks.last().coerceAtLeast(1)
 
         // Restrained horizontal grid + integer Y labels.
         ticks.forEach { tick ->
@@ -611,19 +685,41 @@ fun FluenceActivityChart(
 
         fun yAt(count: Int): Float = plotBottom - (count.toFloat() / niceMax) * plotH
 
-        // X labels: stride keeps ~6 ticks at any density, always incl. last.
-        val stride = maxOf(1, (n - 1) / 5)
-        points.forEachIndexed { i, point ->
-            if (i % stride == 0 || i == n - 1) {
-                val layout = textMeasurer.measure(point.label, labelStyle)
-                drawText(
-                    layout,
-                    topLeft = Offset(
-                        (xAt(i) - layout.size.width / 2f).coerceIn(plotLeft - layout.size.width / 2f, plotRight - layout.size.width / 2f),
-                        plotBottom + 6.dp.toPx(),
-                    ),
-                )
+        // X labels, Windows preserveEnd parity: the oldest and newest labels
+        // are always drawn, and intermediates step no closer than MinLabelGap
+        // (~recharts minTickGap) — no more forced-last crowding. When the
+        // second-to-last stride label would violate the gap, it is dropped so
+        // the newest date survives cleanly.
+        val pointGapPx = if (n < 2) 0f else plotW / (n - 1)
+        val minGapPx = with(density) { MinLabelGap.toPx() }
+        val step = if (pointGapPx <= 0f) 1 else maxOf(1, ceil(minGapPx / pointGapPx).toInt())
+        val labelIdx: List<Int> = if (n < 2) {
+            listOf(0)
+        } else {
+            val idx = ArrayList<Int>(8)
+            idx.add(0)
+            var i = step
+            while (i < n - 1) {
+                idx.add(i)
+                i += step
             }
+            val penultimate: Int = idx[idx.size - 1]
+            if (penultimate != 0 && (n - 1) - penultimate < step) {
+                idx.removeAt(idx.size - 1)
+            }
+            idx.add(n - 1)
+            idx
+        }
+        labelIdx.forEach { i ->
+            val point = points[i]
+            val layout = textMeasurer.measure(point.label, labelStyle)
+            drawText(
+                layout,
+                topLeft = Offset(
+                    (xAt(i) - layout.size.width / 2f).coerceIn(plotLeft - layout.size.width / 2f, plotRight - layout.size.width / 2f),
+                    plotBottom + 6.dp.toPx(),
+                ),
+            )
         }
 
         val pts = points.mapIndexed { i, p -> Offset(xAt(i), yAt(p.count)) }
@@ -713,6 +809,27 @@ fun FluenceActivityChart(
             var chipY = sy - 7.dp.toPx() - 8.dp.toPx() - chipH
             if (chipY < plotTop - 4.dp.toPx()) {
                 chipY = sy + 7.dp.toPx() + 8.dp.toPx()
+            }
+            // Windows .chart-tooltip box-shadow: --shadow-md (0 4px 24px
+            // rgba(0,0,0,.45), 0 1px 4px rgba(0,0,0,.25)), cast with a single
+            // soft shadow layer under the chip body.
+            drawIntoCanvas { canvas ->
+                val native = canvas.nativeCanvas
+                val radius = 8.dp.toPx()
+                chipShadowPath.reset()
+                chipShadowPath.addRoundRect(
+                    android.graphics.RectF(chipX, chipY, chipX + chipW, chipY + chipH),
+                    radius,
+                    radius,
+                    android.graphics.Path.Direction.CW,
+                )
+                chipShadowPaint.apply {
+                    isAntiAlias = true
+                    setShadowLayer(12.dp.toPx(), 0f, 4.dp.toPx(), Color.Black.copy(alpha = 0.45f).toArgb())
+                    color = DialogSurface.toArgb()
+                }
+                native.drawPath(chipShadowPath, chipShadowPaint)
+                chipShadowPaint.setShadowLayer(0f, 0f, 0f, 0)
             }
             drawRoundRect(
                 color = DialogSurface,

@@ -1,11 +1,16 @@
 package com.groq.voicetyper.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,15 +18,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ShortText
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -50,6 +52,7 @@ import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import java.util.Locale
 
 private const val AVG_WPM = 40.0
@@ -60,23 +63,44 @@ private fun abbreviate(n: Long): String = when {
     else -> n.toString()
 }
 
+// Windows formatDurationMs parity: rounded to whole minutes — "0m", "45m",
+// "1h", "1h 30m". Never the compact "1.5h" form.
 private fun formatSavedShort(words: Long): String {
-    val hours = words / AVG_WPM / 60.0
-    return if (hours < 1.0) "${(hours * 60).toInt()}m"
-    else String.format(Locale.US, "%.1fh", hours)
+    if (words <= 0) return "0m"
+    val totalMinutes = Math.round(words / AVG_WPM).toInt()
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    return if (hours > 0) {
+        if (minutes > 0) "${hours}h ${minutes}m" else "${hours}h"
+    } else {
+        "${minutes}m"
+    }
 }
 
 private fun formatSpokenShort(ms: Long): String {
     val hours = ms / 3_600_000.0
-    return if (hours < 1.0) "${(hours * 60).toInt()}m"
+    return if (hours < 1.0) "${Math.round(hours * 60)}m"
     else String.format(Locale.US, "%.1fh", hours)
 }
 
+// Windows spokenLabel parity for the Dictation Time foot context:
+// "1.5h spoken" / "90m spoken".
+private fun formatSpokenFull(ms: Long): String {
+    val hours = ms / 3_600_000.0
+    return if (hours >= 1.0) String.format(Locale.US, "%.1fh spoken", hours)
+    else "${Math.round(hours * 60)}m spoken"
+}
+
 private fun formatDictationShort(ms: Long): String {
-    val totalMinutes = (ms / 60_000.0).toInt()
+    if (ms <= 0) return "0m"
+    val totalMinutes = Math.round(ms / 60_000.0).toInt()
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
-    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+    return if (hours > 0) {
+        if (minutes > 0) "${hours}h ${minutes}m" else "${hours}h"
+    } else {
+        "${minutes}m"
+    }
 }
 
 private fun formatSessions(n: Long): String = String.format(Locale.US, "%,d", n)
@@ -162,11 +186,6 @@ fun HomeScreen(
     val activitySeries = remember(unifiedDailyStats, chartRange) {
         buildActivitySeries(unifiedDailyStats, chartRange)
     }
-    val activitySummary = remember(activitySeries) {
-        "${abbreviate(activitySeries.totalWords)} words · " +
-            "${formatSavedShort(activitySeries.totalWords)} saved · " +
-            "${formatSpokenShort(activitySeries.totalMs)} spoken"
-    }
 
     Box(
         modifier = modifier
@@ -185,10 +204,12 @@ fun HomeScreen(
             val measuredAbove = aboveHeight
             val measuredChrome = chromeHeight
             // Fill the remaining viewport with the plot, clamped to sane
-            // bounds. Below the minimum the existing scroll takes over;
-            // above the maximum (tablets) the card keeps its composure.
+            // bounds. The card's own vertical padding is subtracted too —
+            // without it the card bottom (x-axis labels) always sits 48dp
+            // below the fold. Below the minimum the existing scroll takes
+            // over; above the maximum (tablets) the card keeps its composure.
             val chartPlotHeight = if (measuredAbove != null && measuredChrome != null) {
-                (viewportHeight - measuredAbove - measuredChrome)
+                (viewportHeight - measuredAbove - measuredChrome - ActivityChartCardVerticalPadding)
                     .coerceIn(ChartPlotMinHeight, ChartPlotMaxHeight)
             } else {
                 ChartPlotMinHeight
@@ -240,26 +261,29 @@ fun HomeScreen(
 
             // Dashboard body: stat cards, then the chart card fills the rest.
             Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                val trend = remember(unifiedDailyStats, chartRange) {
+                    trendForRange(unifiedDailyStats, chartRange)
+                }
                 DashboardHeroStats(
-                    totalWords = abbreviate(activitySeries.totalWords),
-                    timeSaved = formatSavedShort(activitySeries.totalWords),
-                    dictationTime = formatDictationShort(activitySeries.totalMs),
-                    sessions = formatSessions(activitySeries.totalSessions),
+                    series = activitySeries,
                     scopeLabel = when (chartRange) {
                         ChartRange.D7 -> "in last 7 days"
                         ChartRange.D30 -> "in last 30 days"
                         ChartRange.D90 -> "in last 90 days"
-                        ChartRange.ALL -> "till today"
+                        ChartRange.ALL -> "all time"
                     },
+                    trend = trend,
                 )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Md))
             }
-                if (!hasTranscriptions && unifiedDailyStats.isEmpty()) {
+                // Ledger-gated, never History-gated: synced contributions must
+                // not show an empty dashboard (Windows shows the same ledger).
+                if (unifiedDailyStats.isEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Panel, FluenceShapes.Medium)
-                            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                            .background(CardSurface, FluenceShapes.Medium)
+                            .border(1.dp, CardBorder, FluenceShapes.Medium)
                             .padding(FluenceSpacing.Xl),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -287,7 +311,6 @@ fun HomeScreen(
                         range = chartRange,
                         onRangeChange = { chartRangeName = it.name },
                         series = activitySeries,
-                        summaryText = activitySummary,
                         plotHeight = chartPlotHeight,
                         onChromeHeight = { chromeHeight = it },
                     )
@@ -332,8 +355,8 @@ private fun HomeStatusBanner(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Panel, FluenceShapes.Medium)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .background(CardSurface, FluenceShapes.Medium)
+            .border(1.dp, CardBorder, FluenceShapes.Medium)
             .clickable(onClickLabel = "Open keyboard settings") {
                 context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
             }
@@ -372,17 +395,15 @@ private fun offlineModelLabel(context: Context): String {
 
 @Composable
 private fun DashboardHeroStats(
-    totalWords: String,
-    timeSaved: String,
-    dictationTime: String,
-    sessions: String,
+    series: ActivitySeries,
     scopeLabel: String,
+    trend: TrendInfo?,
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Panel, FluenceShapes.Medium)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .background(CardSurface, FluenceShapes.Medium)
+            .border(1.dp, CardBorder, FluenceShapes.Medium)
     ) {
         Column {
             Row(
@@ -392,10 +413,10 @@ private fun DashboardHeroStats(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DashboardStatCell(
-                    title = "Words Brought to Life",
-                    value = totalWords,
-                    subtitle = scopeLabel,
-                    icon = Icons.AutoMirrored.Filled.ShortText,
+                    title = "Words Transcribed",
+                    value = abbreviate(series.totalWords),
+                    foot = "${formatSessions(series.totalSessions)} sessions · $scopeLabel",
+                    trend = trend,
                     modifier = Modifier.weight(1f)
                 )
                 Box(
@@ -406,9 +427,9 @@ private fun DashboardHeroStats(
                 )
                 DashboardStatCell(
                     title = "Typing Time Saved",
-                    value = timeSaved,
-                    subtitle = scopeLabel,
-                    icon = Icons.Default.Speed,
+                    value = formatSavedShort(series.totalWords),
+                    foot = "at ~40 WPM · $scopeLabel",
+                    trend = trend,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -421,9 +442,9 @@ private fun DashboardHeroStats(
             ) {
                 DashboardStatCell(
                     title = "Dictation Time",
-                    value = dictationTime,
-                    subtitle = scopeLabel,
-                    icon = Icons.Default.AccessTime,
+                    value = formatDictationShort(series.totalMs),
+                    foot = "${formatSpokenFull(series.totalMs)} · $scopeLabel",
+                    trend = trend,
                     modifier = Modifier.weight(1f)
                 )
                 Box(
@@ -434,9 +455,9 @@ private fun DashboardHeroStats(
                 )
                 DashboardStatCell(
                     title = "Sessions",
-                    value = sessions,
-                    subtitle = scopeLabel,
-                    icon = Icons.Default.BarChart,
+                    value = formatSessions(series.totalSessions),
+                    foot = scopeLabel,
+                    trend = trend,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -444,51 +465,131 @@ private fun DashboardHeroStats(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DashboardStatCell(
     title: String,
     value: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    foot: String,
+    trend: TrendInfo?,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Column(
         modifier = modifier
             .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Base),
         verticalArrangement = Arrangement.Center
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = TextTertiary,
-                modifier = Modifier.size(14.dp)
-            )
-            Text(
-                text = title,
-                color = TextTertiary,
-                style = FluenceTypography.labelSmall.copy(letterSpacing = 0.5.sp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        // Windows KPI titles render uppercase via styling; the semantic
+        // string stays title-case for accessibility services.
+        Text(
+            text = title.uppercase(Locale.US),
+            color = TextSecondary,
+            style = FluenceTypography.labelMedium.copy(
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.56.sp,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
         Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+        // Windows parity is no KPI icon — long-press copies the value
+        // (touch-natural equivalent of the desktop Copy value menu item).
         Text(
             text = value,
-            color = TextPrimary,
+            color = Color.White,
             style = FluenceTypography.headlineLarge.copy(
                 fontFamily = SoraFont,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 28.sp,
+                fontFeatureSettings = "tnum",
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+                onLongClickLabel = "Copy value",
+                onLongClick = {
+                    val clipboard = context.getSystemService(ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("Fluence statistic", value))
+                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                },
             )
         )
+        if (trend != null) {
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+            TrendBadge(trend = trend)
+        }
         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
         Text(
-            text = subtitle,
+            text = foot,
             color = TextTertiary,
-            style = FluenceTypography.labelSmall
+            style = FluenceTypography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun TrendBadge(trend: TrendInfo) {
+    val container: Color
+    val content: Color
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+    when {
+        trend.delta > 0 -> {
+            container = Success.copy(alpha = 0.15f)
+            content = Success
+            icon = FluenceIcons.TrendingUp
+        }
+        trend.delta < 0 -> {
+            container = Error.copy(alpha = 0.15f)
+            content = Error
+            icon = FluenceIcons.TrendingDown
+        }
+        else -> {
+            // Windows .badge-secondary: surface-secondary fill (#1E1E1E),
+            // on-surface-variant text, and the 1px border token.
+            container = Panel
+            content = TextSecondary
+            icon = FluenceIcons.Minus
+        }
+    }
+    val sign = if (trend.delta > 0) "+" else if (trend.delta < 0) "-" else "±"
+    val magnitude = if (trend.delta != 0L) Math.abs(trend.delta).toString() else "0"
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(container)
+            .then(
+                if (trend.delta == 0L) {
+                    Modifier.border(1.dp, CardBorder, CircleShape)
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = FluenceSpacing.Sm, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Xxs),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = content,
+            modifier = Modifier.size(12.dp)
+        )
+        Text(
+            text = "$sign$magnitude vs prior ${trend.spanDays}d",
+            color = content,
+            // Windows .badge uses the label font (Geist Mono) at 11px 500.
+            style = FluenceTypography.labelSmall.copy(
+                fontFamily = GeistMonoFont,
+                letterSpacing = 0.sp,
+            ),
+            maxLines = 1,
         )
     }
 }
@@ -509,8 +610,8 @@ private fun FirstRunOnboardingCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Panel, FluenceShapes.Medium)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .background(CardSurface, FluenceShapes.Medium)
+            .border(1.dp, CardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Md)
     ) {
         Row(

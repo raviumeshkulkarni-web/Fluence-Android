@@ -19,6 +19,13 @@ val DialogElevated = Color(0xFF363636)
 // ── Divider ─────────────────────────────────────────────────────────────────
 val OutlineSubtle  = Color(0xFF2A2A2A)
 
+// ── Card ────────────────────────────────────────────────────────────────────
+// Windows Dashboard card treatment (parity): cards render on --color-surface
+// #141414 with a 5%-white hairline — one tier below Panel, which remains the
+// surface for controls, sheets, and the range-selector container.
+val CardSurface    = Color(0xFF141414)
+val CardBorder     = Color(0x0DFFFFFF)
+
 // ── Text Hierarchy ──────────────────────────────────────────────────────────
 val TextPrimary    = Color(0xFFE2E2E2)
 val TextSecondary  = Color(0xFFA0A0A0)

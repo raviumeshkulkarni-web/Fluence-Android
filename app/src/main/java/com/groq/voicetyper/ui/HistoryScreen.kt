@@ -20,15 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -211,7 +206,7 @@ fun HistoryScreen(
             ) {
                 if (isMultiSelect) {
                     IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Default.Close, "Exit selection", tint = TextPrimary, modifier = Modifier.size(20.dp))
+                        Icon(FluenceIcons.X, "Exit selection", tint = TextPrimary, modifier = Modifier.size(20.dp))
                     }
                     Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
                     Text(
@@ -238,7 +233,7 @@ fun HistoryScreen(
                     }
                     Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
                     Icon(
-                        imageVector = Icons.Default.History,
+                        imageVector = FluenceIcons.History,
                         contentDescription = null,
                         tint = TextTertiary,
                         modifier = Modifier.size(18.dp)
@@ -288,7 +283,7 @@ fun HistoryScreen(
                         }
 
                         FluenceEmptyState(
-                            icon = if (searchQuery.isNotEmpty()) Icons.Default.Search else Icons.Default.Mic,
+                            icon = if (searchQuery.isNotEmpty()) FluenceIcons.Search else FluenceIcons.Mic,
                             title = if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
                             description = if (searchQuery.isNotEmpty())
                                 "Try a different word, or clear the search to see everything."
@@ -442,7 +437,7 @@ fun HistoryScreen(
                 containerColor = DialogSurface,
                 titleContentColor = TextPrimary,
                 textContentColor = TextSecondary,
-                title = { Text("Clear all transcriptions") },
+                title = { Text("Clear History") },
                 text = { Text("This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone.") },
                 confirmButton = {
                     TextButton(onClick = {
@@ -480,13 +475,13 @@ private fun HistorySearchBar(
         },
         singleLine = true,
         leadingIcon = {
-            Icon(Icons.Default.Search, "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(FluenceIcons.Search, "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
         },
         trailingIcon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Close, "Clear search", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                        Icon(FluenceIcons.X, "Clear search", tint = TextSecondary, modifier = Modifier.size(16.dp))
                     }
                 }
                 IconButton(onClick = onSortClick, modifier = Modifier.size(36.dp)) {
@@ -585,7 +580,7 @@ private fun HistoryTranscriptRow(
             Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Box {
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Default.MoreVert, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
+                    Icon(FluenceIcons.MoreHorizontal, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
@@ -595,7 +590,7 @@ private fun HistoryTranscriptRow(
                     )
                     DropdownMenuItem(
                         text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodySmall) },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = { Icon(FluenceIcons.Copy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
                         onClick = { onCopy(); showMenu = false }
                     )
                     if (!foreign) {
