@@ -1,6 +1,11 @@
 package com.groq.voicetyper.theme
 
 import android.provider.Settings
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.material.ripple.LocalRippleTheme
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material.ripple.RippleTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -107,6 +112,20 @@ private val FluenceDarkColorScheme = darkColorScheme(
     scrim              = Color.Black,
 )
 
+// ── Strict monochrome interactions ─────────────────────────────────────────
+// M3 ripples and text-selection handles default to the scheme primary
+// (brand amethyst). This theme pins both to primary text, so no tap,
+// press, or selection ever flashes color. (M3 1.2 ripples delegate to the
+// material RippleTheme — hence LocalRippleTheme, not RippleConfiguration.)
+private object FluenceRippleTheme : RippleTheme {
+    @Composable
+    override fun defaultColor() = TextPrimary
+
+    @Composable
+    override fun rippleAlpha(): RippleAlpha =
+        RippleTheme.defaultRippleAlpha(Color.Black, lightTheme = false)
+}
+
 // ── Theme Composable ────────────────────────────────────────────────────────
 @Composable
 fun FluenceTranscribeTheme(
@@ -146,7 +165,12 @@ fun FluenceTranscribeTheme(
     CompositionLocalProvider(
         LocalPrecisionColors provides precisionColors,
         LocalFluenceFonts provides FluenceFonts(),
-        LocalMotionPreferences provides motionPrefs
+        LocalMotionPreferences provides motionPrefs,
+        LocalRippleTheme provides FluenceRippleTheme,
+        LocalTextSelectionColors provides TextSelectionColors(
+            handleColor = TextPrimary,
+            backgroundColor = TextPrimary.copy(alpha = 0.4f)
+        )
     ) {
         MaterialTheme(
             colorScheme = FluenceDarkColorScheme,

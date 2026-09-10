@@ -8,7 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -159,7 +159,7 @@ fun PermissionsScreen(
     ) { isGranted ->
         micGranted = isGranted
         if (!isGranted) {
-            Toast.makeText(context, "Microphone permission is required for voice typing", Toast.LENGTH_LONG).show()
+            FeedbackBus.show("Microphone permission is required for voice typing", long = true)
         }
     }
 
@@ -215,7 +215,7 @@ fun PermissionsScreen(
                 isGranted = micGranted,
                 onRequest = {
                     if (micGranted) {
-                        Toast.makeText(context, "Microphone permission already granted", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Microphone permission already granted")
                     } else {
                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
@@ -231,7 +231,7 @@ fun PermissionsScreen(
                 isGranted = overlayGranted,
                 onRequest = {
                     if (overlayGranted) {
-                        Toast.makeText(context, "Overlay permission already granted", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Overlay permission already granted")
                     } else {
                         val intent = Intent(
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -251,9 +251,9 @@ fun PermissionsScreen(
                 isGranted = accessibilityEnabled,
                 onRequest = {
                     if (accessibilityEnabled) {
-                        Toast.makeText(context, "Accessibility service already enabled", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Accessibility service already enabled")
                     } else {
-                        Toast.makeText(context, "Find \"Fluence Transcribe\" and enable it", Toast.LENGTH_LONG).show()
+                        FeedbackBus.show("Find \"Fluence Transcribe\" and enable it", long = true)
                         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                         context.startActivity(intent)
                     }
@@ -269,7 +269,7 @@ fun PermissionsScreen(
                 isGranted = batteryUnrestricted,
                 onRequest = {
                     if (batteryUnrestricted) {
-                        Toast.makeText(context, "Already unrestricted", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Already unrestricted")
                     } else {
                         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                             data = Uri.parse("package:${context.packageName}")
@@ -291,13 +291,13 @@ fun PermissionsScreen(
                         indication = LocalIndication.current,
                         onClick = {
                             if (!accessibilityEnabled) {
-                                Toast.makeText(context, "Enable accessibility service first", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Enable accessibility service first")
                             } else {
                                 val newValue = !bubbleEnabled
                                 prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
                                 bubbleEnabled = newValue
                                 if (!newValue) {
-                                    Toast.makeText(context, "Floating bubble disabled", Toast.LENGTH_SHORT).show()
+                                    FeedbackBus.show("Floating bubble disabled")
                                 }
                             }
                         }
@@ -336,12 +336,12 @@ fun PermissionsScreen(
                     checked = bubbleEnabled,
                     onCheckedChange = { newValue ->
                         if (!accessibilityEnabled) {
-                            Toast.makeText(context, "Enable accessibility service first", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Enable accessibility service first")
                         } else {
                             prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
                             bubbleEnabled = newValue
                             if (!newValue) {
-                                Toast.makeText(context, "Floating bubble disabled", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Floating bubble disabled")
                             }
                         }
                     },

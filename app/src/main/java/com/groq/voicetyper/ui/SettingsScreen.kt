@@ -1,7 +1,6 @@
 package com.groq.voicetyper.ui
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
@@ -117,10 +116,13 @@ private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
         return
     }
     val state = remember { MutableTransitionState(false).apply { targetState = true } }
+    // Stagger is capped: rows past the sixth share its delay so long lists
+    // never push content seconds behind the navigation transition.
+    val stagger = minOf(index, 5) * 40
     AnimatedVisibility(
         visibleState = state,
-        enter = fadeIn(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = index * 40)) +
-            slideInVertically(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = index * 40)) { it / 8 }
+        enter = fadeIn(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = stagger)) +
+            slideInVertically(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = stagger)) { it / 8 }
     ) {
         content()
     }

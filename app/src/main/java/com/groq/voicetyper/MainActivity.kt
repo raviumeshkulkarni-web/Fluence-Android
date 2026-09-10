@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -67,11 +66,11 @@ class MainActivity : ComponentActivity() {
             val email = account?.email ?: error("account has no email")
             syncManager.completeSignIn(email)
             signInError = null
-            Toast.makeText(this, "Signed in as $email", Toast.LENGTH_SHORT).show()
+            FeedbackBus.show("Signed in as $email")
         } catch (e: Exception) {
             android.util.Log.e("FluenceAuth", "sign-in failed", e)
             signInError = e.message
-            Toast.makeText(this, "Sign-in failed: ${e.message}", Toast.LENGTH_LONG).show()
+            FeedbackBus.show("Sign-in failed: ${e.message}", long = true)
         }
     }
 
@@ -79,10 +78,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            Toast.makeText(this, "Access granted — syncing\u2026", Toast.LENGTH_SHORT).show()
+            FeedbackBus.show("Access granted — syncing\u2026")
             syncManager.syncNow()
         } else {
-            Toast.makeText(this, "Consent denied — sync requires Drive access", Toast.LENGTH_LONG).show()
+            FeedbackBus.show("Consent denied — sync requires Drive access", long = true)
         }
     }
 
@@ -98,9 +97,9 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            Toast.makeText(this, "Microphone permission granted", Toast.LENGTH_SHORT).show()
+            FeedbackBus.show("Microphone permission granted")
         } else {
-            Toast.makeText(this, "Microphone permission is required for voice typing", Toast.LENGTH_LONG).show()
+            FeedbackBus.show("Microphone permission is required for voice typing", long = true)
         }
     }
 

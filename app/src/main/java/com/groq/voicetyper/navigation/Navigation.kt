@@ -13,8 +13,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,11 +28,14 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.groq.voicetyper.FluenceFeedbackHost
 import com.groq.voicetyper.dictionary.ui.DictionaryScreen
 import com.groq.voicetyper.snippets.ui.SnippetsScreen
 import com.groq.voicetyper.sync.SyncManager
 import com.groq.voicetyper.sync.ui.SyncScreen
 import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.Sidebar
 import com.groq.voicetyper.ui.AboutScreen
@@ -42,6 +49,11 @@ import com.groq.voicetyper.ui.SettingsScreen
 import com.groq.voicetyper.ui.SttConfigScreen
 import com.groq.voicetyper.ui.TranscriptionDetailSheet
 import kotlinx.coroutines.launch
+
+// M3 WindowWidthSizeClass Expanded breakpoint: at/above this width the
+// pinned sidebar replaces the modal hamburger drawer (rotation/landscape).
+private val ExpandedWidthBreakpoint = 840.dp
+private val PermanentDrawerWidth = 320.dp
 
 private val screenOrder = listOf(
     Screen.Home,
@@ -69,9 +81,17 @@ fun FluenceNavHost(
     signInError: String? = null,
     syncSection: @Composable () -> Unit = {}
 ) {
-    val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
+    // Back stack survives config changes (rotation); screens' local state is
+    // remembered saveably on their own. Restored via string codes (see Saver).
+    val backStack = rememberSaveable(
+        saver = ScreenStackSaver,
+        init = { mutableStateListOf<Screen>(Screen.Home) }
+    )
     val current = backStack.lastOrNull() ?: Screen.Home
-    var previousSize by remember { mutableIntStateOf(1) }
+    // Seeded from the restored stack (not a constant) so a rotation restore
+    // to a deep screen doesn't misread as forward navigation and play a
+    // spurious slide on the first frame.
+    var previousSize by rememberSaveable { mutableIntStateOf(backStack.size) }
     val isNavigatingForward = backStack.size >= previousSize
     androidx.compose.runtime.SideEffect {
         previousSize = backStack.size
@@ -83,7 +103,9 @@ fun FluenceNavHost(
     val reducedMotion = LocalMotionPreferences.current.reducedMotion
 
     LaunchedEffect(deepLinkToSettings) {
-        if (deepLinkToSettings) {
+        // Apply the deep link only once (bare root). If the stack was restored
+        // after rotation, the user's place is deeper — don't flatten it again.
+        if (deepLinkToSettings && backStack.size == 1 && backStack.first() == Screen.Home) {
             backStack.clear()
             backStack.addAll(listOf(Screen.Home, Screen.SettingsHub))
         }
@@ -142,27 +164,19 @@ fun FluenceNavHost(
         easing = FastOutSlowInEasing
     )
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
-        drawerContent = {
-            androidx.compose.material3.Surface(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.80f),
-                color = Sidebar,
-                contentColor = androidx.compose.ui.graphics.Color.White,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
-            ) {
-                FluenceDrawer(
-                    current = current,
-                    onNavigate = { navigateFromDrawer(it) },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-    ) {
-        AnimatedContent(
+    // Adaptive chrome: expanded-width windows (landscape / tablet — M3
+    // ≥840dp breakpoint) pin the sidebar open as a permanent drawer instead
+    // of the modal hamburger sheet. LocalConfiguration recomposes on
+    // rotation, so the right chrome is always showing.
+    val usePermanentDrawer =
+        LocalConfiguration.current.screenWidthDp.dp >= ExpandedWidthBreakpoint
+
+    @Composable
+    fun DrawerContent() {
+        // Single app-wide feedback host: one Fluence Snackbar, overlaid
+        // above every destination, inset-aware (nav bars + IME).
+        Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedContent(
             targetState = current,
             transitionSpec = {
                 if (reducedMotion) {
@@ -204,6 +218,7 @@ fun FluenceNavHost(
             when (screen) {
                 Screen.Home -> HomeScreen(
                     onOpenDrawer = { openDrawer() },
+                    showDrawerButton = !usePermanentDrawer,
                     onNavigateToSettings = { navigateTo(Screen.SettingsHub) },
                     onOpenDetail = { entryId -> navigateTo(Screen.TranscriptionDetail(entryId)) },
                     onNavigateToSttConfig = { navigateTo(Screen.SttConfig) },
@@ -213,6 +228,7 @@ fun FluenceNavHost(
                 )
                 Screen.History -> HistoryScreen(
                     onOpenDrawer = { openDrawer() },
+                    showDrawerButton = !usePermanentDrawer,
                     onOpenDetail = { entryId -> navigateTo(Screen.TranscriptionDetail(entryId)) },
                     onNavigateToSttConfig = { navigateTo(Screen.SttConfig) },
                     onRequestPermission = onRequestPermission
@@ -260,6 +276,56 @@ fun FluenceNavHost(
                     onDismiss = { navigateBack() }
                 )
             }
+            FluenceFeedbackHost(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+            )
+        }
+        }
+    }
+
+    if (usePermanentDrawer) {
+        PermanentNavigationDrawer(
+            drawerContent = {
+                PermanentDrawerSheet(
+                    modifier = Modifier.width(PermanentDrawerWidth),
+                    drawerContainerColor = Sidebar,
+                ) {
+                    FluenceDrawer(
+                        current = current,
+                        onNavigate = { navigateFromDrawer(it) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        ) {
+            DrawerContent()
+        }
+    } else {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f),
+            drawerContent = {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.80f),
+                    color = Sidebar,
+                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+                ) {
+                    FluenceDrawer(
+                        current = current,
+                        onNavigate = { navigateFromDrawer(it) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        ) {
+            DrawerContent()
         }
     }
 }

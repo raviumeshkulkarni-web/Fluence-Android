@@ -1,6 +1,6 @@
 package com.groq.voicetyper.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -18,7 +18,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
@@ -133,7 +132,7 @@ fun TranscriptionDetailSheet(
                             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                             val clip = android.content.ClipData.newPlainText("Transcription", item.text)
                             clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Copied to clipboard")
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                         shape = FluenceShapes.Medium,
@@ -145,10 +144,10 @@ fun TranscriptionDetailSheet(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = null,
                             tint = TextPrimary,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Copy", color = TextPrimary, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Copy", color = TextPrimary, style = FluenceTypography.labelLarge)
                     }
 
                     if (!foreign) {
@@ -166,10 +165,10 @@ fun TranscriptionDetailSheet(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = null,
                                 tint = Error,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge)
                         }
                     }
                 }
@@ -194,14 +193,14 @@ fun TranscriptionDetailSheet(
                                     }
                                 }
                             ) {
-                                Text("Delete", color = ErrorText)
+                                Text("Delete", color = ErrorText, style = FluenceTypography.labelLarge)
                             }
                         },
                         dismissButton = {
                             TextButton(
                                 onClick = { showDeleteConfirmation = false }
                             ) {
-                                Text("Cancel", color = TextSecondary)
+                                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
                             }
                         }
                     )

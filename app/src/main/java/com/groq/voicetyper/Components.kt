@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -28,28 +29,42 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import com.groq.voicetyper.theme.Canvas
+import com.groq.voicetyper.theme.DialogSurface
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.OutlineSubtle
 import com.groq.voicetyper.theme.PanelElevated
 import com.groq.voicetyper.theme.TextPrimary
 import com.groq.voicetyper.theme.TextSecondary
+import com.groq.voicetyper.theme.TextTertiary
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 // ── Press Scale Animation ───────────────────────────────────────────────────
 // Borrowed from Fluence Capture — provides tactile press feedback.
@@ -111,7 +126,8 @@ fun ProviderLogo(
 
 // ── Settings Top Bar ─────────────────────────────────────────────────────────
 // Shared header for settings sub-screens — single source of truth for the
-// back affordance (48dp touch target) and screen title typography.
+// back affordance (48dp touch target, compact 20dp icon visual) and title
+// typography.
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun SettingsTopBar(
@@ -119,17 +135,19 @@ fun SettingsTopBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val backInteraction = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = FluenceSpacing.Md),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
             onClick = onBack,
+            interactionSource = backInteraction,
             modifier = Modifier
-                .size(FluenceSpacing.Xxl)
-                .pressScale(remember { MutableInteractionSource() })
+                .size(48.dp)
+                .pressScale(backInteraction)
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -210,9 +228,85 @@ fun FluenceEmptyState(
             ) {
                 Text(
                     text = actionLabel,
-                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    style = FluenceTypography.labelLarge
                 )
             }
         }
+    }
+}
+
+// ── Section header ────────────────────────────────────────────────────────
+// Shared card-section header: mono label + optional trailing text action.
+// Same language as the History "Recent Transcriptions" header.
+// ────────────────────────────────────────────────────────────────────────────
+@Composable
+fun FluenceSectionHeader(
+    label: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = FluenceSpacing.Base, end = FluenceSpacing.Sm, top = FluenceSpacing.Sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = TextTertiary,
+            style = FluenceTypography.labelSmall.copy(
+                fontFamily = GeistMonoFont,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.8.sp
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        if (actionLabel != null && onAction != null) {
+            TextButton(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(actionLabel, color = TextPrimary, style = FluenceTypography.labelMedium)
+            }
+        }
+    }
+}
+
+// ── Transient feedback (Material Snackbar) ────────────────────────────────
+// System Toasts are banned: transient feedback goes through this bus so it
+// renders as one Fluence-styled Material Snackbar — queued, inset-aware —
+// from any screen, dialog, or the host Activity. No context, no scope.
+// ────────────────────────────────────────────────────────────────────────────
+data class FeedbackMessage(val text: String, val long: Boolean)
+
+object FeedbackBus {
+    private val _messages = MutableSharedFlow<FeedbackMessage>(extraBufferCapacity = 64)
+    val messages: SharedFlow<FeedbackMessage> = _messages.asSharedFlow()
+
+    fun show(message: String, long: Boolean = false) {
+        _messages.tryEmit(FeedbackMessage(message, long))
+    }
+}
+
+@Composable
+fun FluenceFeedbackHost(modifier: Modifier = Modifier) {
+    val hostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        FeedbackBus.messages.collect { msg ->
+            hostState.showSnackbar(
+                message = msg.text,
+                duration = if (msg.long) SnackbarDuration.Long else SnackbarDuration.Short
+            )
+        }
+    }
+    SnackbarHost(hostState = hostState, modifier = modifier) { data ->
+        Snackbar(
+            snackbarData = data,
+            shape = FluenceShapes.Small,
+            containerColor = DialogSurface,
+            contentColor = TextPrimary
+        )
     }
 }

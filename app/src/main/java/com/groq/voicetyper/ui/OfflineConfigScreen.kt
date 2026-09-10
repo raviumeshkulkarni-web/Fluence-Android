@@ -1,6 +1,6 @@
 package com.groq.voicetyper.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -9,8 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +21,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
@@ -151,14 +148,13 @@ fun OfflineConfigScreen(
                     Text(
                         text = "Offline Mode",
                         color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                        style = FluenceTypography.titleMedium,
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Transcribe without internet.",
                         color = TextSecondary,
-                        fontSize = 13.sp
+                        style = FluenceTypography.bodySmall
                     )
                 }
 
@@ -171,7 +167,7 @@ fun OfflineConfigScreen(
                             OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
                         }
                         if (checked && !selectedModelReady) {
-                            Toast.makeText(context, "Download the selected model first.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Download the selected model first.")
                         } else {
                             offlineEnabled = checked
                             OfflinePreferences.setOfflineModeEnabled(context, checked)
@@ -192,14 +188,13 @@ fun OfflineConfigScreen(
             Text(
                 text = "Choose a model",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Pick the option that fits how you dictate. You can change this any time.",
                 color = TextSecondary,
-                fontSize = 12.sp
+                    style = FluenceTypography.labelMedium
             )
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -232,7 +227,7 @@ fun OfflineConfigScreen(
 
                 ModelOptionCard(
                     title = "Pro (English)",
-                    description = "Our most accurate English model — ideal when every word matters. Slightly slower to respond.",
+                    description = "Our most accurate English model. Ideal when every word matters. Slightly slower to respond.",
                     speedLevel = 2,
                     accuracyLevel = 5,
                     recommended = false,
@@ -270,7 +265,7 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "Fast (Multilingual) model deleted.", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Fast (Multilingual) model deleted.")
                     }
                 }
             )
@@ -301,7 +296,7 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "Fast (English) model deleted.", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Fast (English) model deleted.")
                     }
                 }
             )
@@ -332,7 +327,7 @@ fun OfflineConfigScreen(
                             offlineEnabled = false
                             OfflinePreferences.setOfflineModeEnabled(context, false)
                         }
-                        Toast.makeText(context, "Pro (English) model deleted.", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Pro (English) model deleted.")
                     }
                 }
             )
@@ -382,8 +377,7 @@ private fun ModelOptionCard(
             Text(
                 text = title,
                 color = TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
+                style = FluenceTypography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -398,8 +392,7 @@ private fun ModelOptionCard(
                     Text(
                         text = "Recommended",
                         color = Canvas,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
+                        style = FluenceTypography.labelSmall,
                     )
                 }
             }
@@ -411,7 +404,7 @@ private fun ModelOptionCard(
             Text(
                 text = description,
                 color = TextSecondary,
-                fontSize = 13.sp
+                style = FluenceTypography.bodySmall
             )
         }
 
@@ -438,7 +431,7 @@ private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
         Text(
             text = label,
             color = TextTertiary,
-            fontSize = 11.sp,
+            style = FluenceTypography.labelSmall,
             modifier = Modifier.width(52.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -448,7 +441,7 @@ private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
                         .width(14.dp)
                         .height(6.dp)
                         .clip(CircleShape)
-                        .background(if (index < safeLevel) Success else TextDisabled)
+                        .background(if (index < safeLevel) Success else OutlineSubtle)
                 )
             }
         }
@@ -471,11 +464,13 @@ private fun ModelDownloadCard(
     onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
+    // Destructive model delete confirms first (Windows parity) — hundreds
+    // of MB re-download is not a one-tap action.
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     Text(
         text = title,
         color = TextPrimary,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.SemiBold
+        style = FluenceTypography.labelLarge,
     )
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -489,45 +484,56 @@ private fun ModelDownloadCard(
                 Text(
                     text = "Status: Ready",
                     color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
+                    style = FluenceTypography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "Storage: ${(diskSize / (1024 * 1024))} MB",
                     color = TextSecondary,
-                    fontSize = 13.sp
+                    style = FluenceTypography.bodySmall
                 )
             }
 
             Button(
-                onClick = onDelete,
+                onClick = { showDeleteConfirm = true },
                 colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
                 shape = FluenceShapes.Medium,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete model",
-                    tint = Error,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Delete", color = Error, fontSize = 13.sp)
+                Text("Delete Model", color = Error, style = FluenceTypography.labelMedium)
             }
         }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = DialogSurface,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary,
+            title = { Text("Delete Model") },
+            text = { Text("Are you sure you want to delete the $title model files to free space ($sizeEstimate)?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    onDelete()
+                }) { Text("Delete Model", color = ErrorText) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = TextSecondary) }
+            }
+        )
+    }
     } else if (isVerifying) {
         Text(
             text = "Verifying model integrity…",
             color = TextSecondary,
-            fontSize = 14.sp
+            style = FluenceTypography.labelLarge
         )
     } else if (isCorrupt) {
         Text(
             text = "Model is corrupted. Re-download required.",
             color = Error,
-            fontSize = 13.sp
+            style = FluenceTypography.bodySmall
         )
         Spacer(modifier = Modifier.height(12.dp))
         Button(
@@ -536,7 +542,7 @@ private fun ModelDownloadCard(
             shape = FluenceShapes.Medium,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Re-download Model ($sizeEstimate)", color = TextPrimary, fontWeight = FontWeight.Bold)
+            Text("Re-download Model ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
         }
     } else {
         when (downloadState) {
@@ -552,13 +558,12 @@ private fun ModelDownloadCard(
                     Text(
                         text = if (downloadState == "VERIFYING") "Verifying…" else "Downloading…",
                         color = TextPrimary,
-                        fontSize = 14.sp
+                        style = FluenceTypography.labelLarge
                     )
                     Text(
                         text = "${(progressPercentage * 100).toInt()}%",
                         color = TextSecondary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        style = FluenceTypography.labelLarge,
                     )
                 }
 
@@ -585,7 +590,7 @@ private fun ModelDownloadCard(
                 Text(
                     text = "Download failed: ${errorMessage ?: "Unknown error"}",
                     color = Error,
-                    fontSize = 13.sp
+                    style = FluenceTypography.bodySmall
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
@@ -594,14 +599,14 @@ private fun ModelDownloadCard(
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Retry Download ($sizeEstimate)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Retry Download ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
                 }
             }
             else -> {
                 Text(
-                    text = "Model not installed.",
-                    color = TextSecondary,
-                    fontSize = 14.sp
+                text = "Model not installed.",
+                color = TextSecondary,
+                style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
@@ -610,7 +615,7 @@ private fun ModelDownloadCard(
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Download Model ($sizeEstimate)", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Download Model ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
                 }
             }
         }

@@ -4,7 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.provider.Settings
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -14,9 +14,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -26,12 +29,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Visibility
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -52,6 +49,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -65,11 +64,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.history.HistoryRepository
+import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -80,10 +81,74 @@ enum class SortOption(val displayName: String) {
     NEWEST("Newest first"),
     OLDEST("Oldest first"),
     DURATION_DESC("Longest first"),
-    DURATION_ASC("Shortest first")
+    DURATION_ASC("Shortest first"),
+    WORDS_DESC("Most words"),
+    WORDS_ASC("Fewest words")
 }
 
-private const val PREVIEW_COUNT = 5
+enum class DateFilter(val tabLabel: String, val accessibilityLabel: String) {
+    ALL("All time", "Show all time"),
+    TODAY("Today", "Show today"),
+    YESTERDAY("Yesterday", "Show yesterday")
+}
+
+private const val DAY_MS = 86_400_000L
+
+private data class DayGroup(
+    val key: String,
+    val label: String,
+    val items: List<TranscriptionEntry>,
+)
+
+private fun midnightOf(timestampMs: Long): Long {
+    val cal = java.util.Calendar.getInstance()
+    cal.timeInMillis = timestampMs
+    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    cal.set(java.util.Calendar.MINUTE, 0)
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
+
+/**
+ * Day-based grouping with Windows History labels: Today / Yesterday /
+ * weekday name / "August 28" (year appended off-year). Device locale for
+ * user-facing labels, like Windows' toLocaleDateString. Input order is
+ * preserved inside each day (callers pre-sort for duration/word sorts);
+ * only the day buckets themselves order chronologically (reversed for
+ * oldest-first).
+ */
+private fun groupEntries(entries: List<TranscriptionEntry>, oldestFirst: Boolean): List<DayGroup> {
+    val locale = Locale.getDefault()
+    val keyFmt = SimpleDateFormat("yyyy-M-d", locale)
+    val weekdayFmt = SimpleDateFormat("EEEE", locale)
+    val monthDayFmt = SimpleDateFormat("MMMM d", locale)
+    val monthDayYearFmt = SimpleDateFormat("MMMM d, yyyy", locale)
+    val todayStart = midnightOf(System.currentTimeMillis())
+    val yesterdayStart = todayStart - DAY_MS
+    val yearNow = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+    data class Acc(val key: String, val label: String, val dayStart: Long, val items: MutableList<TranscriptionEntry> = mutableListOf())
+    val buckets = LinkedHashMap<String, Acc>()
+    for (entry in entries) {
+        val dayStart = midnightOf(entry.timestamp)
+        val acc = buckets.getOrPut(keyFmt.format(Date(dayStart))) {
+            val label = when {
+                dayStart >= todayStart -> "Today"
+                dayStart >= yesterdayStart -> "Yesterday"
+                dayStart >= todayStart - 6 * DAY_MS -> weekdayFmt.format(Date(dayStart))
+                java.util.Calendar.getInstance().apply { timeInMillis = dayStart }
+                    .get(java.util.Calendar.YEAR) == yearNow -> monthDayFmt.format(Date(dayStart))
+                else -> monthDayYearFmt.format(Date(dayStart))
+            }
+            Acc(keyFmt.format(Date(dayStart)), label, dayStart)
+        }
+        acc.items.add(entry)
+    }
+    val ordered = buckets.values.toList()
+    val sorted = if (oldestFirst) ordered.sortedByDescending { it.dayStart }
+    else ordered.sortedBy { it.dayStart }
+    return sorted.map { DayGroup(it.key, it.label, it.items) }
+}
 
 private fun formatTimestamp(timestampMs: Long): String {
     val now = System.currentTimeMillis()
@@ -92,50 +157,16 @@ private fun formatTimestamp(timestampMs: Long): String {
         diff < 60_000L -> "Just now"
         diff < 3_600_000L -> "${diff / 60_000L}m ago"
         diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
-        diff < 172_800_000L -> "Yesterday"
+        diff < 172_800_000L -> "Yesterday, " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestampMs))
         else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestampMs))
     }
-}
-
-private fun groupEntries(entries: List<TranscriptionEntry>, sortOption: SortOption): List<Pair<String, List<TranscriptionEntry>>> {
-    val cal = java.util.Calendar.getInstance()
-    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-    cal.set(java.util.Calendar.MINUTE, 0)
-    cal.set(java.util.Calendar.SECOND, 0)
-    cal.set(java.util.Calendar.MILLISECOND, 0)
-    val todayStart = cal.timeInMillis
-    val yesterdayStart = todayStart - TimeUnit.DAYS.toMillis(1)
-    val thisWeekStart = todayStart - TimeUnit.DAYS.toMillis(
-        (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) - java.util.Calendar.MONDAY).coerceAtLeast(0).toLong()
-    )
-    val lastWeekStart = thisWeekStart - TimeUnit.DAYS.toMillis(7)
-    val groups = mutableListOf<Pair<String, List<TranscriptionEntry>>>()
-    val today = entries.filter { it.timestamp >= todayStart }
-    val yesterday = entries.filter { it.timestamp in yesterdayStart until todayStart }
-    val thisWeek = entries.filter { it.timestamp in thisWeekStart until yesterdayStart }
-    val lastWeek = entries.filter { it.timestamp in lastWeekStart until thisWeekStart }
-    val older = entries.filter { it.timestamp < lastWeekStart }
-
-    if (sortOption == SortOption.OLDEST) {
-        if (older.isNotEmpty()) groups.add("EARLIER" to older)
-        if (lastWeek.isNotEmpty()) groups.add("LAST WEEK" to lastWeek)
-        if (thisWeek.isNotEmpty()) groups.add("THIS WEEK" to thisWeek)
-        if (yesterday.isNotEmpty()) groups.add("YESTERDAY" to yesterday)
-        if (today.isNotEmpty()) groups.add("TODAY" to today)
-    } else {
-        if (today.isNotEmpty()) groups.add("TODAY" to today)
-        if (yesterday.isNotEmpty()) groups.add("YESTERDAY" to yesterday)
-        if (thisWeek.isNotEmpty()) groups.add("THIS WEEK" to thisWeek)
-        if (lastWeek.isNotEmpty()) groups.add("LAST WEEK" to lastWeek)
-        if (older.isNotEmpty()) groups.add("EARLIER" to older)
-    }
-    return groups
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HistoryScreen(
     onOpenDrawer: () -> Unit,
+    showDrawerButton: Boolean = true,
     onOpenDetail: (Long) -> Unit = {},
     onNavigateToSttConfig: () -> Unit = {},
     onRequestPermission: () -> Unit = {},
@@ -158,12 +189,22 @@ fun HistoryScreen(
     )
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    // Debounced applied query (Windows 300ms parity): without this every
+    // keystroke re-filters, re-sorts, re-groups the whole in-memory table
+    // and relayouts the list. The field stays live; the list follows.
+    var activeQuery by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(searchQuery) {
+        delay(300)
+        activeQuery = searchQuery
+    }
     var selectedIds by rememberSaveable(saver = longSetSaver) { mutableStateOf(setOf<Long>()) }
     val isMultiSelect = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var expandedGroups by rememberSaveable(saver = stringSetSaver) { mutableStateOf(setOf<String>()) }
+    var collapsedDays by rememberSaveable(saver = stringSetSaver) { mutableStateOf(setOf<String>()) }
+    var dateFilter by rememberSaveable { mutableStateOf(DateFilter.ALL) }
+    var expandedEntryId by rememberSaveable { mutableStateOf<Long?>(null) }
     var currentSortOption by rememberSaveable { mutableStateOf(SortOption.NEWEST) }
     var showSortSheet by remember { mutableStateOf(false) }
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
@@ -180,24 +221,42 @@ fun HistoryScreen(
         repository.getAll().collect { allEntries = it }
     }
 
-    val displayedEntries = remember(allEntries, searchQuery, currentSortOption) {
-        val filtered = if (searchQuery.isBlank()) allEntries
-        else allEntries.filter { it.text.contains(searchQuery, ignoreCase = true) }
+    // Local-midnight day bounds for the date filter (History display
+    // groups are local-time, like Windows).
+    val todayStart = midnightOf(System.currentTimeMillis())
+    val yesterdayStart = todayStart - DAY_MS
+
+    val displayedEntries = remember(allEntries, activeQuery, currentSortOption, dateFilter) {
+        val ranged = when (dateFilter) {
+            DateFilter.TODAY -> allEntries.filter { it.timestamp >= todayStart }
+            DateFilter.YESTERDAY -> allEntries.filter { it.timestamp in yesterdayStart until todayStart }
+            DateFilter.ALL -> allEntries
+        }
+        val q = activeQuery.trim()
+        val filtered = if (q.isBlank()) ranged
+        else ranged.filter { it.text.contains(q, ignoreCase = true) }
 
         when (currentSortOption) {
             SortOption.NEWEST -> filtered.sortedByDescending { it.timestamp }
             SortOption.OLDEST -> filtered.sortedBy { it.timestamp }
             SortOption.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
             SortOption.DURATION_ASC -> filtered.sortedBy { it.durationMs }
+            SortOption.WORDS_DESC -> filtered.sortedByDescending { StatsCalculator.wordCountOf(it.text) }
+            SortOption.WORDS_ASC -> filtered.sortedBy { StatsCalculator.wordCountOf(it.text) }
         }
     }
 
     val groupedEntries = remember(displayedEntries, currentSortOption) {
-        if (currentSortOption == SortOption.DURATION_DESC || currentSortOption == SortOption.DURATION_ASC) {
-            listOf("ALL TRANSCRIPTIONS" to displayedEntries)
-        } else {
-            groupEntries(displayedEntries, currentSortOption)
-        }
+        groupEntries(displayedEntries, currentSortOption == SortOption.OLDEST)
+    }
+
+    // Last visible row drives the timeline-rail end stop.
+    val lastVisibleId = remember(groupedEntries, collapsedDays) {
+        groupedEntries.asReversed()
+            .firstNotNullOfOrNull { group ->
+                if (group.key in collapsedDays) null
+                else group.items.lastOrNull()?.id
+            }
     }
 
     Box(
@@ -208,23 +267,23 @@ fun HistoryScreen(
             .navigationBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: drawer + title + selection actions. Same 44dp rhythm as Home.
+            // Header: drawer + title + selection actions (64dp height matching Capture top app bar).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(64.dp)
                     .padding(horizontal = FluenceSpacing.Base),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isMultiSelect) {
-                    IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(44.dp)) {
-                        Icon(FluenceIcons.X, "Exit selection", tint = TextPrimary, modifier = Modifier.size(20.dp))
+                    IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(48.dp)) {
+                        Icon(FluenceIcons.X, "Exit selection", tint = TextPrimary, modifier = Modifier.size(24.dp))
                     }
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     Text(
                         text = "${selectedIds.size} selected",
                         color = TextPrimary,
-                        style = FluenceTypography.titleMedium
+                        style = FluenceTypography.headlineMedium
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(
@@ -232,59 +291,139 @@ fun HistoryScreen(
                             pendingDeleteIds = selectedIds.toList()
                             showDeleteDialog = true
                         },
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(Icons.Default.Delete, "Delete selected", tint = Error, modifier = Modifier.size(18.dp))
+                        Icon(FluenceIcons.Trash2, "Delete selected", tint = Error, modifier = Modifier.size(20.dp))
                     }
                 } else {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(44.dp).pressScale(remember { MutableInteractionSource() })
-                    ) {
-                        Icon(Icons.Default.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                    // Permanent sidebar is already visible in expanded windows —
+                    // no hamburger; the title row keeps its own padding rhythm.
+                    if (showDrawerButton) {
+                        IconButton(
+                            onClick = onOpenDrawer,
+                            modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
+                        ) {
+                            Icon(FluenceIcons.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     }
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-                    Icon(
-                        imageVector = FluenceIcons.History,
-                        contentDescription = null,
-                        tint = TextTertiary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
                     Text(
                         text = "History",
                         color = TextPrimary,
-                        style = FluenceTypography.titleMedium
+                        style = FluenceTypography.headlineMedium
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            if (!isMultiSelect) {
+                Text(
+                    text = "Browse and search every transcription on this device",
+                    color = TextSecondary,
+                    style = FluenceTypography.bodySmall,
+                    modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+                )
+            }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = rememberLazyListState()
+            // Card fills the remaining viewport (Windows parity): section
+            // header, search, filters, then the list scrolling inside.
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .background(CardSurface, FluenceShapes.Medium)
             ) {
-                item(key = "history_search") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = FluenceSpacing.Base)
+                // Card header: section label + Clear All (Windows parity).
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = FluenceSpacing.Base, end = FluenceSpacing.Sm, top = FluenceSpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "RECENT TRANSCRIPTIONS",
+                        color = TextTertiary,
+                        style = FluenceTypography.labelSmall.copy(
+                            fontFamily = GeistMonoFont,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = { showClearAllDialog = true },
+                        contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        HistorySearchBar(
-                            searchQuery = searchQuery,
-                            onSearchChange = { searchQuery = it },
-                            onSortClick = { showSortSheet = true }
-                        )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                        Text("Clear All", color = ErrorText, style = FluenceTypography.labelMedium)
                     }
                 }
 
+                HistorySearchBar(
+                    searchQuery = searchQuery,
+                    onSearchChange = { searchQuery = it },
+                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+                // Date filter (Windows All time / Today / Yesterday), same
+                // segmented control as the Activity chart selector.
+                FluenceSegmentedControl(
+                    options = remember {
+                        DateFilter.entries.map { SegmentChoice(it.tabLabel, it.accessibilityLabel) }
+                    },
+                    selectedIndex = dateFilter.ordinal,
+                    onSelect = { dateFilter = DateFilter.entries[it] },
+                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+
+                // Sort control + live count (Windows "N shown").
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FluenceSpacing.Base),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { showSortSheet = true },
+                        contentPadding = PaddingValues(horizontal = FluenceSpacing.Xs),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Icon(
+                            imageVector = FluenceIcons.ArrowUpDown,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+                        Text(
+                            text = currentSortOption.displayName,
+                            color = TextSecondary,
+                            style = FluenceTypography.labelMedium
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = if (displayedEntries.size == 1) "1 shown"
+                        else "${displayedEntries.size} shown",
+                        color = TextTertiary,
+                        style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
+                    )
+                }
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                state = rememberLazyListState()
+            ) {
                 if (groupedEntries.isEmpty()) {
                     item {
-                        val (emptyActionLabel, emptyAction) = remember(searchQuery, isKeyboardActive, isMicGranted, isApiKeySet) {
+                        val (emptyActionLabel, emptyAction) = remember(activeQuery, dateFilter, isKeyboardActive, isMicGranted, isApiKeySet) {
                             when {
-                                searchQuery.isNotEmpty() -> null to null
+                                activeQuery.isNotEmpty() -> null to null
+                                dateFilter != DateFilter.ALL -> "Show all time" to {
+                                    dateFilter = DateFilter.ALL
+                                }
                                 !isKeyboardActive -> "Enable Keyboard" to {
                                     context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
                                 }
@@ -295,10 +434,12 @@ fun HistoryScreen(
                         }
 
                         FluenceEmptyState(
-                            icon = if (searchQuery.isNotEmpty()) FluenceIcons.Search else FluenceIcons.Mic,
-                            title = if (searchQuery.isNotEmpty()) "No results found" else "No transcriptions yet",
-                            description = if (searchQuery.isNotEmpty())
+                            icon = if (activeQuery.isNotEmpty() || dateFilter != DateFilter.ALL) FluenceIcons.Search else FluenceIcons.Mic,
+                            title = if (activeQuery.isNotEmpty() || dateFilter != DateFilter.ALL) "No matches" else "No transcriptions yet",
+                            description = if (activeQuery.isNotEmpty())
                                 "Try a different word, or clear the search to see everything."
+                            else if (dateFilter != DateFilter.ALL)
+                                "Nothing in this period yet."
                             else if (!isKeyboardActive)
                                 "Enable the Fluence keyboard in Android Settings to begin voice typing."
                             else if (!isMicGranted)
@@ -313,10 +454,7 @@ fun HistoryScreen(
                         )
                     }
                 } else {
-                    groupedEntries.forEachIndexed { index, (label, entries) ->
-                        val isExpanded = label in expandedGroups
-                        val hiddenCount = entries.size - PREVIEW_COUNT
-                        val showExpandButton = !isExpanded && hiddenCount > 0
+                    groupedEntries.forEach { group ->
                         // Group expand/collapse animates the overflow rows
                         // (fade + vertical expand over the structural tier);
                         // reduced motion toggles them instantly.
@@ -327,50 +465,28 @@ fun HistoryScreen(
                         else fadeOut(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
                             shrinkVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing))
 
-                        item(key = "header_$label") {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = FluenceSpacing.Base)
-                            ) {
-                                if (index == 0) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = FluenceSpacing.Md, bottom = FluenceSpacing.Xs),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            color = TextTertiary,
-                                            style = FluenceTypography.labelSmall
-                                        )
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        if (!isMultiSelect) {
-                                            TextButton(
-                                                onClick = { showClearAllDialog = true },
-                                                contentPadding = PaddingValues(horizontal = FluenceSpacing.Xs, vertical = 0.dp),
-                                                modifier = Modifier.heightIn(min = 44.dp)
-                                            ) {
-                                                Text("Clear History", color = TextTertiary, style = FluenceTypography.labelSmall)
-                                            }
-                                        }
+                        stickyHeader(key = "day_${group.key}") {
+                            DayGroupHeader(
+                                label = group.label,
+                                countText = if (group.items.size == 1) "1 transcription"
+                                else "${group.items.size} transcriptions",
+                                collapsed = group.key in collapsedDays,
+                                onToggle = {
+                                    collapsedDays = if (group.key in collapsedDays) {
+                                        collapsedDays - group.key
+                                    } else {
+                                        collapsedDays + group.key
                                     }
-                                } else {
-                                    Text(
-                                        text = label,
-                                        color = TextTertiary,
-                                        style = FluenceTypography.labelSmall,
-                                        modifier = Modifier.padding(top = FluenceSpacing.Md, bottom = FluenceSpacing.Xs)
-                                    )
                                 }
-                                HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
-                            }
+                            )
                         }
 
-                        itemsIndexed(entries, key = { _, entry -> "${label}_${entry.id}" }) { rowIndex, entry ->
+                        itemsIndexed(
+                            group.items,
+                            key = { _, entry -> "row_${entry.id}" }
+                        ) { _, entry ->
                             AnimatedVisibility(
-                                visible = rowIndex < PREVIEW_COUNT || isExpanded,
+                                visible = group.key !in collapsedDays,
                                 enter = rowEnter,
                                 exit = rowExit,
                                 modifier = Modifier.animateItemPlacement(),
@@ -379,12 +495,18 @@ fun HistoryScreen(
                                     entry = entry,
                                     isSelected = entry.id in selectedIds,
                                     isMultiSelect = isMultiSelect,
+                                    expanded = entry.id == expandedEntryId,
+                                    isRailEnd = entry.id == lastVisibleId,
                                     onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
+                                    onToggleExpand = {
+                                        expandedEntryId =
+                                            if (expandedEntryId == entry.id) null else entry.id
+                                    },
                                     onOpenDetail = { onOpenDetail(entry.id) },
                                     onCopy = {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
-                                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                        FeedbackBus.show("Copied to clipboard")
                                     },
                                     onDelete = {
                                         pendingDeleteIds = listOf(entry.id)
@@ -394,50 +516,16 @@ fun HistoryScreen(
                             }
                         }
 
-                        if (showExpandButton) {
-                            item(key = "expand_$label") {
-                                TextButton(
-                                    onClick = { expandedGroups = expandedGroups + label },
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
-                                    contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
-                                ) {
-                                    Text(
-                                        "Show $hiddenCount more",
-                                        color = TextTertiary,
-                                        style = FluenceTypography.labelMedium
-                                    )
-                                }
-                            }
-                        }
-
-                        if (entries.size > PREVIEW_COUNT) {
-                            item(key = "collapse_$label") {
-                                AnimatedVisibility(
-                                    visible = isExpanded,
-                                    enter = rowEnter,
-                                    exit = rowExit,
-                                ) {
-                                    TextButton(
-                                        onClick = { expandedGroups = expandedGroups - label },
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = FluenceSpacing.Base),
-                                        contentPadding = PaddingValues(vertical = FluenceSpacing.Sm)
-                                    ) {
-                                        Text(
-                                            "Show less",
-                                            color = TextTertiary,
-                                            style = FluenceTypography.labelMedium
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        // All rows render flat (no per-group paging — Windows
+                        // parity; the set stays small enough that no paging
+                        // is needed).
                     }
                     item(key = "bottom_spacer") {
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxl))
-                        Spacer(modifier = Modifier.navigationBarsPadding())
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
                     }
                 }
             }
+        }
         }
 
         if (showDeleteDialog) {
@@ -456,10 +544,10 @@ fun HistoryScreen(
                             selectedIds = selectedIds - pendingDeleteIds.toSet()
                         }
                         showDeleteDialog = false
-                    }) { Text("Delete", color = ErrorText) }
+                    }) { Text("Delete", color = ErrorText, style = FluenceTypography.labelLarge) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = TextSecondary) }
+                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge) }
                 }
             )
         }
@@ -470,15 +558,15 @@ fun HistoryScreen(
                 titleContentColor = TextPrimary,
                 textContentColor = TextSecondary,
                 title = { Text("Clear History") },
-                text = { Text("This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone.") },
+                text = { Text("This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone. Statistics are unaffected.") },
                 confirmButton = {
                     TextButton(onClick = {
                         coroutineScope.launch { repository.clearAll() }
                         showClearAllDialog = false
-                    }) { Text("Clear All", color = ErrorText) }
+                    }) { Text("Clear All", color = ErrorText, style = FluenceTypography.labelLarge) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = TextSecondary) }
+                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge) }
                 }
             )
         }
@@ -497,7 +585,7 @@ fun HistoryScreen(
 private fun HistorySearchBar(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
-    onSortClick: () -> Unit
+    modifier: Modifier = Modifier
 ) {
     OutlinedTextField(
         value = searchQuery,
@@ -510,14 +598,9 @@ private fun HistorySearchBar(
             Icon(FluenceIcons.Search, "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
         },
         trailingIcon = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(36.dp)) {
-                        Icon(FluenceIcons.X, "Clear search", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
-                }
-                IconButton(onClick = onSortClick, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.Sort, "Sort", tint = TextSecondary, modifier = Modifier.size(18.dp))
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(FluenceSpacing.Xxl)) {
+                    Icon(FluenceIcons.X, "Clear search", tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         },
@@ -528,10 +611,46 @@ private fun HistorySearchBar(
             focusedContainerColor = Panel,
             unfocusedContainerColor = Panel,
             focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary
+            unfocusedTextColor = TextPrimary,
+            cursorColor = TextPrimary
         ),
-        modifier = Modifier.fillMaxWidth().height(48.dp)
+        modifier = modifier.fillMaxWidth().height(FluenceSpacing.Xxl)
     )
+}
+
+/** Windows historyItemMeta parity: "7m ago · 87 words · 6s". */
+private fun historyRowMeta(entry: TranscriptionEntry): String {
+    val parts = mutableListOf<String>()
+    val words = StatsCalculator.wordCountOf(entry.text)
+    if (words > 0) parts.add(if (words == 1) "1 word" else "$words words")
+    if (entry.durationMs > 0) {
+        val s = Math.round(entry.durationMs / 1000.0).toInt()
+        parts.add(if (s < 60) "${s}s" else "${s / 60}m ${(s % 60).toString().padStart(2, '0')}s")
+    }
+    return (listOf(formatTimestamp(entry.timestamp)) + parts).joinToString(" · ")
+}
+
+@Composable
+private fun ModeBadge(isAgentMode: Boolean) {
+    // Windows parity: the row badge renders the raw mode string; agent is
+    // neutral (amethyst is not a badge tone per DESIGN_SYSTEM.md) and
+    // transcription keeps the success treatment both sides use.
+    val tone = if (isAgentMode) TextSecondary else Success
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(tone.copy(alpha = 0.15f))
+            .padding(horizontal = FluenceSpacing.Sm, vertical = 3.dp)
+    ) {
+        Text(
+            text = if (isAgentMode) "agent" else "transcription",
+            color = tone,
+            style = FluenceTypography.labelSmall.copy(
+                fontFamily = GeistMonoFont,
+                fontWeight = FontWeight.SemiBold
+            )
+        )
+    }
 }
 
 @Composable
@@ -539,7 +658,10 @@ private fun HistoryTranscriptRow(
     entry: TranscriptionEntry,
     isSelected: Boolean,
     isMultiSelect: Boolean,
+    expanded: Boolean,
+    isRailEnd: Boolean,
     onToggleSelect: () -> Unit,
+    onToggleExpand: () -> Unit,
     onOpenDetail: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
@@ -552,12 +674,14 @@ private fun HistoryTranscriptRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(IntrinsicSize.Min)
                 .semantics(mergeDescendants = true) {
                     if (isSelected) stateDescription = "Selected"
                     onClick(
-                        label = if (isMultiSelect || isSelected) "Toggle selection" else "Copy transcription"
+                        label = if (isMultiSelect || isSelected) "Toggle selection"
+                        else if (expanded) "Collapse" else "Expand"
                     ) {
-                        if (isMultiSelect || isSelected) onToggleSelect() else onCopy()
+                        if (isMultiSelect || isSelected) onToggleSelect() else onToggleExpand()
                         true
                     }
                     onLongClick(label = "Select") {
@@ -565,18 +689,37 @@ private fun HistoryTranscriptRow(
                         true
                     }
                 }
-                .pointerInput(isSelected, isMultiSelect) {
+                .pointerInput(isSelected, isMultiSelect, expanded) {
                     detectTapGestures(
                         onLongPress = { onToggleSelect() },
                         onTap = {
-                            if (isMultiSelect || isSelected) onToggleSelect() else onCopy()
+                            if (isMultiSelect || isSelected) onToggleSelect() else onToggleExpand()
                         }
                     )
                 }
-                .background(bgColor)
-                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md),
-            verticalAlignment = Alignment.CenterVertically
+                .background(bgColor),
+            verticalAlignment = Alignment.Top
         ) {
+            // Timeline rail (Windows parity): per-row segments so the rail
+            // spans the scrolled height; the last visible row ends it.
+            Box(modifier = Modifier.width(40.dp).fillMaxHeight()) {
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .then(if (isRailEnd) Modifier.height(FluenceSpacing.Lg) else Modifier.fillMaxHeight())
+                        .align(Alignment.TopCenter)
+                        .offset(x = FluenceSpacing.N7)
+                        .background(OutlineSubtle)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(FluenceSpacing.N7)
+                        .align(Alignment.TopCenter)
+                        .offset(x = FluenceSpacing.N7, y = FluenceSpacing.Base)
+                        .background(CardSurface, CircleShape)
+                        .border(1.5.dp, TextTertiary, CircleShape)
+                )
+            }
             if (isSelected) {
                 Box(
                     modifier = Modifier
@@ -585,56 +728,141 @@ private fun HistoryTranscriptRow(
                         .background(TextPrimary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Check, null, tint = Canvas, modifier = Modifier.size(12.dp))
+                    Icon(FluenceIcons.Check, null, tint = Canvas, modifier = Modifier.size(12.dp))
                 }
                 Spacer(modifier = Modifier.width(FluenceSpacing.Md))
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(
+                        start = FluenceSpacing.Xs,
+                        end = FluenceSpacing.Base,
+                        top = FluenceSpacing.Md,
+                        bottom = FluenceSpacing.Md
+                    )
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        historyRowMeta(entry),
+                        color = TextSecondary,
+                        style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ModeBadge(isAgentMode = entry.isAgentMode)
+                }
+                if (foreign) {
+                    Text(
+                        "Synced to another account",
+                        color = TextTertiary,
+                        style = FluenceTypography.labelSmall
+                    )
+                }
                 Text(
                     entry.text,
                     color = if (foreign) TextSecondary else TextPrimary,
                     style = FluenceTypography.bodyMedium,
-                    maxLines = 2,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(formatTimestamp(entry.timestamp), color = TextTertiary, style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont))
-                    if (foreign) {
-                        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-                        Text(
-                            "Synced to another account",
-                            color = TextTertiary,
-                            style = FluenceTypography.labelSmall
-                        )
-                    }
-                }
             }
-            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(44.dp)) {
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(FluenceSpacing.Xxl)) {
                     Icon(FluenceIcons.MoreHorizontal, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
                 }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier
+                        .background(DialogSurface, FluenceShapes.Medium)
+                        .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                ) {
                     DropdownMenuItem(
-                        text = { Text("View", color = TextPrimary, style = FluenceTypography.bodySmall) },
-                        leadingIcon = { Icon(Icons.Default.Visibility, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
+                        text = { Text("View", color = TextPrimary, style = FluenceTypography.bodyLarge) },
+                        leadingIcon = { Icon(FluenceIcons.Eye, null, tint = TextSecondary, modifier = Modifier.size(20.dp)) },
                         onClick = { onOpenDetail(); showMenu = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodySmall) },
-                        leadingIcon = { Icon(FluenceIcons.Copy, null, tint = TextSecondary, modifier = Modifier.size(16.dp)) },
+                        text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodyLarge) },
+                        leadingIcon = { Icon(FluenceIcons.Copy, null, tint = TextSecondary, modifier = Modifier.size(20.dp)) },
                         onClick = { onCopy(); showMenu = false }
                     )
                     if (!foreign) {
                         DropdownMenuItem(
-                            text = { Text("Delete", color = Error, style = FluenceTypography.bodySmall) },
-                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = Error, modifier = Modifier.size(16.dp)) },
+                            text = { Text("Delete", color = Error, style = FluenceTypography.bodyLarge) },
+                            leadingIcon = { Icon(FluenceIcons.Trash2, null, tint = Error, modifier = Modifier.size(20.dp)) },
                             onClick = { onDelete(); showMenu = false }
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DayGroupHeader(
+    label: String,
+    countText: String,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+) {
+    // Windows collapsible day headers: the whole header toggles, chevron
+    // rotates, rows animate away. Opaque card background so sliding rows
+    // never show through while stuck.
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (collapsed) -90f else 0f,
+        animationSpec = if (reducedMotion) snap() else tween(
+            durationMillis = FluenceMotion.durationImmediate
+        ),
+        label = "group_chevron"
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardSurface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = if (collapsed) "Expand $label" else "Collapse $label",
+                    onClick = onToggle
+                )
+                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                .heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = FluenceIcons.ChevronDown,
+                contentDescription = null,
+                tint = TextTertiary,
+                modifier = Modifier
+                    .size(14.dp)
+                    .rotate(chevronAngle)
+            )
+            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+            Text(
+                text = label.uppercase(Locale.US),
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall.copy(
+                    fontFamily = GeistMonoFont,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.8.sp
+                ),
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = countText,
+                color = TextTertiary,
+                style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
+            )
+        }
+        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
     }
 }
 
@@ -653,28 +881,28 @@ private fun HistorySortBottomSheet(
         contentColor = TextPrimary,
         shape = FluenceShapes.Large,
         windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(32.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(TextPrimary.copy(alpha = 0.18f))
-            )
-        }
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = FluenceSpacing.Md)
+                        .width(FluenceSpacing.Xl)
+                        .height(FluenceSpacing.Xs)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(TextPrimary.copy(alpha = 0.18f))
+                )
+            }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(bottom = 16.dp)
+                .padding(bottom = FluenceSpacing.Base)
         ) {
             Text(
                 text = "Sort by",
                 color = TextPrimary,
                 style = FluenceTypography.headlineMedium,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
+                modifier = Modifier.padding(start = FluenceSpacing.Lg, end = FluenceSpacing.Lg, top = FluenceSpacing.Xs, bottom = FluenceSpacing.Md)
             )
 
             SortOption.values().forEach { option ->
@@ -702,7 +930,7 @@ private fun HistorySortBottomSheet(
                     )
                     if (option == selectedOption) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            imageVector = FluenceIcons.Check,
                             contentDescription = null,
                             tint = TextPrimary,
                             modifier = Modifier.size(20.dp)

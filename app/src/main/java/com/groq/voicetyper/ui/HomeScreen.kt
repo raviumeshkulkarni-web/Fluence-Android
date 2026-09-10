@@ -5,7 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -25,12 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -116,6 +110,7 @@ private fun formatSessions(n: Long): String = String.format(Locale.US, "%,d", n)
 @Composable
 fun HomeScreen(
     onOpenDrawer: () -> Unit,
+    showDrawerButton: Boolean = true,
     onNavigateToSettings: () -> Unit = {},
     onOpenDetail: (Long) -> Unit = {},
     onNavigateToSttConfig: () -> Unit = {},
@@ -235,18 +230,18 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .onSizeChanged { aboveHeight = with(density) { it.height.toDp() } }
             ) {
-            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-            HomeHeader(
-                onOpenDrawer = onOpenDrawer
+                HomeHeader(
+                onOpenDrawer = onOpenDrawer,
+                showDrawerButton = showDrawerButton
             )
-            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             HomeStatusBanner(
                 isKeyboardActive = isKeyboardActive,
                 sttProvider = sttProvider,
                 sttModel = sttModel,
                 context = context
             )
-            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
             val allStepsDone = isKeyboardActive && isMicGranted && isApiKeySet && hasTranscriptions
             val reducedMotion = LocalMotionPreferences.current.reducedMotion
@@ -274,12 +269,12 @@ fun HomeScreen(
                         onboardingDismissed = true
                     }
                     )
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
                 }
             }
 
             // Dashboard body: stat cards, then the chart card fills the rest.
-            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
                 val trend = remember(unifiedDailyStats, chartRange) {
                     trendForRange(unifiedDailyStats, chartRange)
                 }
@@ -293,7 +288,7 @@ fun HomeScreen(
                     },
                     trend = trend,
                 )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             }
                 // Ledger-gated, never History-gated: synced contributions must
                 // not show an empty dashboard (Windows shows the same ledger).
@@ -307,7 +302,7 @@ fun HomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            Icons.Default.Mic,
+                            FluenceIcons.Mic,
                             contentDescription = null,
                             tint = BrandAmethyst.copy(alpha = 0.4f),
                             modifier = Modifier.size(32.dp)
@@ -341,24 +336,31 @@ fun HomeScreen(
 
 @Composable
 private fun HomeHeader(
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    showDrawerButton: Boolean = true
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp),
+            .height(64.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = onOpenDrawer,
-            modifier = Modifier.size(44.dp).pressScale(remember { MutableInteractionSource() })
-        ) {
-            Icon(Icons.Default.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(20.dp))
+        if (showDrawerButton) {
+            IconButton(
+                onClick = onOpenDrawer,
+                modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
+            ) {
+                Icon(FluenceIcons.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(24.dp))
+            }
+        } else {
+            // Permanent sidebar is already visible — keep the balance spacer
+            // so the lockup stays centered.
+            Spacer(modifier = Modifier.size(48.dp))
         }
         Spacer(modifier = Modifier.weight(1f))
-        FluenceProductLockup(productName = "Transcribe", orbSize = 32.dp, wordmarkSize = 20.sp)
+        FluenceProductLockup(productName = "Transcribe", orbSize = 32.dp, wordmarkSize = 22.sp)
         Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.size(44.dp))
+        Spacer(modifier = Modifier.size(48.dp))
     }
 }
 
@@ -379,6 +381,7 @@ private fun HomeStatusBanner(
             .clickable(onClickLabel = "Open keyboard settings") {
                 context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
             }
+            .heightIn(min = 48.dp)
             .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -389,7 +392,7 @@ private fun HomeStatusBanner(
                 .background(statusColor)
         )
         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-        Text(statusText, color = TextPrimary, style = FluenceTypography.bodySmall.copy(fontWeight = FontWeight.Medium))
+        Text(statusText, color = TextPrimary, style = FluenceTypography.labelLarge)
         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
         Text("·", color = TextTertiary, style = FluenceTypography.bodySmall)
         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
@@ -496,7 +499,18 @@ private fun DashboardStatCell(
     val context = LocalContext.current
     Column(
         modifier = modifier
-            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Base),
+            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Base)
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+                onLongClickLabel = "Copy value",
+                onLongClick = {
+                    val clipboard = context.getSystemService(ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("Fluence statistic", value))
+                    FeedbackBus.show("Copied to clipboard")
+                },
+            ),
         verticalArrangement = Arrangement.Center
     ) {
         // Windows KPI titles render uppercase via styling; the semantic
@@ -504,8 +518,7 @@ private fun DashboardStatCell(
         Text(
             text = title.uppercase(Locale.US),
             color = TextSecondary,
-            style = FluenceTypography.labelMedium.copy(
-                fontSize = 14.sp,
+            style = FluenceTypography.labelLarge.copy(
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.56.sp,
             ),
@@ -525,18 +538,7 @@ private fun DashboardStatCell(
                 fontFeatureSettings = "tnum",
             ),
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClickLabel = "Copy value",
-                onLongClick = {
-                    val clipboard = context.getSystemService(ClipboardManager::class.java)
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("Fluence statistic", value))
-                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                },
-            )
+            overflow = TextOverflow.Ellipsis
         )
         if (trend != null) {
             Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
@@ -652,10 +654,10 @@ private fun FirstRunOnboardingCard(
             }
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(FluenceSpacing.Xxl)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = FluenceIcons.X,
                     contentDescription = "Dismiss checklist",
                     tint = TextTertiary,
                     modifier = Modifier.size(18.dp)
@@ -728,7 +730,7 @@ private fun OnboardingStepRow(
         ) {
             if (isDone) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = FluenceIcons.Check,
                     contentDescription = "Step $stepNumber completed",
                     tint = Success,
                     modifier = Modifier.size(14.dp)
@@ -737,7 +739,7 @@ private fun OnboardingStepRow(
                 Text(
                     text = stepNumber.toString(),
                     color = TextSecondary,
-                    style = FluenceTypography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    style = FluenceTypography.labelSmall
                 )
             }
         }
@@ -755,12 +757,12 @@ private fun OnboardingStepRow(
             TextButton(
                 onClick = onAction,
                 contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm, vertical = 0.dp),
-                modifier = Modifier.heightIn(min = 44.dp)
+                modifier = Modifier.heightIn(min = 48.dp)
             ) {
                 Text(
                     text = actionLabel,
                     color = BrandAmethyst,
-                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    style = FluenceTypography.labelMedium
                 )
             }
         }

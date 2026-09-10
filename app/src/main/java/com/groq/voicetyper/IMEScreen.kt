@@ -82,6 +82,8 @@ import com.groq.voicetyper.theme.AgentTeal
 import com.groq.voicetyper.theme.AgentTealSoft
 import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.Error
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.ImeInkDark
 import com.groq.voicetyper.theme.ImePillBg
 import com.groq.voicetyper.theme.ImePillBgActive
@@ -224,8 +226,7 @@ fun IMEScreen(
             Text(
                 text = statusText,
                 color = statusTextColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                style = FluenceTypography.labelMedium,
                 modifier = Modifier
                     .background(ImeStatusBg, RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
@@ -289,7 +290,7 @@ fun IMEScreen(
             IconButton(
                 onClick = onSwitchKeyboard,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(FluenceSpacing.Xxl)
                     .semantics { contentDescription = "Switch keyboard" }
             ) {
                 Canvas(modifier = Modifier.size(24.dp)) {
@@ -352,7 +353,7 @@ fun IMEScreen(
                 if (recordingState == RecordingState.TRANSCRIBING) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
-                        color = Color.White,
+                        color = TextPrimary,
                         strokeWidth = 2.dp
                     )
                 } else {
@@ -499,7 +500,7 @@ fun IMEScreen(
             // 3. Backspace Icon
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(FluenceSpacing.Xxl)
                     .semantics {
                         role = Role.Button
                         contentDescription = "Backspace"

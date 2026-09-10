@@ -1,29 +1,26 @@
 package com.groq.voicetyper.dictionary.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.autolearn.ui.PendingSuggestionsSection
@@ -31,11 +28,13 @@ import com.groq.voicetyper.dictionary.DictionaryPreferences
 import com.groq.voicetyper.dictionary.DictionaryRepository
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DictionaryScreen(
     onNavigateBack: () -> Unit,
@@ -65,52 +64,20 @@ fun DictionaryScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Header — Monochrome chrome
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .pressScale(remember { MutableInteractionSource() })
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+            // Header (History rhythm): back + title + subtitle. The enable
+            // toggle lives in Correction Learning below, not in the chrome.
+            SettingsTopBar(
+                title = "Custom Dictionary",
+                onBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Text(
-                    text = "Custom Dictionary",
-                    color = TextPrimary,
-                    style = FluenceTypography.headlineLarge,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Switch matching Online/Offline transcription toggle style
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = { checked ->
-                        isEnabled = checked
-                        DictionaryPreferences.setDictionaryEnabled(context, checked)
-                    },
-                    modifier = Modifier.semantics { contentDescription = "Custom Dictionary" },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
-                    )
-                )
-            }
+            Text(
+                text = "Correct specific words or phrases automatically after transcription",
+                color = TextSecondary,
+                style = FluenceTypography.bodySmall,
+                modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+            )
 
             if (!isEnabled) {
                 Surface(
@@ -130,129 +97,117 @@ fun DictionaryScreen(
                 }
             }
 
-            // Explicit Auto Learn Toggle & Status Banner
-            Surface(
-                color = PanelElevated,
-                shape = RoundedCornerShape(12.dp),
+            // Card fills the remaining viewport (Windows parity): Correction
+            // Learning rows, Word Corrections table rows, then Suggested
+            // Corrections — no per-row cards, dividers do the separating.
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .border(1.dp, OutlineSubtle, RoundedCornerShape(12.dp))
+                    .weight(1f)
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .background(CardSurface, FluenceShapes.Medium)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Auto Learn Corrections",
-                            color = TextPrimary,
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (isAutoLearnEnabled) "Observes edits after voice typing" else "Auto Learn paused",
-                            color = TextSecondary,
-                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
-                        )
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    item {
+                        FluenceSectionHeader(label = "CORRECTION LEARNING")
                     }
-                    Switch(
-                        checked = isAutoLearnEnabled,
-                        onCheckedChange = { checked ->
-                            isAutoLearnEnabled = checked
-                            AutoLearnPreferences.setAutoLearnEnabled(context, checked)
-                        },
-                        modifier = Modifier.semantics { contentDescription = "Auto Learn Corrections" },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Panel,
-                            checkedTrackColor = TextPrimary,
-                            uncheckedThumbColor = TextPrimary,
-                            uncheckedTrackColor = Panel
-                        )
-                    )
-                }
-            }
-
-            // Render Auto Learn Pending Suggestions Section if suggestions exist
-            PendingSuggestionsSection()
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            if (visibleEntries.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    FluenceEmptyState(
-                        icon = Icons.Default.Book,
-                        title = "No dictionary entries yet",
-                        description = "Add custom words or phrases and Fluence will automatically replace them while you dictate.",
-                        actionLabel = "Add your first word",
-                        onAction = {
-                            entryToEdit = null
-                            showDialog = true
-                        }
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(
-                        items = visibleEntries,
-                        key = { it.id }
-                    ) { entry ->
-                        DictionaryEntryCard(
-                            entry = entry,
-                            modifier = Modifier.animateItemPlacement(),
-                            onToggleEnabled = { enabled ->
-                                scope.launch {
-                                    DictionaryRepository.toggleEntryEnabled(context, entry, enabled)
-                                }
-                            },
-                            onEdit = {
-                                entryToEdit = entry
-                                showDialog = true
-                            },
-                            onDelete = {
-                                scope.launch {
-                                    DictionaryRepository.deleteEntry(context, entry)
-                                    Toast.makeText(context, "Entry deleted", Toast.LENGTH_SHORT).show()
-                                }
+                    item {
+                        LearningRow(
+                            title = "Dictionary Enabled",
+                            description = "Replacements apply during transcription",
+                            checked = isEnabled,
+                            toggleLabel = "Dictionary enabled",
+                            onCheckedChange = { checked ->
+                                isEnabled = checked
+                                DictionaryPreferences.setDictionaryEnabled(context, checked)
                             }
                         )
                     }
+                    item {
+                        HorizontalDivider(
+                            color = OutlineSubtle,
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                        )
+                    }
+                    item {
+                        LearningRow(
+                            title = "Auto-Learn Corrections",
+                            description = "Suggest transcription corrections based on detected patterns",
+                            checked = isAutoLearnEnabled,
+                            toggleLabel = "Auto Learn Corrections",
+                            onCheckedChange = { checked ->
+                                isAutoLearnEnabled = checked
+                                AutoLearnPreferences.setAutoLearnEnabled(context, checked)
+                            }
+                        )
+                    }
+                    item {
+                        FluenceSectionHeader(
+                            label = "WORD CORRECTIONS",
+                            actionLabel = "+ Add",
+                            onAction = {
+                                entryToEdit = null
+                                showDialog = true
+                            }
+                        )
+                    }
+                    if (visibleEntries.isEmpty()) {
+                        item {
+                            FluenceEmptyState(
+                                icon = FluenceIcons.BookOpen,
+                                title = "No dictionary entries yet",
+                                description = "Add corrections for words that are often misheard during transcription",
+                                actionLabel = "Add your first word",
+                                onAction = {
+                                    entryToEdit = null
+                                    showDialog = true
+                                },
+                                modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
+                            )
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = visibleEntries,
+                            key = { _, entry -> entry.id }
+                        ) { index, entry ->
+                            DictionaryEntryRow(
+                                entry = entry,
+                                onToggleEnabled = { enabled ->
+                                    scope.launch {
+                                        DictionaryRepository.toggleEntryEnabled(context, entry, enabled)
+                                    }
+                                },
+                                onEdit = {
+                                    entryToEdit = entry
+                                    showDialog = true
+                                },
+                                onDelete = {
+                                    scope.launch {
+                                        DictionaryRepository.deleteEntry(context, entry)
+                                        FeedbackBus.show("Entry deleted")
+                                    }
+                                }
+                            )
+                            if (index < visibleEntries.lastIndex) {
+                                HorizontalDivider(
+                                    color = OutlineSubtle,
+                                    thickness = 1.dp,
+                                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        FluenceSectionHeader(label = "SUGGESTED CORRECTIONS")
+                    }
+                    item {
+                        PendingSuggestionsSection()
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                    }
                 }
             }
-        }
-
-        // FAB: Monochrome surface
-        FloatingActionButton(
-            onClick = {
-                entryToEdit = null
-                showDialog = true
-            },
-            containerColor = PanelElevated,
-            contentColor = TextPrimary,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-                .border(1.dp, OutlineSubtle, RoundedCornerShape(16.dp))
-                .pressScale(remember { MutableInteractionSource() })
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add Entry",
-                tint = TextPrimary
-            )
         }
     }
 
@@ -275,11 +230,7 @@ fun DictionaryScreen(
                     if (result == DictionaryRepository.SaveResult.PRESERVED) {
                         // Phrase already exists under another entry: keep the dialog
                         // open so the user's edit is not silently lost.
-                        Toast.makeText(
-                            context,
-                            "An entry with this phrase already exists",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        FeedbackBus.show("An entry with this phrase already exists")
                     } else {
                         showDialog = false
                         entryToEdit = null
@@ -291,77 +242,109 @@ fun DictionaryScreen(
 }
 
 @Composable
-private fun DictionaryEntryCard(
+private fun LearningRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    toggleLabel: String,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = TextPrimary,
+                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = description,
+                color = TextSecondary,
+                style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.semantics { contentDescription = toggleLabel },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Panel,
+                checkedTrackColor = TextPrimary,
+                uncheckedThumbColor = TextPrimary,
+                uncheckedTrackColor = Panel
+            )
+        )
+    }
+}
+
+@Composable
+private fun DictionaryEntryRow(
     entry: CustomDictionaryEntry,
     onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Panel,
-        shape = RoundedCornerShape(14.dp),
-        shadowElevation = 3.dp,
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, OutlineSubtle, RoundedCornerShape(14.dp))
-            .clickable { onEdit() }
+            .clickable(role = Role.Button, onClickLabel = "Edit entry", onClick = onEdit)
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = entry.spokenText,
-                        color = if (entry.isEnabled) TextPrimary else TextDisabled,
-                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        text = " \u2192 ",
-                        color = TextTertiary,
-                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Text(
-                        text = entry.replacementText,
-                        color = if (entry.isEnabled) TextPrimary else TextDisabled,
-                        style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Card item Switch matching Online/Offline toggle colors
-            Switch(
-                checked = entry.isEnabled,
-                onCheckedChange = onToggleEnabled,
-                modifier = Modifier.semantics { contentDescription = "Enable ${entry.spokenText}" },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Panel,
-                    checkedTrackColor = TextPrimary,
-                    uncheckedThumbColor = TextPrimary,
-                    uncheckedTrackColor = Panel
-                )
+            Text(
+                text = entry.spokenText,
+                color = if (entry.isEnabled) TextPrimary else TextDisabled,
+                style = FluenceTypography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
+            Text(
+                text = " → ",
+                color = TextTertiary,
+                style = FluenceTypography.bodyMedium
+            )
+            Text(
+                text = entry.replacementText,
+                color = if (entry.isEnabled) TextPrimary else TextDisabled,
+                style = FluenceTypography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+        }
 
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete Entry",
-                    tint = TextTertiary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+        Switch(
+            checked = entry.isEnabled,
+            onCheckedChange = onToggleEnabled,
+            modifier = Modifier.semantics { contentDescription = "Enable ${entry.spokenText}" },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Panel,
+                checkedTrackColor = TextPrimary,
+                uncheckedThumbColor = TextPrimary,
+                uncheckedTrackColor = Panel
+            )
+        )
+
+        TextButton(
+            onClick = onDelete,
+            contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            Text("Delete", color = TextSecondary, style = FluenceTypography.labelMedium)
         }
     }
 }
@@ -397,7 +380,7 @@ private fun AddEditDictionaryDialog(
                         spokenText = it
                         errorMessage = null
                     },
-                    label = { Text("Spoken Phrase (Input)") },
+                    label = { Text("Spoken Word/Phrase") },
                     placeholder = { Text("e.g. fluence") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -408,7 +391,8 @@ private fun AddEditDictionaryDialog(
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
                         focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -419,7 +403,7 @@ private fun AddEditDictionaryDialog(
                         replacementText = it
                         errorMessage = null
                     },
-                    label = { Text("Replace With (Output)") },
+                    label = { Text("Corrected Form") },
                     placeholder = { Text("e.g. Fluence") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -430,7 +414,8 @@ private fun AddEditDictionaryDialog(
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
                         focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -439,7 +424,7 @@ private fun AddEditDictionaryDialog(
                     Text(
                         text = errorMessage!!,
                         color = Error,
-                        style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                        style = FluenceTypography.labelMedium
                     )
                 }
             }
@@ -456,12 +441,12 @@ private fun AddEditDictionaryDialog(
                     }
                 }
             ) {
-                Text("Save", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Text("Save", color = TextPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
+                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

@@ -61,11 +61,11 @@ import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.Canvas
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.OutlineSubtle
 import com.groq.voicetyper.theme.Panel
 import com.groq.voicetyper.theme.PanelElevated
@@ -193,7 +193,7 @@ fun PrivacyExclusionsScreen(
                         IconButton(
                             onClick = { searchQuery = "" },
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(FluenceSpacing.Xxl)
                                 .pressScale(remember { MutableInteractionSource() })
                         ) {
                             Icon(
@@ -212,7 +212,7 @@ fun PrivacyExclusionsScreen(
                     unfocusedBorderColor = OutlineSubtle,
                     focusedContainerColor = PanelElevated,
                     unfocusedContainerColor = PanelElevated,
-                    cursorColor = BrandAmethyst
+                    cursorColor = TextPrimary
                 ),
                 shape = FluenceShapes.Small,
                 modifier = Modifier
@@ -304,7 +304,7 @@ private fun AppExclusionRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label, color = TextPrimary, style = FluenceTypography.titleMedium)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(app.packageName, color = TextSecondary, style = FluenceTypography.bodySmall)
+            Text(app.packageName, color = TextSecondary, style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont))
         }
 
         // Monochrome Switch Styling matching app design system

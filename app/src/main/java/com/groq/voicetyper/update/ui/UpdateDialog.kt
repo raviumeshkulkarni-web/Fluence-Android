@@ -13,7 +13,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.remember
@@ -92,8 +91,7 @@ private fun UpdateAvailableDialog(
             ) {
                 Text(
                     text = "Update Available",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = FluenceTypography.headlineMedium,
                     color = TextPrimary
                 )
 
@@ -101,18 +99,16 @@ private fun UpdateAvailableDialog(
 
                 Text(
                     text = "Version ${state.metadata.versionName} (Build ${state.metadata.versionCode})",
-                    fontSize = 14.sp,
                     color = TextSecondary,
-                    fontWeight = FontWeight.Medium
+                    style = FluenceTypography.labelLarge
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
                     text = "What's New:",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    style = FluenceTypography.labelLarge
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -128,9 +124,8 @@ private fun UpdateAvailableDialog(
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(
                             text = formatReleaseNotes(state.releaseNotes),
-                            fontSize = 13.sp,
                             color = TextSecondary,
-                            lineHeight = 18.sp
+                            style = FluenceTypography.bodySmall
                         )
                     }
                 }
@@ -148,7 +143,7 @@ private fun UpdateAvailableDialog(
                         .fillMaxWidth()
                         .pressScale(remember { MutableInteractionSource() })
                 ) {
-                    Text("Update Now", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Update Now", color = TextPrimary, style = FluenceTypography.labelLarge)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -158,10 +153,10 @@ private fun UpdateAvailableDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     TextButton(onClick = onSkipVersion) {
-                        Text("Skip Version", color = TextSecondary, fontSize = 13.sp)
+                        Text("Skip Version", color = TextSecondary, style = FluenceTypography.labelMedium)
                     }
                     TextButton(onClick = onRemindMeLater) {
-                        Text("Remind Me Later", color = TextSecondary, fontSize = 13.sp)
+                        Text("Remind Me Later", color = TextSecondary, style = FluenceTypography.labelMedium)
                     }
                 }
             }
@@ -190,9 +185,8 @@ private fun UpdateDownloadingDialog(
             ) {
                 Text(
                     text = "Downloading Update…",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    style = FluenceTypography.headlineMedium
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -219,14 +213,13 @@ private fun UpdateDownloadingDialog(
                 ) {
                     Text(
                         text = "${state.progressPercent}%",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        style = FluenceTypography.bodySmall
                     )
                     Text(
                         text = if (state.totalBytes > 0) "$downloadedFormatted / $totalFormatted" else downloadedFormatted,
-                        fontSize = 13.sp,
-                        color = TextSecondary
+                        color = TextSecondary,
+                        style = FluenceTypography.bodySmall
                     )
                 }
 
@@ -238,7 +231,7 @@ private fun UpdateDownloadingDialog(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
                     modifier = Modifier.pressScale(remember { MutableInteractionSource() })
                 ) {
-                    Text("Cancel Download")
+                    Text("Cancel Download", style = FluenceTypography.labelLarge)
                 }
             }
         }
@@ -268,8 +261,7 @@ private fun UpdateReadyToInstallDialog(
             ) {
                 Text(
                     text = "Ready to Install",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = FluenceTypography.headlineMedium,
                     color = TextPrimary
                 )
 
@@ -277,9 +269,8 @@ private fun UpdateReadyToInstallDialog(
 
                 Text(
                     text = "Fluence Transcribe Version ${state.metadata.versionName} has been downloaded and verified.",
-                    fontSize = 14.sp,
                     color = TextSecondary,
-                    lineHeight = 20.sp
+                    style = FluenceTypography.labelLarge
                 )
 
                 if (!canInstallPackages) {
@@ -293,9 +284,8 @@ private fun UpdateReadyToInstallDialog(
                     ) {
                         Text(
                             text = "To complete installation, please allow 'Install unknown apps' permission in System Settings.",
-                            fontSize = 13.sp,
                             color = Warning,
-                            lineHeight = 18.sp
+                            style = FluenceTypography.bodySmall
                         )
                     }
                 }
@@ -314,7 +304,7 @@ private fun UpdateReadyToInstallDialog(
                             .fillMaxWidth()
                             .pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text("Install Now", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        Text("Install Now", color = TextPrimary, style = FluenceTypography.labelLarge)
                     }
                 } else {
                     Button(
@@ -328,7 +318,7 @@ private fun UpdateReadyToInstallDialog(
                             .fillMaxWidth()
                             .pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text("Grant Permission", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        Text("Grant Permission", color = TextPrimary, style = FluenceTypography.labelLarge)
                     }
                 }
 
@@ -338,7 +328,7 @@ private fun UpdateReadyToInstallDialog(
                     onClick = onRemindMeLater,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Later", color = TextSecondary, fontSize = 13.sp)
+                    Text("Later", color = TextSecondary, style = FluenceTypography.labelMedium)
                 }
             }
         }
@@ -355,19 +345,19 @@ private fun UpdateErrorDialog(
         onDismissRequest = onDismiss,
         containerColor = DialogSurface,
         title = {
-            Text("Update Failed", color = ErrorText, fontWeight = FontWeight.Bold)
+            Text("Update Failed", color = ErrorText, style = FluenceTypography.headlineSmall)
         },
         text = {
-            Text(message, color = TextSecondary, fontSize = 14.sp)
+            Text(message, color = TextSecondary, style = FluenceTypography.labelLarge)
         },
         confirmButton = {
             TextButton(onClick = onRetry) {
-                Text("Retry", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Text("Retry", color = TextPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Dismiss", color = TextSecondary)
+                Text("Dismiss", color = TextSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

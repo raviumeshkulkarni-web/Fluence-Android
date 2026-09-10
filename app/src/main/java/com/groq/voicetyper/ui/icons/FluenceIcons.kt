@@ -175,4 +175,70 @@ object FluenceIcons {
         "Minus",
         listOf("M5 12h14"),
     )
+    val ChevronDown: ImageVector = lucideIcon(
+        "ChevronDown",
+        listOf("m6 9 6 6 6-6"),
+    )
+    // ── One-family ports (cross-platform parity audit) ──────────────────────
+    // Check / Trash2 / Menu / Eye / ArrowUpDown ported from lucide-react
+    // v1.41.0 — the exact version the Windows client renders — so shared
+    // surfaces (History, Home, drawer chrome) draw identical geometry on
+    // both platforms. Arc flags are space-delimited per the rules above;
+    // the eye circle is converted to two half-arcs. Material AutoMirrored
+    // ArrowBack is deliberately NOT ported: directional back chevrons must
+    // mirror in RTL locales, which a raw path cannot do.
+    val Check: ImageVector = lucideIcon(
+        "Check",
+        listOf("M20 6 9 17l-5-5"),
+    )
+    val Trash2: ImageVector = lucideIcon(
+        "Trash2",
+        listOf(
+            "M10 11v6",
+            "M14 11v6",
+            "M19 6 v14 a2 2 0 0 1 -2 2 H7 a2 2 0 0 1 -2 -2 V6",
+            "M3 6h18",
+            "M8 6 V4 a2 2 0 0 1 2 -2 h4 a2 2 0 0 1 2 2 v2",
+        ),
+    )
+    val Menu: ImageVector = lucideIcon(
+        "Menu",
+        listOf(
+            "M4 5h16",
+            "M4 12h16",
+            "M4 19h16",
+        ),
+    )
+    val Eye: ImageVector = lucideIcon(
+        "Eye",
+        listOf(
+            "M2.062 12.348 a1 1 0 0 1 0 -0.696 10.75 10.75 0 0 1 19.876 0 a1 1 0 0 1 0 0.696 10.75 10.75 0 0 1 -19.876 0",
+            "M9 12 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0",
+        ),
+    )
+    val ArrowUpDown: ImageVector = lucideIcon(
+        "ArrowUpDown",
+        listOf(
+            "m21 16-4 4-4-4",
+            "M17 20V4",
+            "m3 8 4-4 4 4",
+            "M7 4v16",
+        ),
+    )
+    // Zap + Lightbulb (same lucide-react v1.41.0 source): the empty states
+    // Windows pairs with these glyphs (Snippets, Suggested Corrections).
+    val Zap: ImageVector = lucideIcon(
+        "Zap",
+        listOf(
+            "M15.914 4 a1.5 1.5 0 0 0 -2.474 -1.561 l -9 9 A1.5 1.5 0 0 0 5.5 14 h4.002 a0.5 0.5 0 0 1 0.471 0.666 L8.086 20 a1.5 1.5 0 0 0 2.475 1.56 l9 -9 A1.5 1.5 0 0 0 18.5 10 h-3.997 a0.5 0.5 0 0 1 -0.472 -0.667 z",
+        ),
+    )
+    val Lightbulb: ImageVector = lucideIcon(
+        "Lightbulb",
+        listOf(
+            "M15 14 c0.2 -1 0.7 -1.7 1.5 -2.5 1 -0.9 1.5 -2.2 1.5 -3.5 A6 6 0 0 0 6 8 c0 1 0.2 2.2 1.5 3.5 0.7 0.7 1.3 1.5 1.5 2.5",
+            "M9 18h6",
+            "M10 22h4",
+        ),
+    )
 }

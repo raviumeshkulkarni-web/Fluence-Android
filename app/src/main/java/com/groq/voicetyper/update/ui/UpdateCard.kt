@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.groq.voicetyper.BuildConfig
 import com.groq.voicetyper.pressScale
@@ -123,7 +122,7 @@ fun AboutAndUpdateCard(
                 Text(
                     formattedLastChecked,
                     color = TextTertiary,
-                    style = FluenceTypography.bodySmall
+                    style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont)
                 )
             }
 
@@ -135,7 +134,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Automatic Updates Check", fontSize = 14.sp, color = TextPrimary)
+                Text("Automatic Updates Check", color = TextPrimary, style = FluenceTypography.labelLarge)
                 Switch(
                     checked = autoCheck,
                     onCheckedChange = { checked ->
@@ -158,7 +157,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Download over Mobile Data", fontSize = 14.sp, color = TextPrimary)
+                Text("Download over Mobile Data", style = FluenceTypography.labelLarge, color = TextPrimary)
                 Switch(
                     checked = allowMeteredDownload,
                     onCheckedChange = { checked ->
@@ -196,7 +195,7 @@ fun AboutAndUpdateCard(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Checking…", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Checking…", color = TextPrimary, style = FluenceTypography.labelLarge)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
@@ -205,7 +204,7 @@ fun AboutAndUpdateCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Check for Updates", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Check for Updates", color = TextPrimary, style = FluenceTypography.labelLarge)
                 }
             }
         }

@@ -1,6 +1,6 @@
 package com.groq.voicetyper.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,9 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,13 +18,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.GroqClient
 import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,15 +47,13 @@ private fun ApiKeySection(
     Text(
         text = label,
         color = TextPrimary,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.SemiBold
+        style = FluenceTypography.labelLarge
     )
     Spacer(modifier = Modifier.height(4.dp))
     Text(
         text = "Stored securely on this device.",
         color = TextSecondary,
-        fontSize = 12.sp,
-        lineHeight = 16.sp
+        style = FluenceTypography.labelMedium,
     )
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -73,7 +68,8 @@ private fun ApiKeySection(
             focusedBorderColor = TextSecondary,
             unfocusedBorderColor = OutlineSubtle,
             focusedContainerColor = InputBg,
-            unfocusedContainerColor = InputBg
+            unfocusedContainerColor = InputBg,
+            cursorColor = TextPrimary
         ),
         shape = FluenceShapes.Medium,
         modifier = Modifier.fillMaxWidth(),
@@ -83,7 +79,7 @@ private fun ApiKeySection(
                 Text(
                     text = if (showPassword) "Hide" else "Show",
                     color = TextSecondary,
-                    fontSize = 12.sp
+                    style = FluenceTypography.labelMedium
                 )
             }
         }
@@ -101,7 +97,7 @@ private fun ApiKeySection(
             shape = FluenceShapes.Medium,
             modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
         ) {
-            Text(text = "Save", color = TextPrimary, fontWeight = FontWeight.Bold)
+            Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
         }
 
         Button(
@@ -114,7 +110,7 @@ private fun ApiKeySection(
             if (isTesting) {
                 CircularProgressIndicator(color = TextPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
             } else {
-                Text(text = "Test Connection", color = TextPrimary)
+                Text(text = "Test Connection", color = TextPrimary, style = FluenceTypography.labelLarge)
             }
         }
     }
@@ -124,8 +120,7 @@ private fun ApiKeySection(
         Text(
             text = result.second,
             color = if (result.first) Success else Error,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
+            style = FluenceTypography.bodySmall,
         )
     }
 }
@@ -269,8 +264,7 @@ fun SttConfigScreen(
             Text(
                 text = "Provider",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+    style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -285,7 +279,8 @@ fun SttConfigScreen(
                             testResult = null
                             SecurityUtils.saveSttPreset(context, id)
                         },
-                        label = { Text(label, fontSize = 13.sp) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        label = { Text(label, style = FluenceTypography.bodySmall) },
                         leadingIcon = {
                             if (id != "custom") {
                                 ProviderLogo(providerId = id, size = 18.dp)
@@ -314,15 +309,13 @@ fun SttConfigScreen(
             Text(
                 text = "Language",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+    style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Leave as Auto-detect for automatic language detection.",
                 color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -343,13 +336,13 @@ fun SttConfigScreen(
                     Text(
                         text = currentLanguageLabel,
                         color = TextPrimary,
-                        fontSize = 16.sp,
+                        style = FluenceTypography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Box {
                         Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
+                            imageVector = FluenceIcons.ChevronDown,
                             contentDescription = "Select language",
                             tint = TextSecondary
                         )
@@ -359,6 +352,8 @@ fun SttConfigScreen(
                             modifier = Modifier
                                 .width(220.dp)
                                 .heightIn(max = 280.dp)
+                                .background(DialogSurface, FluenceShapes.Medium)
+                                .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
                         ) {
                             languages.forEach { (code, name) ->
                                 val isSelected = code == selectedLanguage
@@ -366,7 +361,8 @@ fun SttConfigScreen(
                                     text = {
                                         Text(
                                             text = name,
-                                            color = TextPrimary
+                                            color = TextPrimary,
+                                            style = FluenceTypography.bodyLarge
                                         )
                                     },
                                     colors = MenuDefaults.itemColors(
@@ -395,15 +391,13 @@ fun SttConfigScreen(
             Text(
                 text = "Transcription Model",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+    style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Select speech recognition model for this provider.",
                 color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -417,7 +411,7 @@ fun SttConfigScreen(
                 ) {
                     CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Fetching models…", color = TextSecondary, fontSize = 13.sp)
+                    Text("Fetching models…", color = TextSecondary, style = FluenceTypography.bodySmall)
                 }
             } else {
                 var showModelDropdown by remember { mutableStateOf(false) }
@@ -439,14 +433,14 @@ fun SttConfigScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
-                            color = TextPrimary,
-                            fontSize = 16.sp,
+                        text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
+                        color = TextPrimary,
+                        style = FluenceTypography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
+                            imageVector = FluenceIcons.ChevronDown,
                             contentDescription = "Select model",
                             tint = TextSecondary
                         )
@@ -457,6 +451,8 @@ fun SttConfigScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 280.dp)
+                            .background(DialogSurface, FluenceShapes.Medium)
+                            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
                     ) {
                         availableModels.forEach { m ->
                             val isSelected = m == selectedModel
@@ -490,8 +486,7 @@ fun SttConfigScreen(
             Text(
                 text = "Transcription Mode",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+    style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -501,8 +496,7 @@ fun SttConfigScreen(
                     "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
                 },
                 color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -516,7 +510,8 @@ fun SttConfigScreen(
                         isStreamingEnabled = false
                         SecurityUtils.saveStreamingEnabled(context, false)
                     },
-                    label = { Text("Standard", fontSize = 13.sp) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    label = { Text("Standard", style = FluenceTypography.bodySmall) },
                     shape = FluenceShapes.ExtraSmall,
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
@@ -533,7 +528,8 @@ fun SttConfigScreen(
                         isStreamingEnabled = true
                         SecurityUtils.saveStreamingEnabled(context, true)
                     },
-                    label = { Text("Real-time Streaming", fontSize = 13.sp) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    label = { Text("Real-time Streaming", style = FluenceTypography.bodySmall) },
                     shape = FluenceShapes.ExtraSmall,
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
@@ -551,15 +547,13 @@ fun SttConfigScreen(
                 Text(
                     text = "Notice: Real-time streaming mode transmits encrypted audio continuously while speaking. Cancelling stops further transmission, but audio already transmitted is processed by the cloud provider.",
                     color = TextSecondary.copy(alpha = 0.8f),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
+                    style = FluenceTypography.labelSmall,
                 )
                 if (selectedProvider == "custom") {
                     Text(
                         text = "Custom streaming requires a Mistral-compatible realtime transcription endpoint (e.g. a server exposing /v1/audio/transcriptions/realtime).",
                         color = TextSecondary.copy(alpha = 0.8f),
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp
+                        style = FluenceTypography.labelSmall,
                     )
                 }
             }
@@ -578,11 +572,11 @@ fun SttConfigScreen(
                     onTogglePassword = { showPassword = !showPassword },
                     onSave = {
                         SecurityUtils.saveProviderApiKey(context, "stt", "groq", apiKey)
-                        Toast.makeText(context, "API Key saved!", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("API Key saved")
                     },
                     onTest = {
                         if (apiKey.isBlank()) {
-                            Toast.makeText(context, "Please enter a key to test.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Please enter a key to test.")
                             return@ApiKeySection
                         }
                         isTesting = true
@@ -608,11 +602,11 @@ fun SttConfigScreen(
                     onTogglePassword = { showPassword = !showPassword },
                     onSave = {
                         SecurityUtils.saveProviderApiKey(context, "stt", "mistral", mistralApiKey)
-                        Toast.makeText(context, "Mistral API Key saved!", Toast.LENGTH_SHORT).show()
+                        FeedbackBus.show("Mistral API Key saved")
                     },
                     onTest = {
                         if (mistralApiKey.isBlank()) {
-                            Toast.makeText(context, "Please enter a key to test.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Please enter a key to test.")
                             return@ApiKeySection
                         }
                         isTesting = true
@@ -632,15 +626,13 @@ fun SttConfigScreen(
                 Text(
                     text = "API Key",
                     color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Stored securely on this device.",
                     color = TextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
+                    style = FluenceTypography.labelMedium,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -655,7 +647,8 @@ fun SttConfigScreen(
                         focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg
+                        unfocusedContainerColor = InputBg,
+                        cursorColor = TextPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -665,7 +658,7 @@ fun SttConfigScreen(
                             Text(
                                 text = if (showPassword) "Hide" else "Show",
                                 color = TextSecondary,
-                                fontSize = 12.sp
+                                style = FluenceTypography.labelMedium
                             )
                         }
                     }
@@ -683,7 +676,8 @@ fun SttConfigScreen(
                         focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg
+                        unfocusedContainerColor = InputBg,
+                        cursorColor = TextPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -703,7 +697,8 @@ fun SttConfigScreen(
                         focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg
+                        unfocusedContainerColor = InputBg,
+                        cursorColor = TextPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -720,33 +715,33 @@ fun SttConfigScreen(
                     Button(
                         onClick = {
                             if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                                Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Base URL must use HTTPS.")
                                 return@Button
                             }
                             try {
                                 SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
                                 SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
                                 SecurityUtils.saveSttModel(context, "custom", customModel)
-                                Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Settings saved")
                             } catch (e: IllegalArgumentException) {
-                                Toast.makeText(context, e.message ?: "Base URL must use https://", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show(e.message ?: "Base URL must use https://")
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text(text = "Save", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
                     }
 
                     Button(
                         onClick = {
                             if (customApiKey.isBlank() || customBaseUrl.isBlank()) {
-                                Toast.makeText(context, "Please enter API Key and Base URL.", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Please enter API Key and Base URL.")
                                 return@Button
                             }
                             if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                                Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                                FeedbackBus.show("Base URL must use HTTPS.")
                                 return@Button
                             }
                             isTesting = true
@@ -775,8 +770,7 @@ fun SttConfigScreen(
                     Text(
                         text = result.second,
                         color = if (result.first) Success else Error,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        style = FluenceTypography.bodySmall,
                     )
                 }
             }

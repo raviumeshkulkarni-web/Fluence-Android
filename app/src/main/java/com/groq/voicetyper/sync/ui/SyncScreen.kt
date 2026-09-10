@@ -40,7 +40,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.SettingsTopBar
@@ -378,7 +377,7 @@ fun SyncScreen(
                         )
                         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                         Text(
-                            text = if (status.running) "Syncing\u2026" else "Sync now",
+                            text = if (status.running) "Syncing\u2026" else "Sync Now",
                             style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                     }
@@ -404,7 +403,7 @@ fun SyncScreen(
                         )
                         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                         Text(
-                            text = "Sign out",
+                            text = "Sign Out",
                             style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Medium),
                             color = TextSecondary
                         )
@@ -449,7 +448,7 @@ fun SyncScreen(
                         Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                         Text(
                             text = "Sign in with Google",
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                     }
                     if (signInError != null) {
@@ -491,8 +490,7 @@ fun SyncScreen(
                     Text(
                         text = "Your dictionary and settings are backed up securely to your Google Drive. Only you can access them. Transcripts never leave this device.",
                         color = TextSecondary,
-                        style = FluenceTypography.bodySmall,
-                        lineHeight = 18.sp
+                        style = FluenceTypography.bodySmall
                     )
                 }
             }

@@ -1,35 +1,35 @@
 package com.groq.voicetyper.snippets.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.TextSnippet
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.snippets.Snippet
 import com.groq.voicetyper.snippets.SnippetPreferences
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 
 @Composable
 fun SnippetsScreen(
@@ -53,51 +53,20 @@ fun SnippetsScreen(
             .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header — Monochrome chrome, matching the Dictionary screen
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .pressScale(remember { MutableInteractionSource() })
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+            // Header (History rhythm): back + title + subtitle. The enable
+            // toggle lives in the section below, not in the chrome.
+            SettingsTopBar(
+                title = "Text Expansion",
+                onBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Text(
-                    text = "Voice Snippets",
-                    color = TextPrimary,
-                    style = FluenceTypography.headlineLarge,
-                    modifier = Modifier.weight(1f)
-                )
-
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = { checked ->
-                        isEnabled = checked
-                        SnippetPreferences.setSnippetsEnabled(context, checked)
-                    },
-                    modifier = Modifier.semantics { contentDescription = "Voice Snippets" },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
-                    )
-                )
-            }
+            Text(
+                text = "Replace spoken trigger phrases with expansion text in every transcription",
+                color = TextSecondary,
+                style = FluenceTypography.bodySmall,
+                modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+            )
 
             if (!isEnabled) {
                 Surface(
@@ -117,71 +86,106 @@ fun SnippetsScreen(
                 }
             }
 
-            if (snippets.isEmpty()) {
-                Box(
+            // Card fills the remaining viewport (Windows parity): the enable
+            // row, then the My Snippets table rows — no per-row cards.
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .background(CardSurface, FluenceShapes.Medium)
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = FluenceSpacing.Base)
+                        .padding(top = FluenceSpacing.Sm, bottom = FluenceSpacing.Lg)
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable Text Expansion",
+                            color = TextPrimary,
+                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Dictate a short trigger and Fluence pastes your expansion text instead",
+                            color = TextSecondary,
+                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                        )
+                    }
+                    Switch(
+                        checked = isEnabled,
+                        onCheckedChange = { checked ->
+                            isEnabled = checked
+                            SnippetPreferences.setSnippetsEnabled(context, checked)
+                        },
+                        modifier = Modifier.semantics { contentDescription = "Enable text expansion" },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Panel,
+                            checkedTrackColor = TextPrimary,
+                            uncheckedThumbColor = TextPrimary,
+                            uncheckedTrackColor = Panel
+                        )
+                    )
+                }
+                HorizontalDivider(
+                    color = OutlineSubtle,
+                    thickness = 1.dp,
+                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                )
+                FluenceSectionHeader(
+                    label = "MY SNIPPETS",
+                    actionLabel = "+ Add",
+                    onAction = {
+                        snippetToEdit = null
+                        showDialog = true
+                    }
+                )
+                if (snippets.isEmpty()) {
                     FluenceEmptyState(
-                        icon = Icons.AutoMirrored.Filled.TextSnippet,
+                        icon = FluenceIcons.Zap,
                         title = "No snippets yet",
-                        description = "Add a spoken trigger and its expansion, and Fluence will replace it while you dictate.",
+                        description = "Add a trigger phrase and its expansion, e.g. \"my email\" becomes your full email address",
                         actionLabel = "Add your first snippet",
                         onAction = {
                             snippetToEdit = null
                             showDialog = true
-                        }
+                        },
+                        modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
                     )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(
-                        items = snippets,
-                        key = { it.id }
-                    ) { snippet ->
-                        SnippetCard(
-                            snippet = snippet,
-                            modifier = Modifier.fillMaxWidth(),
-                            onEdit = {
-                                snippetToEdit = snippet
-                                showDialog = true
-                            },
-                            onDelete = {
-                                SnippetPreferences.deleteSnippet(context, snippet.id)
-                                Toast.makeText(context, "Snippet deleted", Toast.LENGTH_SHORT).show()
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        itemsIndexed(
+                            items = snippets,
+                            key = { _, snippet -> snippet.id }
+                        ) { index, snippet ->
+                            SnippetRow(
+                                snippet = snippet,
+                                onEdit = {
+                                    snippetToEdit = snippet
+                                    showDialog = true
+                                },
+                                onDelete = {
+                                    SnippetPreferences.deleteSnippet(context, snippet.id)
+                                    FeedbackBus.show("Snippet deleted")
+                                }
+                            )
+                            if (index < snippets.lastIndex) {
+                                HorizontalDivider(
+                                    color = OutlineSubtle,
+                                    thickness = 1.dp,
+                                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                                )
                             }
-                        )
+                        }
+                        item {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                        }
                     }
                 }
             }
-        }
-
-        FloatingActionButton(
-            onClick = {
-                snippetToEdit = null
-                showDialog = true
-            },
-            containerColor = PanelElevated,
-            contentColor = TextPrimary,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(24.dp)
-                .border(1.dp, OutlineSubtle, RoundedCornerShape(16.dp))
-                .pressScale(remember { MutableInteractionSource() })
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add Snippet",
-                tint = TextPrimary
-            )
         }
     }
 
@@ -212,57 +216,47 @@ fun SnippetsScreen(
 }
 
 @Composable
-private fun SnippetCard(
+private fun SnippetRow(
     snippet: Snippet,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Panel,
-        shape = RoundedCornerShape(14.dp),
-        shadowElevation = 3.dp,
+    Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, OutlineSubtle, RoundedCornerShape(14.dp))
+            .fillMaxWidth()
             .clickable(
                 onClickLabel = "Edit snippet",
                 role = Role.Button,
                 onClick = onEdit
             )
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = snippet.trigger,
+                color = TextPrimary,
+                style = FluenceTypography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "→ ${snippet.expansion}",
+                color = TextSecondary,
+                style = FluenceTypography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        TextButton(
+            onClick = onDelete,
+            contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+            modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = snippet.trigger,
-                    color = TextPrimary,
-                    style = FluenceTypography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-                Text(
-                    text = " \u2192 ${snippet.expansion}",
-                    color = TextSecondary,
-                    style = FluenceTypography.bodyMedium
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete Snippet",
-                    tint = TextTertiary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            Text("Delete", color = Error, style = FluenceTypography.labelMedium)
         }
     }
 }
@@ -298,7 +292,7 @@ private fun AddEditSnippetDialog(
                         triggerText = it
                         errorMessage = null
                     },
-                    label = { Text("Trigger (Spoken Phrase)") },
+                    label = { Text("Spoken Trigger") },
                     placeholder = { Text("e.g. my linkedin") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -309,7 +303,8 @@ private fun AddEditSnippetDialog(
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
                         focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -320,7 +315,7 @@ private fun AddEditSnippetDialog(
                         expansionText = it
                         errorMessage = null
                     },
-                    label = { Text("Expansion (Output Text)") },
+                    label = { Text("Expansion Text") },
                     placeholder = { Text("e.g. https://linkedin.com/in/…") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -331,7 +326,8 @@ private fun AddEditSnippetDialog(
                         focusedLabelColor = TextPrimary,
                         unfocusedLabelColor = TextSecondary,
                         focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -340,7 +336,7 @@ private fun AddEditSnippetDialog(
                     Text(
                         text = errorMessage!!,
                         color = Error,
-                        style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                        style = FluenceTypography.labelMedium
                     )
                 }
             }
@@ -364,12 +360,12 @@ private fun AddEditSnippetDialog(
                     }
                 }
             ) {
-                Text("Save", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Text("Save", color = TextPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
+                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

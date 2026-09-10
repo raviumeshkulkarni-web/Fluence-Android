@@ -147,7 +147,7 @@ private fun DrawerRow(
             .background(bg)
             .then(if (selected) Modifier.border(1.dp, OutlineSubtle, FluenceShapes.Small) else Modifier)
             .clickable(onClickLabel = "Open $label", onClick = onClick)
-            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
             .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -159,13 +159,12 @@ private fun DrawerRow(
                 .size(20.dp)
                 .alpha(if (selected) 1f else 0.65f)
         )
-        Spacer(modifier = Modifier.width(FluenceSpacing.Md))
+        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
         Text(
             text = label,
             color = if (selected) TextPrimary else TextSecondary,
-            style = FluenceTypography.bodyMedium.copy(
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-            ),
+            style = FluenceTypography.titleSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.weight(1f)
         )
     }

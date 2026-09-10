@@ -16,4 +16,12 @@ object FluenceSpacing {
     val Xl     = 32.dp
     val Xxl    = 48.dp
     val Section = 96.dp
+
+    // Declared micro-rhythm (audit): values shared with section chrome that
+    // sit between the t-shirt steps. Numeric names mirror the Windows
+    // --spacing-N tokens holding the same values. Additive only.
+    val N6     = 6.dp
+    val N7     = 7.dp
+    val N10    = 10.dp
+    val N18    = 18.dp
 }

@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.theme.rememberReducedMotion
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.TextPrimary
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -278,15 +280,14 @@ fun FloatingBubbleUI(
                             if (recordingState == RecordingState.TRANSCRIBING) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
-                                    color = Color.White,
+                                    color = TextPrimary,
                                     strokeWidth = 2.dp
                                 )
                             } else if (recordingState == RecordingState.ERROR) {
                                 Text(
                                     text = errorMessage ?: "Error",
                                     color = Color(0xFFFF5252),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    style = FluenceTypography.labelSmall,
                                     textAlign = TextAlign.Center,
                                     maxLines = 1,
                                     modifier = Modifier.padding(horizontal = 4.dp)

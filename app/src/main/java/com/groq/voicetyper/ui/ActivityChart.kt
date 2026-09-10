@@ -9,17 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -54,7 +49,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
@@ -65,7 +59,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.history.StatsCalculator
-import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.BrandCyan
@@ -79,8 +72,6 @@ import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.OutlineSubtle
-import com.groq.voicetyper.theme.Panel
-import com.groq.voicetyper.theme.PanelElevated
 import com.groq.voicetyper.theme.TextPrimary
 import com.groq.voicetyper.theme.TextSecondary
 import com.groq.voicetyper.theme.TextTertiary
@@ -407,50 +398,17 @@ fun ActivityRangeSelector(
     onSelect: (ChartRange) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .background(Panel, FluenceShapes.Small)
-            .border(1.dp, CardBorder, FluenceShapes.Small)
-            .clip(FluenceShapes.Small)
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ChartRange.entries.forEach { entry ->
-            val isSelected = entry == selected
-            val interactionSource = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(FluenceShapes.ExtraSmall)
-                    .background(if (isSelected) PanelElevated else Color.Transparent)
-                    .selectable(
-                        selected = isSelected,
-                        onClick = { onSelect(entry) },
-                        role = Role.Tab,
-                        interactionSource = interactionSource,
-                        indication = null,
-                    )
-                    .pressScale(interactionSource)
-                    .semantics { contentDescription = entry.accessibilityLabel },
-                contentAlignment = Alignment.Center,
-            ) {
-                // Windows parity: selected is neutral elevated + primary text.
-                // Amethyst is never the selected-range treatment on Windows.
-                // Tab text is Hanken 12px medium in both states (Windows
-                // font-body label-sm); only color signals selection.
-                Text(
-                    text = entry.tabLabel,
-                    color = if (isSelected) TextPrimary else TextSecondary,
-                    style = FluenceTypography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+    // Shared segmented control (same implementation as the History date
+    // filter) — range mapping only, no visual fork.
+    val options = remember {
+        ChartRange.entries.map { SegmentChoice(it.tabLabel, it.accessibilityLabel) }
     }
+    FluenceSegmentedControl(
+        options = options,
+        selectedIndex = selected.ordinal,
+        onSelect = { onSelect(ChartRange.entries[it]) },
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -489,8 +447,7 @@ fun ActivityChartCard(
             Text(
                 text = "Activity".uppercase(Locale.US),
                 color = TextSecondary,
-                style = FluenceTypography.labelMedium.copy(
-                    fontSize = 14.sp,
+                style = FluenceTypography.labelLarge.copy(
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.56.sp,
                 ),
@@ -575,8 +532,8 @@ fun FluenceActivityChart(
     val chipShadowPaint = remember { android.graphics.Paint() }
     val chipShadowPath = remember { android.graphics.Path() }
 
-    // Draw-on replay: every new series draws its line 0→1 over ~600ms
-    // while the crossfade blends the containers. Animatable (not
+    // Draw-on replay: every new series draws its line 0→1 over the
+    // structural tier while the crossfade blends the containers. Animatable (not
     // animateFloatAsState) is required — it starts at 0 by construction,
     // whereas animateFloatAsState starts at its target and never travels
     // on a fresh composition. Reduced motion snaps to the finished line.
@@ -585,7 +542,7 @@ fun FluenceActivityChart(
         if (reducedMotion) revealAnim.snapTo(1f)
         else revealAnim.animateTo(
             1f,
-            tween(durationMillis = 600, easing = FastOutSlowInEasing)
+            tween(durationMillis = FluenceMotion.durationStructural, easing = FastOutSlowInEasing)
         )
     }
     val reveal = revealAnim.value

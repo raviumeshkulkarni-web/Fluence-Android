@@ -253,6 +253,29 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-10 — Android touch-target conformance: interactive chrome 44→48dp ("44 visual, 48 touch").**
+Authorized by formal reviewer. All transparent-chrome icon buttons and
+custom pill controls (header back/menu/close, history row options + search
+clear, multiselect actions, onboarding dismiss, IME pill keyboard/backspace)
+raised from 44dp to 48dp (`FluenceSpacing.Xxl`) while their icon/glyph
+visual stays unchanged (20/16-24dp). Fixed-height header chrome rows hosting
+them raised 44→48 so the hit area isn't clamped. Design floor remains 44dp
+(`FluenceSpacing.Xxl` already existed; no new tokens). Deliberate exception:
+the floating-bubble cancel/confirm buttons and their aligned touch layer stay
+44dp — they draw visible circular chrome, so 48dp would change the visual;
+they remain at/above the 44dp DS floor. Files touched:
+Android `Components.kt`, `ui/HomeScreen.kt`, `ui/HistoryScreen.kt`,
+`ui/PrivacyExclusionsScreen.kt`, `snippets/ui/SnippetsScreen.kt`,
+`dictionary/ui/DictionaryScreen.kt`, `IMEScreen.kt`.
+
+**2026-09-10 — New spacing tokens: N6/N7/N10/N18 (6/7/10/18dp).**
+Declared micro-rhythm shared with section chrome that sits between the
+t-shirt steps (18dp horizontal gutters, 12dp section padding already
+covered by Md, 10/7/6dp control rhythm). Numeric names mirror the Windows
+`--spacing-N` tokens holding the same values for cross-platform parity.
+Additive only: no existing token renamed or revalued. Files touched:
+Android `theme/Spacing.kt`; Windows `design-tokens.css`, `web/src/app.css`.
+
 **2026-08-25 — New token: ErrorText `#F87171` (error-colored text on elevated surfaces).**
 Brighter error tone reserved for error-colored TEXT on elevated surfaces
 (Panel/Dialog/DialogElevated) to hold WCAG AA ≥4.5:1; `#F87171` measures

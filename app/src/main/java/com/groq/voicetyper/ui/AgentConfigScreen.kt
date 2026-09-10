@@ -1,6 +1,6 @@
 package com.groq.voicetyper.ui
 
-import android.widget.Toast
+import com.groq.voicetyper.FeedbackBus
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,8 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,13 +18,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.GroqClient
 import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -133,8 +131,7 @@ fun AgentConfigScreen(
             Text(
                 text = "Configure an AI provider for agent transcription mode.",
                 color = TextSecondary,
-                fontSize = 14.sp,
-                lineHeight = 20.sp
+            style = FluenceTypography.labelLarge
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -142,8 +139,7 @@ fun AgentConfigScreen(
             Text(
                 text = "Provider",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+            style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -161,7 +157,8 @@ fun AgentConfigScreen(
                         onClick = {
                             selectedProvider = value
                         },
-                        label = { Text(label, fontSize = 13.sp) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        label = { Text(label, style = FluenceTypography.bodySmall) },
                         leadingIcon = {
                             if (value != "custom") {
                                 ProviderLogo(providerId = value, size = 18.dp)
@@ -189,15 +186,13 @@ fun AgentConfigScreen(
             Text(
                 text = "API Key",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+            style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Stored securely on this device.",
                 color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                style = FluenceTypography.labelMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -214,7 +209,8 @@ fun AgentConfigScreen(
                     focusedBorderColor = TextSecondary,
                     unfocusedBorderColor = OutlineSubtle,
                     focusedContainerColor = InputBg,
-                    unfocusedContainerColor = InputBg
+                    unfocusedContainerColor = InputBg,
+                    cursorColor = TextPrimary
                 ),
                 shape = FluenceShapes.Medium,
                 modifier = Modifier.fillMaxWidth(),
@@ -224,7 +220,7 @@ fun AgentConfigScreen(
                         Text(
                             text = if (showPassword) "Hide" else "Show",
                             color = TextSecondary,
-                            fontSize = 12.sp
+                            style = FluenceTypography.labelMedium
                         )
                     }
                 }
@@ -235,8 +231,7 @@ fun AgentConfigScreen(
             Text(
                 text = "Model",
                 color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+            style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -251,7 +246,8 @@ fun AgentConfigScreen(
                         focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg
+                        unfocusedContainerColor = InputBg,
+                        cursorColor = TextPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -263,8 +259,7 @@ fun AgentConfigScreen(
                 Text(
                     text = "Base URL",
                     color = TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -278,7 +273,8 @@ fun AgentConfigScreen(
                         focusedBorderColor = TextSecondary,
                         unfocusedBorderColor = OutlineSubtle,
                         focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg
+                        unfocusedContainerColor = InputBg,
+                        cursorColor = TextPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -293,7 +289,7 @@ fun AgentConfigScreen(
                     ) {
                         CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Fetching models…", color = TextSecondary, fontSize = 13.sp)
+                        Text("Fetching models…", color = TextSecondary, style = FluenceTypography.bodySmall)
                     }
                 } else {
                     var showModelDropdown by remember { mutableStateOf(false) }
@@ -312,12 +308,12 @@ fun AgentConfigScreen(
                             Text(
                                 text = model.ifBlank { "Select a model" },
                                 color = if (model.isBlank()) TextDisabled else TextPrimary,
-                                fontSize = 16.sp,
+                                style = FluenceTypography.bodyLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
+                                imageVector = FluenceIcons.ChevronDown,
                                 contentDescription = "Select model",
                                 tint = TextSecondary
                             )
@@ -328,6 +324,8 @@ fun AgentConfigScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
+                                .background(DialogSurface, FluenceShapes.Medium)
+                                .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
                         ) {
                             fetchedModels.forEach { m ->
                                 val isSelected = m == model
@@ -335,7 +333,8 @@ fun AgentConfigScreen(
                                     text = {
                                         Text(
                                             text = m,
-                                            color = TextPrimary
+                                            color = TextPrimary,
+                                            style = FluenceTypography.bodyLarge
                                         )
                                     },
                                     colors = MenuDefaults.itemColors(
@@ -359,7 +358,7 @@ fun AgentConfigScreen(
 
                 modelFetchError?.let { err ->
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = err, color = Error, fontSize = 12.sp)
+                    Text(text = err, color = Error, style = FluenceTypography.labelMedium)
                 }
             }
 
@@ -372,7 +371,7 @@ fun AgentConfigScreen(
                 Button(
                     onClick = {
                         if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                            Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Base URL must use HTTPS.")
                             return@Button
                         }
                         try {
@@ -382,26 +381,26 @@ fun AgentConfigScreen(
                             if (selectedProvider == "custom") {
                                 SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
                             }
-                            Toast.makeText(context, "Settings saved!", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Settings saved")
                         } catch (e: IllegalArgumentException) {
-                            Toast.makeText(context, e.message ?: "Base URL must use https://", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show(e.message ?: "Base URL must use https://")
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
                 ) {
-                    Text(text = "Save", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
                 }
 
                 Button(
                     onClick = {
                         if (apiKey.isBlank()) {
-                            Toast.makeText(context, "Please enter an API key.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Please enter an API key.")
                             return@Button
                         }
                         if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                            Toast.makeText(context, "Base URL must use HTTPS.", Toast.LENGTH_SHORT).show()
+                            FeedbackBus.show("Base URL must use HTTPS.")
                             return@Button
                         }
                         isTesting = true
@@ -439,7 +438,7 @@ fun AgentConfigScreen(
                     if (isTesting) {
                         CircularProgressIndicator(color = TextPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
                     } else {
-                        Text(text = "Test Connection", color = TextPrimary)
+                        Text(text = "Test Connection", color = TextPrimary, style = FluenceTypography.labelLarge)
                     }
                 }
             }
@@ -449,8 +448,7 @@ fun AgentConfigScreen(
                 Text(
                     text = result.second,
                     color = if (result.first) Success else Error,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+                    style = FluenceTypography.bodySmall
                 )
             }
 
