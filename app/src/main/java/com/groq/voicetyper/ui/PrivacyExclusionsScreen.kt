@@ -123,14 +123,23 @@ fun PrivacyExclusionsScreen(
         ) {
             SettingsTopBar(
                 title = "Privacy & App Exclusions",
-                onBack = onNavigateBack
+                onBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
             Text(
                 text = "Excluded apps keep Fluence's bubble, dictation, context capture, and Agent actions unavailable.",
                 color = TextSecondary,
                 style = FluenceTypography.bodySmall,
-                modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = 8.dp)
+                textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = FluenceSpacing.Base,
+                        end = FluenceSpacing.Base,
+                        top = FluenceSpacing.Xs,
+                        bottom = FluenceSpacing.Sm
+                    )
             )
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
@@ -141,7 +150,9 @@ fun PrivacyExclusionsScreen(
                 color = Panel,
                 shape = FluenceShapes.Medium,
                 border = BorderStroke(1.dp, OutlineSubtle),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
             ) {
                 Row(
                     modifier = Modifier.padding(FluenceSpacing.Md),

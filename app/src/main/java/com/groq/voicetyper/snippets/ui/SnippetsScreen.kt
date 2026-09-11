@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceEmptyState
@@ -65,7 +66,14 @@ fun SnippetsScreen(
                 text = "Replace spoken trigger phrases with expansion text in every transcription",
                 color = TextSecondary,
                 style = FluenceTypography.bodySmall,
-                modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+                textAlign = TextAlign.Start,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = FluenceSpacing.Base,
+                        end = FluenceSpacing.Base,
+                        bottom = FluenceSpacing.Sm
+                    )
             )
 
             if (!isEnabled) {

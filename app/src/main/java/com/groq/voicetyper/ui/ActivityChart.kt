@@ -545,26 +545,38 @@ fun FluenceActivityChart(
             tween(durationMillis = FluenceMotion.durationStructural, easing = FastOutSlowInEasing)
         )
     }
-    val reveal = revealAnim.value
 
     var canvasWidthPx by remember { mutableFloatStateOf(0f) }
 
-    val labelStyle = TextStyle(
-        fontFamily = GeistMonoFont,
-        fontSize = 12.sp,
-        color = TextSecondary,
-    )
-    val maxCount = points.maxOf { it.count }.coerceAtLeast(1)
-    val ticks = niceSessionTicks(maxCount)
-    val niceMax = ticks.last().coerceAtLeast(1)
+    val labelStyle = remember {
+        TextStyle(
+            fontFamily = GeistMonoFont,
+            fontSize = 12.sp,
+            color = TextSecondary,
+        )
+    }
+    val maxCount = remember(points) { points.maxOf { it.count }.coerceAtLeast(1) }
+    val ticks = remember(maxCount) { niceSessionTicks(maxCount) }
+    val niceMax = remember(ticks) { ticks.last().coerceAtLeast(1) }
+
+    // Precompute text layouts for Y-axis ticks and X-axis points so text is not measured per animation frame
+    val tickLayouts = remember(ticks, labelStyle, textMeasurer) {
+        ticks.map { tick -> tick to textMeasurer.measure(tick.toString(), labelStyle) }
+    }
+    val pointLayouts = remember(points, labelStyle, textMeasurer) {
+        points.map { point -> textMeasurer.measure(point.label, labelStyle) }
+    }
+
     // Dynamic Y gutter: base 32dp grows to fit the widest tick label so
     // four-digit counts never clip (Windows widens its Y gutter 32→44px when
     // labels reach four digits). Shared by the draw pass and nearestIndex so
     // touch mapping stays aligned with the drawn plot origin.
-    val yGutterPx = ticks.maxOfOrNull {
-        textMeasurer.measure(it.toString(), labelStyle).size.width
-    }?.plus(with(density) { 14.dp.toPx() })?.coerceAtLeast(with(density) { 32.dp.toPx() })
-        ?: with(density) { 32.dp.toPx() }
+    val yGutterPx = remember(tickLayouts, density) {
+        tickLayouts.maxOfOrNull { (_, layout) ->
+            layout.size.width
+        }?.plus(with(density) { 14.dp.toPx() })?.coerceAtLeast(with(density) { 32.dp.toPx() })
+            ?: with(density) { 32.dp.toPx() }
+    }
 
     fun nearestIndex(x: Float): Int {
         if (canvasWidthPx <= 0f) return -1
@@ -616,6 +628,7 @@ fun FluenceActivityChart(
                 liveRegion = LiveRegionMode.Polite
             },
     ) {
+        val reveal = revealAnim.value
         val n = points.size
         val plotLeft = yGutterPx
         val plotRight = size.width - PlotPadEnd.toPx()
@@ -625,7 +638,7 @@ fun FluenceActivityChart(
         val plotH = (plotBottom - plotTop).coerceAtLeast(1f)
 
         // Restrained horizontal grid + integer Y labels.
-        ticks.forEach { tick ->
+        tickLayouts.forEach { (tick, layout) ->
             val y = plotBottom - (tick.toFloat() / niceMax) * plotH
             drawLine(
                 color = Color.White.copy(alpha = 0.06f),
@@ -633,7 +646,6 @@ fun FluenceActivityChart(
                 end = Offset(plotRight, y),
                 strokeWidth = 1.dp.toPx(),
             )
-            val layout = textMeasurer.measure(tick.toString(), labelStyle)
             drawText(
                 layout,
                 topLeft = Offset(
@@ -674,8 +686,7 @@ fun FluenceActivityChart(
             idx
         }
         labelIdx.forEach { i ->
-            val point = points[i]
-            val layout = textMeasurer.measure(point.label, labelStyle)
+            val layout = pointLayouts.getOrNull(i) ?: textMeasurer.measure(points[i].label, labelStyle)
             drawText(
                 layout,
                 topLeft = Offset(

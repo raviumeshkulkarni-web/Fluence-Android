@@ -74,9 +74,15 @@ object PrecisionTheme {
 }
 
 // ── Material3 Dark Color Scheme — DESIGN_SYSTEM.md mapping ─────────────────
+// Monochrome enforcement: M3 derives default colors for cursors, selection
+// handles, checkboxes, switches, progress, buttons, tonal surfaces, and the
+// text toolbar from `primary` and the surface-container ramp. Both are pinned
+// to neutral tokens so no M3 default can ever render brand color — including
+// components added later without explicit colors. BrandAmethyst survives only
+// via explicit opt-in usages (recording control, charts), never via defaults.
 private val FluenceDarkColorScheme = darkColorScheme(
-    primary            = BrandAmethyst,
-    onPrimary          = TextPrimary,
+    primary            = TextPrimary,
+    onPrimary          = AppBackground,
     primaryContainer   = DialogSurface,
     onPrimaryContainer = TextPrimary,
 
@@ -98,6 +104,16 @@ private val FluenceDarkColorScheme = darkColorScheme(
     surfaceVariant     = PanelElevated,
     onSurfaceVariant   = TextSecondary,
     surfaceTint        = Panel,
+    // Neutral tonal ramp: M3 defaults these from `primary`, which would tint
+    // menus, toolbars, sheets, and snackbars lavender. Pinned to the surface
+    // ladder so every default stays monochrome.
+    surfaceDim              = AppBackground,
+    surfaceBright           = DialogElevated,
+    surfaceContainerLowest  = AppBackground,
+    surfaceContainerLow     = Canvas,
+    surfaceContainer        = Panel,
+    surfaceContainerHigh    = PanelElevated,
+    surfaceContainerHighest = DialogSurface,
 
     error              = Error,
     onError            = TextPrimary,
@@ -108,7 +124,7 @@ private val FluenceDarkColorScheme = darkColorScheme(
     outlineVariant     = OutlineSubtle,
     inverseSurface     = TextPrimary,
     inverseOnSurface   = AppBackground,
-    inversePrimary     = BrandAmethyst,
+    inversePrimary     = TextPrimary,
     scrim              = Color.Black,
 )
 

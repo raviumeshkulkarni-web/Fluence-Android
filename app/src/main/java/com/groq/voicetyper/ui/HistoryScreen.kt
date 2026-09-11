@@ -58,8 +58,12 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.FluenceEmptyState
@@ -236,13 +240,26 @@ fun HistoryScreen(
         val filtered = if (q.isBlank()) ranged
         else ranged.filter { it.text.contains(q, ignoreCase = true) }
 
+        // Decorate-once for the WORDS_* sorts: one O(n) scan here instead of
+        // O(n log n) full-text rescans inside the comparator. Keyed by entry
+        // (not id: ids are 0 until Room persists a row). Empty unless a
+        // word-count sort is active so the default views pay nothing.
+        val needsCounts = currentSortOption == SortOption.WORDS_DESC ||
+            currentSortOption == SortOption.WORDS_ASC
+        val wordCounts = if (needsCounts) {
+            filtered.associateWith { StatsCalculator.wordCountOf(it.text) }
+        } else {
+            emptyMap()
+        }
+
         when (currentSortOption) {
             SortOption.NEWEST -> filtered.sortedByDescending { it.timestamp }
             SortOption.OLDEST -> filtered.sortedBy { it.timestamp }
             SortOption.DURATION_DESC -> filtered.sortedByDescending { it.durationMs }
             SortOption.DURATION_ASC -> filtered.sortedBy { it.durationMs }
-            SortOption.WORDS_DESC -> filtered.sortedByDescending { StatsCalculator.wordCountOf(it.text) }
-            SortOption.WORDS_ASC -> filtered.sortedBy { StatsCalculator.wordCountOf(it.text) }
+            // Comparators below compare precomputed Ints (see above).
+            SortOption.WORDS_DESC -> filtered.sortedByDescending { wordCounts.getValue(it) }
+            SortOption.WORDS_ASC -> filtered.sortedBy { wordCounts.getValue(it) }
         }
     }
 
@@ -320,7 +337,14 @@ fun HistoryScreen(
                     text = "Browse and search every transcription on this device",
                     color = TextSecondary,
                     style = FluenceTypography.bodySmall,
-                    modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = FluenceSpacing.Base,
+                            end = FluenceSpacing.Base,
+                            bottom = FluenceSpacing.Sm
+                        )
                 )
             }
 
@@ -497,6 +521,7 @@ fun HistoryScreen(
                                     isMultiSelect = isMultiSelect,
                                     expanded = entry.id == expandedEntryId,
                                     isRailEnd = entry.id == lastVisibleId,
+                                    highlightQuery = activeQuery,
                                     onToggleSelect = { selectedIds = if (entry.id in selectedIds) selectedIds - entry.id else selectedIds + entry.id },
                                     onToggleExpand = {
                                         expandedEntryId =
@@ -614,7 +639,7 @@ private fun HistorySearchBar(
             unfocusedTextColor = TextPrimary,
             cursorColor = TextPrimary
         ),
-        modifier = modifier.fillMaxWidth().height(FluenceSpacing.Xxl)
+        modifier = modifier.fillMaxWidth().heightIn(min = FluenceSpacing.Xxl)
     )
 }
 
@@ -653,6 +678,29 @@ private fun ModeBadge(isAgentMode: Boolean) {
     }
 }
 
+/** Case-insensitive search-match highlighting for transcript rows. Returns
+ * plain text when the query is blank. The span sets only a background so the
+ * row's own text color (including the synced-foreign dimming) is preserved. */
+private fun highlightQueryMatches(text: String, query: String): AnnotatedString {
+    val q = query.trim()
+    if (q.isEmpty() || text.isEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        var cursor = 0
+        while (cursor < text.length) {
+            val match = text.indexOf(q, cursor, ignoreCase = true)
+            if (match < 0) {
+                append(text.substring(cursor))
+                break
+            }
+            append(text.substring(cursor, match))
+            withStyle(SpanStyle(background = TextPrimary.copy(alpha = 0.24f))) {
+                append(text.substring(match, match + q.length))
+            }
+            cursor = match + q.length
+        }
+    }
+}
+
 @Composable
 private fun HistoryTranscriptRow(
     entry: TranscriptionEntry,
@@ -660,6 +708,7 @@ private fun HistoryTranscriptRow(
     isMultiSelect: Boolean,
     expanded: Boolean,
     isRailEnd: Boolean,
+    highlightQuery: String = "",
     onToggleSelect: () -> Unit,
     onToggleExpand: () -> Unit,
     onOpenDetail: () -> Unit,
@@ -761,7 +810,7 @@ private fun HistoryTranscriptRow(
                     )
                 }
                 Text(
-                    entry.text,
+                    highlightQueryMatches(entry.text, highlightQuery),
                     color = if (foreign) TextSecondary else TextPrimary,
                     style = FluenceTypography.bodyMedium,
                     maxLines = if (expanded) Int.MAX_VALUE else 2,

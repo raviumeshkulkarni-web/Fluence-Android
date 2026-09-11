@@ -191,7 +191,8 @@ fun PermissionsScreen(
         ) {
             SettingsTopBar(
                 title = "Permissions & Services",
-                onBack = onNavigateBack
+                onBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
             Spacer(modifier = Modifier.height(16.dp))

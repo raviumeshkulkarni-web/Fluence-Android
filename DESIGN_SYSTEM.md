@@ -253,6 +253,22 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-11 — Android type scale +1sp (+2sp headlines), ratios preserved.**
+Bodies/labels/titles +1sp, headlines +2sp, displays +1sp; every line-height
+scaled by its original multiplier. Smallest size remains 12sp for short
+metadata only. User-requested legibility pass; all screens inherit via
+`FluenceTypography` tokens, no per-screen values. Files touched: Android
+`theme/Type.kt`; this entry.
+
+**2026-09-11 — Android M3 defaults to monochrome (user-directed).**
+Caret/text-selection and the M3 `primary` + surface-container ramp move from
+brand-amethyst-derived to neutral tokens: `primary`/`inversePrimary` are now
+text-primary, and the full tonal ramp is pinned to the surface ladder, so
+cursors, selection handles/toolbars, and every M3 default render monochrome.
+Amethyst survives only via explicit opt-in (recording control, charts).
+Amends the solid-accent closed list (caret + text selection entries). Files
+touched: Android `theme/Theme.kt`; this entry.
+
 **2026-09-10 — Android touch-target conformance: interactive chrome 44→48dp ("44 visual, 48 touch").**
 Authorized by formal reviewer. All transparent-chrome icon buttons and
 custom pill controls (header back/menu/close, history row options + search

@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
@@ -76,7 +77,14 @@ fun DictionaryScreen(
                 text = "Correct specific words or phrases automatically after transcription",
                 color = TextSecondary,
                 style = FluenceTypography.bodySmall,
-                modifier = Modifier.padding(start = 64.dp, bottom = FluenceSpacing.Sm)
+                textAlign = TextAlign.Start,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = FluenceSpacing.Base,
+                        end = FluenceSpacing.Base,
+                        bottom = FluenceSpacing.Sm
+                    )
             )
 
             if (!isEnabled) {
@@ -172,11 +180,6 @@ fun DictionaryScreen(
                         ) { index, entry ->
                             DictionaryEntryRow(
                                 entry = entry,
-                                onToggleEnabled = { enabled ->
-                                    scope.launch {
-                                        DictionaryRepository.toggleEntryEnabled(context, entry, enabled)
-                                    }
-                                },
                                 onEdit = {
                                     entryToEdit = entry
                                     showDialog = true
@@ -224,7 +227,7 @@ fun DictionaryScreen(
                         context = context,
                         spokenText = spoken,
                         replacementText = replacement,
-                        isEnabled = entryToEdit?.isEnabled ?: true,
+                        isEnabled = true,
                         id = entryToEdit?.id ?: 0L
                     )
                     if (result == DictionaryRepository.SaveResult.PRESERVED) {
@@ -287,7 +290,6 @@ private fun LearningRow(
 @Composable
 private fun DictionaryEntryRow(
     entry: CustomDictionaryEntry,
-    onToggleEnabled: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -306,7 +308,7 @@ private fun DictionaryEntryRow(
         ) {
             Text(
                 text = entry.spokenText,
-                color = if (entry.isEnabled) TextPrimary else TextDisabled,
+                color = TextPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -319,7 +321,7 @@ private fun DictionaryEntryRow(
             )
             Text(
                 text = entry.replacementText,
-                color = if (entry.isEnabled) TextPrimary else TextDisabled,
+                color = TextPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -327,24 +329,12 @@ private fun DictionaryEntryRow(
             )
         }
 
-        Switch(
-            checked = entry.isEnabled,
-            onCheckedChange = onToggleEnabled,
-            modifier = Modifier.semantics { contentDescription = "Enable ${entry.spokenText}" },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Panel,
-                checkedTrackColor = TextPrimary,
-                uncheckedThumbColor = TextPrimary,
-                uncheckedTrackColor = Panel
-            )
-        )
-
         TextButton(
             onClick = onDelete,
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Delete", color = TextSecondary, style = FluenceTypography.labelMedium)
+            Text("Delete", color = Error, style = FluenceTypography.labelMedium)
         }
     }
 }

@@ -1,11 +1,6 @@
 package com.groq.voicetyper.ui
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -109,26 +104,6 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun EntranceRow(index: Int, content: @Composable () -> Unit) {
-    // Reduced motion: render rows in final state — no fade/slide, no stagger.
-    if (LocalMotionPreferences.current.reducedMotion) {
-        content()
-        return
-    }
-    val state = remember { MutableTransitionState(false).apply { targetState = true } }
-    // Stagger is capped: rows past the sixth share its delay so long lists
-    // never push content seconds behind the navigation transition.
-    val stagger = minOf(index, 5) * 40
-    AnimatedVisibility(
-        visibleState = state,
-        enter = fadeIn(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = stagger)) +
-            slideInVertically(tween(durationMillis = FluenceMotion.durationStructural, delayMillis = stagger)) { it / 8 }
-    ) {
-        content()
-    }
-}
-
-@Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateTo: (Screen) -> Unit,
@@ -138,10 +113,10 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
 
-    val sttPreset = remember { mutableStateOf(SecurityUtils.getSttPreset(context)) }
-    val sttModel = remember { mutableStateOf(SecurityUtils.getSttModel(context, sttPreset.value)) }
-    val llmPreset = remember { mutableStateOf(SecurityUtils.getLlmPreset(context)) }
-    val llmModel = remember { mutableStateOf(SecurityUtils.getLlmModel(context, llmPreset.value)) }
+    val sttPreset = remember { mutableStateOf("groq") }
+    val sttModel = remember { mutableStateOf("whisper-large-v3") }
+    val llmPreset = remember { mutableStateOf("groq") }
+    val llmModel = remember { mutableStateOf("llama-3.3-70b-versatile") }
     val offlineEnabled = remember { mutableStateOf(false) }
     val modelReady = remember { mutableStateOf(false) }
     val duckingEnabled = remember { mutableStateOf(false) }
@@ -187,150 +162,140 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            SettingsTopBar(title = "Settings", onBack = onNavigateBack)
+            SettingsTopBar(
+                title = "Settings",
+                onBack = onNavigateBack,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // AI Transcription
-            EntranceRow(0) {
-                SettingsRow(
-                    icon = Icons.Default.Mic,
-                    title = "AI Transcription",
-                    summary = "$providerLabel \u00b7 ${sttModel.value}",
-                    onClick = { onNavigateTo(Screen.SttConfig) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.Mic,
+                title = "AI Transcription",
+                summary = "$providerLabel \u00b7 ${sttModel.value}",
+                onClick = { onNavigateTo(Screen.SttConfig) }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // AI Agent Mode
-            EntranceRow(1) {
-                SettingsRow(
-                    icon = Icons.Default.AutoAwesome,
-                    title = "AI Agent Mode",
-                    summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
-                    onClick = { onNavigateTo(Screen.AgentConfig) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.AutoAwesome,
+                title = "AI Agent Mode",
+                summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
+                onClick = { onNavigateTo(Screen.AgentConfig) }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Offline Transcription
-            EntranceRow(2) {
-                SettingsRow(
-                    icon = Icons.Default.PhoneAndroid,
-                    title = "Offline Transcription",
-                    summary = when {
-                        offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
-                        modelReady.value -> "Model installed \u00b7 Disabled"
-                        else -> "Model not installed"
-                    },
-                    onClick = { onNavigateTo(Screen.OfflineConfig) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.PhoneAndroid,
+                title = "Offline Transcription",
+                summary = when {
+                    offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
+                    modelReady.value -> "Model installed \u00b7 Disabled"
+                    else -> "Model not installed"
+                },
+                onClick = { onNavigateTo(Screen.OfflineConfig) }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Permissions & Services
-            EntranceRow(3) {
-                SettingsRow(
-                    icon = Icons.Default.Security,
-                    title = "Permissions & Services",
-                    summary = "Microphone, overlay, accessibility, battery",
-                    onClick = { onNavigateTo(Screen.Permissions) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.Security,
+                title = "Permissions & Services",
+                summary = "Microphone, overlay, accessibility, battery",
+                onClick = { onNavigateTo(Screen.Permissions) }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Privacy & App Exclusions
-            EntranceRow(4) {
-                SettingsRow(
-                    icon = Icons.Default.Lock,
-                    title = "Privacy & App Exclusions",
-                    summary = when (excludedAppCount.value) {
-                        0 -> "Disabled"
-                        1 -> "Active \u00b7 1 app excluded"
-                        else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
-                    },
-                    onClick = { onNavigateTo(Screen.PrivacyExclusions) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.Lock,
+                title = "Privacy & App Exclusions",
+                summary = when (excludedAppCount.value) {
+                    0 -> "Disabled"
+                    1 -> "Active \u00b7 1 app excluded"
+                    else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
+                },
+                onClick = { onNavigateTo(Screen.PrivacyExclusions) }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Audio Focus Ducking
-            EntranceRow(5) {
-                Surface(
-                    color = Panel,
-                    shape = FluenceShapes.Medium,
-                    shadowElevation = 0.dp,
+            Surface(
+                color = Panel,
+                shape = FluenceShapes.Medium,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base)
-                        .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VolumeDown,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(22.dp)
+                    Icon(
+                        imageVector = Icons.Default.VolumeDown,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Reduce media volume while dictating",
+                            color = TextPrimary,
+                            style = FluenceTypography.titleMedium
                         )
-
-                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Reduce media volume while dictating",
-                                color = TextPrimary,
-                                style = FluenceTypography.titleMedium
-                            )
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                            Text(
-                                text = "Duck other apps' audio while recording",
-                                color = TextSecondary,
-                                style = FluenceTypography.bodySmall
-                            )
-                        }
-
-                        Switch(
-                            checked = duckingEnabled.value,
-                            onCheckedChange = { checked ->
-                                duckingEnabled.value = checked
-                                AudioFocusPreferences.setDuckingEnabled(context, checked)
-                            },
-                            modifier = Modifier.semantics {
-                                role = Role.Switch
-                                stateDescription = if (duckingEnabled.value) "On" else "Off"
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Panel,
-                                checkedTrackColor = TextPrimary,
-                                uncheckedThumbColor = TextPrimary,
-                                uncheckedTrackColor = Panel
-                            )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = "Duck other apps' audio while recording",
+                            color = TextSecondary,
+                            style = FluenceTypography.bodySmall
                         )
                     }
+
+                    Switch(
+                        checked = duckingEnabled.value,
+                        onCheckedChange = { checked ->
+                            duckingEnabled.value = checked
+                            AudioFocusPreferences.setDuckingEnabled(context, checked)
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.Switch
+                            stateDescription = if (duckingEnabled.value) "On" else "Off"
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Panel,
+                            checkedTrackColor = TextPrimary,
+                            uncheckedThumbColor = TextPrimary,
+                            uncheckedTrackColor = Panel
+                        )
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // About
-            EntranceRow(6) {
-                SettingsRow(
-                    icon = Icons.Default.Info,
-                    title = "About",
-                    summary = "Version \u00b7 Licenses",
-                    onClick = { onNavigateTo(Screen.About) }
-                )
-            }
+            SettingsRow(
+                icon = Icons.Default.Info,
+                title = "About",
+                summary = "Version \u00b7 Licenses",
+                onClick = { onNavigateTo(Screen.About) }
+            )
         }
     }
 }

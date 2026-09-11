@@ -40,8 +40,8 @@ fun AgentConfigScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedProvider by remember { mutableStateOf(SecurityUtils.getLlmPreset(context)) }
-    var model by remember { mutableStateOf(SecurityUtils.getLlmModel(context, SecurityUtils.getLlmPreset(context))) }
+    var selectedProvider by remember { mutableStateOf("groq") }
+    var model by remember { mutableStateOf("llama-3.3-70b-versatile") }
     var apiKey by remember { mutableStateOf("") }
     var customBaseUrl by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -94,6 +94,15 @@ fun AgentConfigScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val savedPreset = SecurityUtils.getLlmPreset(context)
+            if (savedPreset != selectedProvider) {
+                selectedProvider = savedPreset
+            }
+        }
+    }
+
     LaunchedEffect(selectedProvider) {
         withContext(Dispatchers.IO) {
             apiKey = SecurityUtils.getProviderApiKey(context, "llm", selectedProvider) ?: ""
@@ -126,15 +135,17 @@ fun AgentConfigScreen(
         ) {
             SettingsTopBar(title = "AI Agent Mode", onBack = onNavigateBack)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
             Text(
                 text = "Configure an AI provider for agent transcription mode.",
                 color = TextSecondary,
-            style = FluenceTypography.labelLarge
+                style = FluenceTypography.labelLarge,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             Text(
                 text = "Provider",

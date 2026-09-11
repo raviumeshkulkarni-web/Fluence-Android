@@ -158,42 +158,47 @@ fun SttConfigScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedProvider by remember { mutableStateOf(SecurityUtils.getSttPreset(context)) }
+    var selectedProvider by remember { mutableStateOf("groq") }
     var apiKey by remember { mutableStateOf("") }
     var mistralApiKey by remember { mutableStateOf("") }
     var customApiKey by remember { mutableStateOf("") }
     var customBaseUrl by remember { mutableStateOf("") }
     var customModel by remember { mutableStateOf("") }
-    var selectedModel by remember { mutableStateOf(SecurityUtils.getSttModel(context, selectedProvider)) }
+    var selectedModel by remember { mutableStateOf("whisper-large-v3") }
     var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var isFetchingModels by remember { mutableStateOf(false) }
-    var selectedLanguage by remember { mutableStateOf(SecurityUtils.getSttLanguage(context).ifBlank { null }) }
+    var fetchGeneration by remember { mutableStateOf(0) }
+    var selectedLanguage by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var showPassword by remember { mutableStateOf(false) }
 
     fun fetchModelsForProvider() {
-        val currentKey = when (selectedProvider) {
+        val currentProvider = selectedProvider
+        val currentKey = when (currentProvider) {
             "groq" -> apiKey
             "mistral" -> mistralApiKey
             "custom" -> customApiKey
             else -> ""
         }
-        val currentBaseUrl = when (selectedProvider) {
+        val currentBaseUrl = when (currentProvider) {
             "groq" -> "https://api.groq.com/openai"
             "mistral" -> "https://api.mistral.ai"
             "custom" -> customBaseUrl
             else -> ""
         }
-        if (currentKey.isBlank() || selectedProvider == "custom") {
+        if (currentKey.isBlank() || currentProvider == "custom") {
             fetchedModels = emptyList()
             return
         }
         isFetchingModels = true
+        fetchGeneration++
+        val generation = fetchGeneration
         coroutineScope.launch {
             val result = GroqClient.fetchModels(baseUrl = currentBaseUrl, apiKey = currentKey)
             result.fold(
                 onSuccess = { models ->
+                    if (currentProvider != selectedProvider || generation != fetchGeneration) return@fold
                     fetchedModels = models
                     if (models.isNotEmpty() && selectedModel !in models) {
                         selectedModel = models.first()
@@ -201,10 +206,14 @@ fun SttConfigScreen(
                     }
                 },
                 onFailure = {
-                    fetchedModels = emptyList()
+                    if (currentProvider == selectedProvider && generation == fetchGeneration) {
+                        fetchedModels = emptyList()
+                    }
                 }
             )
-            isFetchingModels = false
+            if (generation == fetchGeneration) {
+                isFetchingModels = false
+            }
         }
     }
 
@@ -217,6 +226,7 @@ fun SttConfigScreen(
             customBaseUrl = SecurityUtils.getSttBaseUrl(context, "custom")
             customModel = SecurityUtils.getSttModel(context, "custom")
             selectedModel = SecurityUtils.getSttModel(context, selectedProvider)
+            selectedLanguage = SecurityUtils.getSttLanguage(context).ifBlank { null }
         }
         testResult = null
         fetchModelsForProvider()
