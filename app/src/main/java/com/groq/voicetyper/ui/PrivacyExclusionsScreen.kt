@@ -173,7 +173,7 @@ fun PrivacyExclusionsScreen(
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                         Text(
-                            text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence — it appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
+                            text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence. It appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
                             color = TextSecondary,
                             style = FluenceTypography.bodySmall
                         )
