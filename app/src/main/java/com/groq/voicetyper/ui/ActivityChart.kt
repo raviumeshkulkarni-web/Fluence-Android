@@ -61,25 +61,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.sync.stats.DayCounters
-import com.groq.voicetyper.theme.BrandCyan
-import com.groq.voicetyper.theme.CardBorder
-import com.groq.voicetyper.theme.CardSurface
-import com.groq.voicetyper.theme.ChartDuoEnd
-import com.groq.voicetyper.theme.ChartDuoStart
-import com.groq.voicetyper.theme.ChartDuoEnd
-import com.groq.voicetyper.theme.ChartDuoMid
-import com.groq.voicetyper.theme.ChartDuoStart
-import com.groq.voicetyper.theme.DialogSurface
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.LocalMotionPreferences
-import com.groq.voicetyper.theme.OutlineSubtle
-import com.groq.voicetyper.theme.TextPrimary
-import com.groq.voicetyper.theme.TextSecondary
-import com.groq.voicetyper.theme.TextTertiary
+import com.groq.voicetyper.theme.PrecisionTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -463,11 +451,12 @@ fun ActivityChartCard(
     plotHeight: Dp = ChartPlotMinHeight,
     onChromeHeight: (Dp) -> Unit = {},
 ) {
+    val colors = PrecisionTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(CardSurface, FluenceShapes.Medium)
-            .border(1.dp, CardBorder, FluenceShapes.Medium)
+            .background(colors.cardSurface, FluenceShapes.Medium)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Lg),
     ) {
         val context = LocalContext.current
@@ -501,7 +490,7 @@ fun ActivityChartCard(
             // text is uppercased so accessibility services keep the real word.
             Text(
                 text = "Activity".uppercase(Locale.US),
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelLarge.copy(
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.56.sp,
@@ -532,13 +521,13 @@ fun ActivityChartCard(
             ) {
                 Text(
                     text = "No activity in this range yet",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
                 Text(
                     text = "Start dictating to see it here.",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.bodySmall,
                 )
             }
@@ -592,6 +581,10 @@ fun FluenceActivityChart(
     val reducedMotion = LocalMotionPreferences.current.reducedMotion
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    // Themed palette hoisted out of the draw scope (draw scopes are not
+    // composable). Remember keys below hang off `colors` so a theme flip
+    // recomputes every cached layout.
+    val colors = PrecisionTheme.colors
 
     var selectedIndex by remember(series) { mutableStateOf(-1) }
 
@@ -616,11 +609,13 @@ fun FluenceActivityChart(
 
     var canvasWidthPx by remember { mutableFloatStateOf(0f) }
 
-    val labelStyle = remember {
+    // Axis ticks: secondary in dark (#A0A0A0, Windows tick fill), tertiary in
+    // white (#71717A, Windows app.css light tick override).
+    val labelStyle = remember(colors) {
         TextStyle(
             fontFamily = GeistMonoFont,
             fontSize = 12.sp,
-            color = TextSecondary,
+            color = if (colors.isLight) colors.textTertiary else colors.textSecondary,
         )
     }
     val maxCount = remember(points, metric) { points.maxOf { valueOf(it) }.coerceAtLeast(1) }
@@ -719,7 +714,9 @@ fun FluenceActivityChart(
         tickLayouts.forEach { (tick, layout) ->
             val y = plotBottom - (tick.toFloat() / niceMax) * plotH
             drawLine(
-                color = TextPrimary.copy(alpha = 0.06f),
+                // Windows grid: 6% white in dark, 8% black in white mode.
+                color = if (colors.isLight) Color.Black.copy(alpha = 0.08f)
+                    else colors.textPrimary.copy(alpha = 0.06f),
                 start = Offset(plotLeft, y),
                 end = Offset(plotRight, y),
                 strokeWidth = 1.dp.toPx(),
@@ -784,8 +781,8 @@ fun FluenceActivityChart(
             val cx = xAt(i)
             drawRoundRect(
                 brush = Brush.verticalGradient(
-                    0f to ChartDuoStart.copy(alpha = 0.9f),
-                    1f to ChartDuoEnd.copy(alpha = 0.9f),
+                    0f to colors.chartDuoStart.copy(alpha = 0.9f),
+                    1f to colors.chartDuoEnd.copy(alpha = 0.9f),
                     startY = yAt(value),
                     endY = plotBottom,
                 ),
@@ -798,7 +795,7 @@ fun FluenceActivityChart(
         if (n == 1) {
             if (metric == ChartMetric.WORDS) drawBar(0, valueOf(points[0]))
             else drawCircle(
-                color = BrandCyan,
+                color = colors.brandCyan,
                 radius = 4.dp.toPx(),
                 center = pts[0],
                 alpha = reveal,
@@ -822,9 +819,9 @@ fun FluenceActivityChart(
             drawPath(
                 fill,
                 brush = Brush.verticalGradient(
-                    0f to ChartDuoStart.copy(alpha = 0.22f),
-                    0.5f to ChartDuoMid.copy(alpha = 0.10f),
-                    1f to ChartDuoEnd.copy(alpha = 0.03f),
+                    0f to colors.chartDuoStart.copy(alpha = 0.22f),
+                    0.5f to colors.chartDuoMid.copy(alpha = 0.10f),
+                    1f to colors.chartDuoEnd.copy(alpha = 0.03f),
                     startY = plotTop,
                     endY = plotBottom,
                 ),
@@ -833,9 +830,9 @@ fun FluenceActivityChart(
             drawPath(
                 seg,
                 brush = Brush.horizontalGradient(
-                    0f to ChartDuoStart,
-                    0.55f to ChartDuoMid,
-                    1f to ChartDuoEnd,
+                    0f to colors.chartDuoStart,
+                    0.55f to colors.chartDuoMid,
+                    1f to colors.chartDuoEnd,
                 ),
                 style = Stroke(
                     width = 2.dp.toPx(),
@@ -845,34 +842,37 @@ fun FluenceActivityChart(
             )
         }
 
-        // Touch selection: crosshair + dot + clamped value chip.
+        // Touch selection: crosshair + dot + clamped value chip. The dot keeps
+        // the functional cyan (teal in white mode, Windows themedConfig
+        // parity); the crosshair follows the Windows light override (15% black).
         if (sel in points.indices) {
             val point = points[sel]
             val sx = xAt(sel)
             val sy = yAt(valueOf(point))
             drawLine(
-                color = TextPrimary.copy(alpha = 0.12f),
+                color = if (colors.isLight) Color.Black.copy(alpha = 0.15f)
+                    else colors.textPrimary.copy(alpha = 0.12f),
                 start = Offset(sx, plotTop),
                 end = Offset(sx, plotBottom),
                 strokeWidth = 1.dp.toPx(),
             )
             drawCircle(
-                color = BrandCyan.copy(alpha = 0.25f),
+                color = colors.brandCyan.copy(alpha = 0.25f),
                 radius = 7.dp.toPx(),
                 center = Offset(sx, sy),
             )
             drawCircle(
-                color = BrandCyan,
+                color = colors.brandCyan,
                 radius = 4.dp.toPx(),
                 center = Offset(sx, sy),
             )
             val chipText = buildAnnotatedString {
                 val v = valueOf(point)
-                withStyle(SpanStyle(color = TextPrimary)) {
+                withStyle(SpanStyle(color = colors.textPrimary)) {
                     append(v.toString())
                     append(if (v == 1) " $noun" else " ${noun}s")
                 }
-                withStyle(SpanStyle(color = TextTertiary)) {
+                withStyle(SpanStyle(color = colors.textTertiary)) {
                     append(" · " + point.fullLabel)
                 }
             }
@@ -906,19 +906,19 @@ fun FluenceActivityChart(
                 chipShadowPaint.apply {
                     isAntiAlias = true
                     setShadowLayer(12.dp.toPx(), 0f, 4.dp.toPx(), Color.Black.copy(alpha = 0.45f).toArgb())
-                    color = DialogSurface.toArgb()
+                    color = colors.dialog.toArgb()
                 }
                 native.drawPath(chipShadowPath, chipShadowPaint)
                 chipShadowPaint.setShadowLayer(0f, 0f, 0f, 0)
             }
             drawRoundRect(
-                color = DialogSurface,
+                color = colors.dialog,
                 topLeft = Offset(chipX, chipY),
                 size = Size(chipW, chipH),
                 cornerRadius = CornerRadius(8.dp.toPx()),
             )
             drawRoundRect(
-                color = OutlineSubtle,
+                color = colors.outlineSubtle,
                 topLeft = Offset(chipX, chipY),
                 size = Size(chipW, chipH),
                 cornerRadius = CornerRadius(8.dp.toPx()),

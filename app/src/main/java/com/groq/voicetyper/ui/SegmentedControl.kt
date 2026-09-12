@@ -23,13 +23,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.CardBorder
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceTypography
-import com.groq.voicetyper.theme.Panel
-import com.groq.voicetyper.theme.PanelElevated
-import com.groq.voicetyper.theme.TextPrimary
-import com.groq.voicetyper.theme.TextSecondary
+import com.groq.voicetyper.theme.PrecisionTheme
 
 // ── Fluence segmented control ───────────────────────────────────────────────
 // Shared implementation behind the Activity chart range selector and the
@@ -52,12 +48,13 @@ fun FluenceSegmentedControl(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
-            .background(Panel, FluenceShapes.Small)
-            .border(1.dp, CardBorder, FluenceShapes.Small)
+            .background(colors.panel, FluenceShapes.Small)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Small)
             .clip(FluenceShapes.Small)
             .padding(2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -70,7 +67,7 @@ fun FluenceSegmentedControl(
                     .weight(1f)
                     .fillMaxHeight()
                     .clip(FluenceShapes.ExtraSmall)
-                    .background(if (isSelected) PanelElevated else Color.Transparent)
+                    .background(if (isSelected) colors.panelElevated else Color.Transparent)
                     .selectable(
                         selected = isSelected,
                         onClick = { onSelect(index) },
@@ -84,7 +81,7 @@ fun FluenceSegmentedControl(
             ) {
                 Text(
                     text = option.label,
-                    color = if (isSelected) TextPrimary else TextSecondary,
+                    color = if (isSelected) colors.textPrimary else colors.textSecondary,
                     style = FluenceTypography.labelMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

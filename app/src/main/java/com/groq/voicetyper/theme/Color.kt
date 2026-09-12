@@ -117,6 +117,10 @@ val LightError          = Color(0xFFDC2626)
 val LightErrorText      = Color(0xFFB91C1C)
 val LightInputBg        = Color(0xFFFFFFFF)
 val LightInputBorder    = Color(0xFFD4D4D8) // untreated checkbox / kbd border
+// Light button fills: secondary at active-level 12% black, subtle at
+// interactive-level 5% black (Windows light --color-active / --color-interactive).
+val LightButtonSecondary = Color(0x1F000000)
+val LightButtonSubtle    = Color(0x0D000000)
 val LightSunken         = Color(0xFFE7E8EC) // skeleton, sunken wells
 // Matte charcoal: light-mode primary-button + toggle-ON fill
 // (Windows --color-charcoal). No dark equivalent — dark reserves white.
