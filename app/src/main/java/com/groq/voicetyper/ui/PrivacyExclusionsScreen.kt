@@ -61,17 +61,11 @@ import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.Canvas
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.GeistMonoFont
-import com.groq.voicetyper.theme.OutlineSubtle
-import com.groq.voicetyper.theme.Panel
-import com.groq.voicetyper.theme.PanelElevated
-import com.groq.voicetyper.theme.TextPrimary
-import com.groq.voicetyper.theme.TextSecondary
-import com.groq.voicetyper.theme.TextTertiary
+import com.groq.voicetyper.theme.PrecisionTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -86,6 +80,7 @@ fun PrivacyExclusionsScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<LaunchableApp>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
@@ -113,7 +108,7 @@ fun PrivacyExclusionsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -129,7 +124,7 @@ fun PrivacyExclusionsScreen(
 
             Text(
                 text = "Excluded apps keep Fluence's bubble, dictation, context capture, and Agent actions unavailable.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                 modifier = Modifier
@@ -147,9 +142,9 @@ fun PrivacyExclusionsScreen(
             // User-approved expectation note: bank security warnings about
             // accessibility-enabled apps are misattributed to Fluence.
             Surface(
-                color = Panel,
+                color = colors.panel,
                 shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, OutlineSubtle),
+                border = BorderStroke(1.dp, colors.outlineSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
@@ -161,20 +156,20 @@ fun PrivacyExclusionsScreen(
                     Icon(
                         imageVector = Icons.Outlined.Info,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                     Column {
                         Text(
                             text = "A note on banking apps",
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             style = FluenceTypography.titleSmall
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                         Text(
                             text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence. It appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
                     }
@@ -188,14 +183,14 @@ fun PrivacyExclusionsScreen(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
-                    Text("Search apps…", color = TextSecondary, style = FluenceTypography.bodySmall)
+                    Text("Search apps…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
                 },
                 singleLine = true,
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
                     )
                 },
@@ -210,20 +205,20 @@ fun PrivacyExclusionsScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear search",
-                                tint = TextTertiary,
+                                tint = colors.textTertiary,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
                     }
                 },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = TextSecondary,
-                    unfocusedBorderColor = OutlineSubtle,
-                    focusedContainerColor = PanelElevated,
-                    unfocusedContainerColor = PanelElevated,
-                    cursorColor = TextPrimary
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                    unfocusedBorderColor = colors.outlineSubtle,
+                    focusedContainerColor = colors.panelElevated,
+                    unfocusedContainerColor = colors.panelElevated,
+                    cursorColor = colors.textPrimary
                 ),
                 shape = FluenceShapes.Small,
                 modifier = Modifier
@@ -234,12 +229,12 @@ fun PrivacyExclusionsScreen(
             )
 
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = OutlineSubtle)
+            HorizontalDivider(color = colors.outlineSubtle)
 
             when {
                 isLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = TextSecondary)
+                        CircularProgressIndicator(color = colors.textSecondary)
                     }
                 }
                 filteredApps.isEmpty() -> {
@@ -277,7 +272,7 @@ fun PrivacyExclusionsScreen(
                                     }
                                 }
                             )
-                            HorizontalDivider(color = OutlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                            HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
                         }
                     }
                 }
@@ -292,6 +287,7 @@ private fun AppExclusionRow(
     isExcluded: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val iconBitmap = remember(app.packageName) {
         app.icon.toBitmap(48, 48).asImageBitmap()
     }
@@ -307,15 +303,15 @@ private fun AppExclusionRow(
             contentDescription = null,
             modifier = Modifier
                 .size(44.dp)
-                .background(Panel, RoundedCornerShape(10.dp))
+                .background(colors.panel, RoundedCornerShape(10.dp))
         )
 
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(app.label, color = TextPrimary, style = FluenceTypography.titleMedium)
+            Text(app.label, color = colors.textPrimary, style = FluenceTypography.titleMedium)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(app.packageName, color = TextSecondary, style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont))
+            Text(app.packageName, color = colors.textSecondary, style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont))
         }
 
         // Monochrome Switch Styling matching app design system
@@ -323,10 +319,10 @@ private fun AppExclusionRow(
             checked = isExcluded,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Panel,
-                checkedTrackColor = TextPrimary,
-                uncheckedThumbColor = TextPrimary,
-                uncheckedTrackColor = Panel
+                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                uncheckedThumbColor = colors.textPrimary,
+                uncheckedTrackColor = colors.panel
             ),
             modifier = Modifier.semantics {
                 role = Role.Switch

@@ -37,6 +37,7 @@ fun AgentConfigScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -122,7 +123,7 @@ fun AgentConfigScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -139,7 +140,7 @@ fun AgentConfigScreen(
 
             Text(
                 text = "Configure an AI provider for agent transcription mode.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelLarge,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                 modifier = Modifier.fillMaxWidth()
@@ -149,7 +150,7 @@ fun AgentConfigScreen(
 
             Text(
                 text = "Provider",
-                color = TextPrimary,
+                color = colors.textPrimary,
             style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -177,14 +178,14 @@ fun AgentConfigScreen(
                         },
                         shape = FluenceShapes.ExtraSmall,
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
-                            selectedLabelColor = TextPrimary,
-                            containerColor = ButtonSecondary,
-                            labelColor = TextSecondary
+                            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                            selectedLabelColor = colors.textPrimary,
+                            containerColor = colors.buttonSecondary,
+                            labelColor = colors.textSecondary
                         ),
                         border = FilterChipDefaults.filterChipBorder(
-                            borderColor = OutlineSubtle,
-                            selectedBorderColor = TextPrimary.copy(alpha = 0.25f),
+                            borderColor = colors.outlineSubtle,
+                            selectedBorderColor = colors.textPrimary.copy(alpha = 0.25f),
                             enabled = true,
                             selected = selectedProvider == value
                         )
@@ -196,13 +197,13 @@ fun AgentConfigScreen(
 
             Text(
                 text = "API Key",
-                color = TextPrimary,
+                color = colors.textPrimary,
             style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Stored securely on this device.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -212,16 +213,16 @@ fun AgentConfigScreen(
                 onValueChange = {
                     apiKey = it
                 },
-                placeholder = { Text("Enter your API key", color = TextSecondary) },
+                placeholder = { Text("Enter your API key", color = colors.textSecondary) },
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = TextSecondary,
-                    unfocusedBorderColor = OutlineSubtle,
-                    focusedContainerColor = InputBg,
-                    unfocusedContainerColor = InputBg,
-                    cursorColor = TextPrimary
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                    unfocusedBorderColor = colors.outlineSubtle,
+                    focusedContainerColor = colors.inputBg,
+                    unfocusedContainerColor = colors.inputBg,
+                    cursorColor = colors.textPrimary
                 ),
                 shape = FluenceShapes.Medium,
                 modifier = Modifier.fillMaxWidth(),
@@ -230,7 +231,7 @@ fun AgentConfigScreen(
                     TextButton(onClick = { showPassword = !showPassword }) {
                         Text(
                             text = if (showPassword) "Hide" else "Show",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.labelMedium
                         )
                     }
@@ -241,7 +242,7 @@ fun AgentConfigScreen(
 
             Text(
                 text = "Model",
-                color = TextPrimary,
+                color = colors.textPrimary,
             style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -250,15 +251,15 @@ fun AgentConfigScreen(
                 OutlinedTextField(
                     value = model,
                     onValueChange = { model = it },
-                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = TextSecondary) },
+                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = colors.textSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        cursorColor = TextPrimary
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        cursorColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -269,7 +270,7 @@ fun AgentConfigScreen(
 
                 Text(
                     text = "Base URL",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -277,15 +278,15 @@ fun AgentConfigScreen(
                 OutlinedTextField(
                     value = customBaseUrl,
                     onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("e.g. https://api.example.com", color = TextSecondary) },
+                    placeholder = { Text("e.g. https://api.example.com", color = colors.textSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        cursorColor = TextPrimary
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        cursorColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -298,9 +299,9 @@ fun AgentConfigScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                        CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Fetching models…", color = TextSecondary, style = FluenceTypography.bodySmall)
+                        Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
                     }
                 } else {
                     var showModelDropdown by remember { mutableStateOf(false) }
@@ -310,15 +311,15 @@ fun AgentConfigScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                         .clickable { showModelDropdown = true }
-                                .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
-                                .background(InputBg, FluenceShapes.Medium)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                .background(colors.inputBg, FluenceShapes.Medium)
                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = model.ifBlank { "Select a model" },
-                                color = if (model.isBlank()) TextDisabled else TextPrimary,
+                                color = if (model.isBlank()) colors.textDisabled else colors.textPrimary,
                                 style = FluenceTypography.bodyLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -326,7 +327,7 @@ fun AgentConfigScreen(
                             Icon(
                                 imageVector = FluenceIcons.ChevronDown,
                                 contentDescription = "Select model",
-                                tint = TextSecondary
+                                tint = colors.textSecondary
                             )
                         }
                         DropdownMenu(
@@ -335,8 +336,8 @@ fun AgentConfigScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp)
-                                .background(DialogSurface, FluenceShapes.Medium)
-                                .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                                .background(colors.dialog, FluenceShapes.Medium)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                         ) {
                             fetchedModels.forEach { m ->
                                 val isSelected = m == model
@@ -344,17 +345,17 @@ fun AgentConfigScreen(
                                     text = {
                                         Text(
                                             text = m,
-                                            color = TextPrimary,
+                                            color = colors.textPrimary,
                                             style = FluenceTypography.bodyLarge
                                         )
                                     },
                                     colors = MenuDefaults.itemColors(
-                                        textColor = TextPrimary,
-                                        leadingIconColor = TextSecondary,
-                                        trailingIconColor = TextSecondary
+                                        textColor = colors.textPrimary,
+                                        leadingIconColor = colors.textSecondary,
+                                        trailingIconColor = colors.textSecondary
                                     ),
                                     modifier = if (isSelected) Modifier
-                                        .background(TextPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                        .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
                                     else Modifier,
                                     onClick = {
                                         model = m
@@ -369,7 +370,7 @@ fun AgentConfigScreen(
 
                 modelFetchError?.let { err ->
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = err, color = Error, style = FluenceTypography.labelMedium)
+                    Text(text = err, color = colors.error, style = FluenceTypography.labelMedium)
                 }
             }
 
@@ -397,11 +398,11 @@ fun AgentConfigScreen(
                             FeedbackBus.show(e.message ?: "Base URL must use https://")
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
                 ) {
-                    Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
 
                 Button(
@@ -441,15 +442,15 @@ fun AgentConfigScreen(
                             testResult = result
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
                     enabled = !isTesting
                 ) {
                     if (isTesting) {
-                        CircularProgressIndicator(color = TextPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                        CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
                     } else {
-                        Text(text = "Test Connection", color = TextPrimary, style = FluenceTypography.labelLarge)
+                        Text(text = "Test Connection", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
                 }
             }
@@ -458,7 +459,7 @@ fun AgentConfigScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = result.second,
-                    color = if (result.first) Success else Error,
+                    color = if (result.first) colors.success else colors.error,
                     style = FluenceTypography.bodySmall
                 )
             }

@@ -44,15 +44,16 @@ private fun ApiKeySection(
     isTesting: Boolean,
     testResult: Pair<Boolean, String>?
 ) {
+    val colors = PrecisionTheme.colors
     Text(
         text = label,
-        color = TextPrimary,
+        color = colors.textPrimary,
         style = FluenceTypography.labelLarge
     )
     Spacer(modifier = Modifier.height(4.dp))
     Text(
         text = "Stored securely on this device.",
-        color = TextSecondary,
+        color = colors.textSecondary,
         style = FluenceTypography.labelMedium,
     )
     Spacer(modifier = Modifier.height(8.dp))
@@ -60,16 +61,16 @@ private fun ApiKeySection(
     OutlinedTextField(
         value = apiKey,
         onValueChange = onApiKeyChange,
-        placeholder = { Text(placeholder, color = TextSecondary) },
+        placeholder = { Text(placeholder, color = colors.textSecondary) },
         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary,
-            focusedBorderColor = TextSecondary,
-            unfocusedBorderColor = OutlineSubtle,
-            focusedContainerColor = InputBg,
-            unfocusedContainerColor = InputBg,
-            cursorColor = TextPrimary
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+            unfocusedBorderColor = colors.outlineSubtle,
+            focusedContainerColor = colors.inputBg,
+            unfocusedContainerColor = colors.inputBg,
+            cursorColor = colors.textPrimary
         ),
         shape = FluenceShapes.Medium,
         modifier = Modifier.fillMaxWidth(),
@@ -78,7 +79,7 @@ private fun ApiKeySection(
             TextButton(onClick = onTogglePassword) {
                 Text(
                     text = if (showPassword) "Hide" else "Show",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelMedium
                 )
             }
@@ -93,24 +94,24 @@ private fun ApiKeySection(
     ) {
         Button(
             onClick = onSave,
-            colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
             shape = FluenceShapes.Medium,
             modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
         ) {
-            Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
+            Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
         }
 
         Button(
             onClick = onTest,
-            colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
             shape = FluenceShapes.Medium,
             modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
             enabled = !isTesting
         ) {
             if (isTesting) {
-                CircularProgressIndicator(color = TextPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
             } else {
-                Text(text = "Test Connection", color = TextPrimary, style = FluenceTypography.labelLarge)
+                Text(text = "Test Connection", color = colors.textPrimary, style = FluenceTypography.labelLarge)
             }
         }
     }
@@ -119,7 +120,7 @@ private fun ApiKeySection(
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = result.second,
-            color = if (result.first) Success else Error,
+            color = if (result.first) colors.success else colors.error,
             style = FluenceTypography.bodySmall,
         )
     }
@@ -155,6 +156,7 @@ fun SttConfigScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -255,7 +257,7 @@ fun SttConfigScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -273,7 +275,7 @@ fun SttConfigScreen(
             // Provider
             Text(
                 text = "Provider",
-                color = TextPrimary,
+                color = colors.textPrimary,
     style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -298,14 +300,14 @@ fun SttConfigScreen(
                         },
                         shape = FluenceShapes.ExtraSmall,
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
-                            selectedLabelColor = TextPrimary,
-                            containerColor = ButtonSecondary,
-                            labelColor = TextSecondary
+                            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                            selectedLabelColor = colors.textPrimary,
+                            containerColor = colors.buttonSecondary,
+                            labelColor = colors.textSecondary
                         ),
                         border = FilterChipDefaults.filterChipBorder(
-                            borderColor = OutlineSubtle,
-                            selectedBorderColor = TextPrimary.copy(alpha = 0.30f),
+                            borderColor = colors.outlineSubtle,
+                            selectedBorderColor = colors.textPrimary.copy(alpha = 0.30f),
                             enabled = true,
                             selected = selectedProvider == id
                         )
@@ -318,13 +320,13 @@ fun SttConfigScreen(
             // Language
             Text(
                 text = "Language",
-                color = TextPrimary,
+                color = colors.textPrimary,
     style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Leave as Auto-detect for automatic language detection.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -337,15 +339,15 @@ fun SttConfigScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showLanguageDropdown = true }
-                        .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
-                        .background(InputBg, FluenceShapes.Medium)
+                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                        .background(colors.inputBg, FluenceShapes.Medium)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = currentLanguageLabel,
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -354,7 +356,7 @@ fun SttConfigScreen(
                         Icon(
                             imageVector = FluenceIcons.ChevronDown,
                             contentDescription = "Select language",
-                            tint = TextSecondary
+                            tint = colors.textSecondary
                         )
                         DropdownMenu(
                             expanded = showLanguageDropdown,
@@ -362,8 +364,8 @@ fun SttConfigScreen(
                             modifier = Modifier
                                 .width(220.dp)
                                 .heightIn(max = 280.dp)
-                                .background(DialogSurface, FluenceShapes.Medium)
-                                .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                                .background(colors.dialog, FluenceShapes.Medium)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                         ) {
                             languages.forEach { (code, name) ->
                                 val isSelected = code == selectedLanguage
@@ -371,17 +373,17 @@ fun SttConfigScreen(
                                     text = {
                                         Text(
                                             text = name,
-                                            color = TextPrimary,
+                                            color = colors.textPrimary,
                                             style = FluenceTypography.bodyLarge
                                         )
                                     },
                                     colors = MenuDefaults.itemColors(
-                                        textColor = TextPrimary,
-                                        leadingIconColor = TextSecondary,
-                                        trailingIconColor = TextSecondary
+                                        textColor = colors.textPrimary,
+                                        leadingIconColor = colors.textSecondary,
+                                        trailingIconColor = colors.textSecondary
                                     ),
                                     modifier = if (isSelected) Modifier
-                                        .background(TextPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                        .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
                                     else Modifier,
                                     onClick = {
                                         selectedLanguage = code
@@ -400,13 +402,13 @@ fun SttConfigScreen(
             // Transcription Model
             Text(
                 text = "Transcription Model",
-                color = TextPrimary,
+                color = colors.textPrimary,
     style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Select speech recognition model for this provider.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -419,9 +421,9 @@ fun SttConfigScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                    CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Fetching models…", color = TextSecondary, style = FluenceTypography.bodySmall)
+                    Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
                 }
             } else {
                 var showModelDropdown by remember { mutableStateOf(false) }
@@ -436,15 +438,15 @@ fun SttConfigScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showModelDropdown = true }
-                            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
-                            .background(InputBg, FluenceShapes.Medium)
+                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                            .background(colors.inputBg, FluenceShapes.Medium)
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
                         text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -452,7 +454,7 @@ fun SttConfigScreen(
                         Icon(
                             imageVector = FluenceIcons.ChevronDown,
                             contentDescription = "Select model",
-                            tint = TextSecondary
+                            tint = colors.textSecondary
                         )
                     }
                     DropdownMenu(
@@ -461,20 +463,20 @@ fun SttConfigScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 280.dp)
-                            .background(DialogSurface, FluenceShapes.Medium)
-                            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                            .background(colors.dialog, FluenceShapes.Medium)
+                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                     ) {
                         availableModels.forEach { m ->
                             val isSelected = m == selectedModel
                             DropdownMenuItem(
-                                text = { Text(text = m, color = TextPrimary) },
+                                text = { Text(text = m, color = colors.textPrimary) },
                                 colors = MenuDefaults.itemColors(
-                                    textColor = TextPrimary,
-                                    leadingIconColor = TextSecondary,
-                                    trailingIconColor = TextSecondary
+                                    textColor = colors.textPrimary,
+                                    leadingIconColor = colors.textSecondary,
+                                    trailingIconColor = colors.textSecondary
                                 ),
                                 modifier = if (isSelected) Modifier
-                                    .background(TextPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                    .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
                                 else Modifier,
                                 onClick = {
                                     selectedModel = m
@@ -495,7 +497,7 @@ fun SttConfigScreen(
             // Transcription Mode
             Text(
                 text = "Transcription Mode",
-                color = TextPrimary,
+                color = colors.textPrimary,
     style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -505,7 +507,7 @@ fun SttConfigScreen(
                 } else {
                     "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
                 },
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -524,10 +526,10 @@ fun SttConfigScreen(
                     label = { Text("Standard", style = FluenceTypography.bodySmall) },
                     shape = FluenceShapes.ExtraSmall,
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
-                        selectedLabelColor = TextPrimary,
-                        containerColor = ButtonSecondary,
-                        labelColor = TextSecondary
+                        selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                        selectedLabelColor = colors.textPrimary,
+                        containerColor = colors.buttonSecondary,
+                        labelColor = colors.textSecondary
                     )
                 )
 
@@ -542,12 +544,12 @@ fun SttConfigScreen(
                     label = { Text("Real-time Streaming", style = FluenceTypography.bodySmall) },
                     shape = FluenceShapes.ExtraSmall,
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = TextPrimary.copy(alpha = 0.10f),
-                        selectedLabelColor = TextPrimary,
-                        containerColor = ButtonSecondary,
-                        labelColor = TextSecondary,
-                        disabledContainerColor = ButtonSecondary.copy(alpha = 0.4f),
-                        disabledLabelColor = TextDisabled
+                        selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                        selectedLabelColor = colors.textPrimary,
+                        containerColor = colors.buttonSecondary,
+                        labelColor = colors.textSecondary,
+                        disabledContainerColor = colors.buttonSecondary.copy(alpha = 0.4f),
+                        disabledLabelColor = colors.textDisabled
                     )
                 )
             }
@@ -556,13 +558,13 @@ fun SttConfigScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Notice: Real-time streaming mode transmits encrypted audio continuously while speaking. Cancelling stops further transmission, but audio already transmitted is processed by the cloud provider.",
-                    color = TextSecondary.copy(alpha = 0.8f),
+                    color = colors.textSecondary.copy(alpha = 0.8f),
                     style = FluenceTypography.labelSmall,
                 )
                 if (selectedProvider == "custom") {
                     Text(
                         text = "Custom streaming requires a Mistral-compatible realtime transcription endpoint (e.g. a server exposing /v1/audio/transcriptions/realtime).",
-                        color = TextSecondary.copy(alpha = 0.8f),
+                        color = colors.textSecondary.copy(alpha = 0.8f),
                         style = FluenceTypography.labelSmall,
                     )
                 }
@@ -635,13 +637,13 @@ fun SttConfigScreen(
             if (selectedProvider == "custom") {
                 Text(
                     text = "API Key",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Stored securely on this device.",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelMedium,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -649,16 +651,16 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customApiKey,
                     onValueChange = { customApiKey = it.trim() },
-                    placeholder = { Text("API Key", color = TextSecondary) },
+                    placeholder = { Text("API Key", color = colors.textSecondary) },
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        cursorColor = TextPrimary
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        cursorColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -667,7 +669,7 @@ fun SttConfigScreen(
                         TextButton(onClick = { showPassword = !showPassword }) {
                             Text(
                                 text = if (showPassword) "Hide" else "Show",
-                                color = TextSecondary,
+                                color = colors.textSecondary,
                                 style = FluenceTypography.labelMedium
                             )
                         }
@@ -679,20 +681,20 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customBaseUrl,
                     onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("https://api.example.com/v1", color = TextSecondary) },
+                    placeholder = { Text("https://api.example.com/v1", color = colors.textSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        cursorColor = TextPrimary
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        cursorColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Base URL", color = TextSecondary) }
+                    label = { Text("Base URL", color = colors.textSecondary) }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -700,20 +702,20 @@ fun SttConfigScreen(
                 OutlinedTextField(
                     value = customModel,
                     onValueChange = { customModel = it.trim() },
-                    placeholder = { Text("whisper-large-v3", color = TextSecondary) },
+                    placeholder = { Text("whisper-large-v3", color = colors.textSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        cursorColor = TextPrimary
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        cursorColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Model", color = TextSecondary) }
+                    label = { Text("Model", color = colors.textSecondary) }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -737,11 +739,11 @@ fun SttConfigScreen(
                                 FeedbackBus.show(e.message ?: "Base URL must use https://")
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text(text = "Save", color = TextPrimary, style = FluenceTypography.labelLarge)
+                        Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
 
                     Button(
@@ -762,15 +764,15 @@ fun SttConfigScreen(
                                 testResult = success to message
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
                         enabled = !isTesting
                     ) {
                         if (isTesting) {
-                            CircularProgressIndicator(color = TextPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                            CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
                         } else {
-                            Text(text = "Test Connection", color = TextPrimary)
+                            Text(text = "Test Connection", color = colors.textPrimary)
                         }
                     }
                 }
@@ -779,7 +781,7 @@ fun SttConfigScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = result.second,
-                        color = if (result.first) Success else Error,
+                        color = if (result.first) colors.success else colors.error,
                         style = FluenceTypography.bodySmall,
                     )
                 }

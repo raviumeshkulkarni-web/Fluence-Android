@@ -30,12 +30,13 @@ fun AboutScreen(
     modifier: Modifier = Modifier,
     updateViewModel: UpdateViewModel = viewModel()
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -89,14 +90,14 @@ fun AboutScreen(
             ) {
                 Text(
                     text = "Open Source Licenses",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.bodyLarge,
                     fontWeight = FontWeight.Medium
                 )
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "Open source licenses",
-                    tint = TextSecondary,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -106,13 +107,13 @@ fun AboutScreen(
             // Credits
             Text(
                 text = "Built with Jetpack Compose, Material3, and Fluence Design System.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Privacy Note: History is not backed up — transcriptions and API keys stay on this device only and are excluded from cloud backups.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall
             )
 

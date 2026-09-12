@@ -52,6 +52,7 @@ private fun PermissionRow(
     isGranted: Boolean,
     onRequest: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
@@ -67,7 +68,7 @@ private fun PermissionRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = TextSecondary,
+            tint = colors.textSecondary,
             modifier = Modifier.size(22.dp)
         )
 
@@ -76,13 +77,13 @@ private fun PermissionRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.titleMedium
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall
             )
         }
@@ -91,7 +92,7 @@ private fun PermissionRow(
             modifier = Modifier
                 .size(10.dp)
                 .background(
-                    color = if (isGranted) Success else Error,
+                    color = if (isGranted) colors.success else colors.error,
                     shape = MaterialTheme.shapes.extraSmall
                 )
         )
@@ -100,8 +101,9 @@ private fun PermissionRow(
 
 @Composable
 private fun SectionDivider() {
+    val colors = PrecisionTheme.colors
     HorizontalDivider(
-        color = OutlineSubtle,
+        color = colors.outlineSubtle,
         thickness = 1.dp,
         modifier = Modifier.padding(horizontal = 20.dp)
     )
@@ -111,6 +113,7 @@ private fun SectionDivider() {
 fun PermissionsScreen(
     onNavigateBack: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -179,7 +182,7 @@ fun PermissionsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -309,7 +312,7 @@ fun PermissionsScreen(
                 Icon(
                     imageVector = Icons.Default.BubbleChart,
                     contentDescription = null,
-                    tint = TextSecondary,
+                    tint = colors.textSecondary,
                     modifier = Modifier.size(22.dp)
                 )
 
@@ -318,7 +321,7 @@ fun PermissionsScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Floating Bubble",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(2.dp))
@@ -328,7 +331,7 @@ fun PermissionsScreen(
                             bubbleEnabled -> "Active — orb will appear in text fields"
                             else -> "Tap to enable"
                         },
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall
                     )
                 }
@@ -347,10 +350,10 @@ fun PermissionsScreen(
                         }
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
+                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        uncheckedThumbColor = colors.textPrimary,
+                        uncheckedTrackColor = colors.panel
                     ),
                     modifier = Modifier.semantics {
                         role = Role.Switch
@@ -373,12 +376,12 @@ fun PermissionsScreen(
                     ) {
                         Text(
                             text = "Idle Opacity",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodyMedium
                         )
                         Text(
                             text = "${(bubbleOpacity * 100).roundToInt()}%",
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             style = FluenceTypography.titleMedium
                         )
                     }
@@ -390,9 +393,9 @@ fun PermissionsScreen(
                         },
                         valueRange = FloatingBubblePreferences.MIN_OPACITY..FloatingBubblePreferences.MAX_OPACITY,
                         colors = SliderDefaults.colors(
-                            thumbColor = TextPrimary,
-                            activeTrackColor = TextPrimary,
-                            inactiveTrackColor = OutlineSubtle
+                        thumbColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        activeTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        inactiveTrackColor = colors.outlineSubtle
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )

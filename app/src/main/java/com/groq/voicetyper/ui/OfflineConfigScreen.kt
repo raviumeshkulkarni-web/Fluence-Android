@@ -36,6 +36,7 @@ fun OfflineConfigScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -123,7 +124,7 @@ fun OfflineConfigScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -147,13 +148,13 @@ fun OfflineConfigScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Offline Mode",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.titleMedium,
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Transcribe without internet.",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall
                     )
                 }
@@ -174,10 +175,10 @@ fun OfflineConfigScreen(
                         }
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
+                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        uncheckedThumbColor = colors.textPrimary,
+                        uncheckedTrackColor = colors.panel
                     )
                 )
             }
@@ -187,13 +188,13 @@ fun OfflineConfigScreen(
             // Model Selector
             Text(
                 text = "Choose a model",
-                color = TextPrimary,
+                color = colors.textPrimary,
 style = FluenceTypography.labelLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "Pick the option that fits how you dictate. You can change this any time.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                     style = FluenceTypography.labelMedium
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -347,12 +348,13 @@ private fun ModelOptionCard(
     isSelected: Boolean,
     onSelect: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val interaction = remember { MutableInteractionSource() }
-    val borderColor = if (isSelected) TextPrimary else OutlineSubtle
+    val borderColor = if (isSelected) colors.textPrimary else colors.outlineSubtle
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Panel, FluenceShapes.Medium)
+            .background(colors.panel, FluenceShapes.Medium)
             .border(if (isSelected) 2.dp else 1.dp, borderColor, FluenceShapes.Medium)
             .pressScale(interaction)
             .selectable(
@@ -369,14 +371,14 @@ private fun ModelOptionCard(
                 selected = isSelected,
                 onClick = null,
                 colors = RadioButtonDefaults.colors(
-                    selectedColor = TextPrimary,
-                    unselectedColor = TextSecondary
+                    selectedColor = colors.textPrimary,
+                    unselectedColor = colors.textSecondary
                 )
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = title,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -386,12 +388,12 @@ private fun ModelOptionCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .background(TextPrimary, CircleShape)
+                        .background(colors.textPrimary, CircleShape)
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = "Recommended",
-                        color = Canvas,
+                        color = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
                         style = FluenceTypography.labelSmall,
                     )
                 }
@@ -403,7 +405,7 @@ private fun ModelOptionCard(
             Spacer(modifier = Modifier.width(34.dp))
             Text(
                 text = description,
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall
             )
         }
@@ -423,6 +425,7 @@ private fun ModelOptionCard(
 
 @Composable
 private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
+    val colors = PrecisionTheme.colors
     val safeLevel = level.coerceIn(0, maxLevel)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -430,7 +433,7 @@ private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
     ) {
         Text(
             text = label,
-            color = TextTertiary,
+            color = colors.textTertiary,
             style = FluenceTypography.labelSmall,
             modifier = Modifier.width(52.dp)
         )
@@ -441,7 +444,7 @@ private fun MetricBar(label: String, level: Int, maxLevel: Int = 5) {
                         .width(14.dp)
                         .height(6.dp)
                         .clip(CircleShape)
-                        .background(if (index < safeLevel) Success else OutlineSubtle)
+                        .background(if (index < safeLevel) colors.success else colors.outlineSubtle)
                 )
             }
         }
@@ -464,12 +467,13 @@ private fun ModelDownloadCard(
     onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     // Destructive model delete confirms first (Windows parity) — hundreds
     // of MB re-download is not a one-tap action.
     var showDeleteConfirm by remember { mutableStateOf(false) }
     Text(
         text = title,
-        color = TextPrimary,
+        color = colors.textPrimary,
         style = FluenceTypography.labelLarge,
     )
     Spacer(modifier = Modifier.height(8.dp))
@@ -483,66 +487,66 @@ private fun ModelDownloadCard(
             Column {
                 Text(
                     text = "Status: Ready",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "Storage: ${(diskSize / (1024 * 1024))} MB",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.bodySmall
                 )
             }
 
             Button(
                 onClick = { showDeleteConfirm = true },
-                colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
+                colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSubtle),
                 shape = FluenceShapes.Medium,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Text("Delete Model", color = Error, style = FluenceTypography.labelMedium)
+                Text("Delete Model", color = colors.error, style = FluenceTypography.labelMedium)
             }
         }
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            containerColor = DialogSurface,
-            titleContentColor = TextPrimary,
-            textContentColor = TextSecondary,
+            containerColor = colors.dialog,
+            titleContentColor = colors.textPrimary,
+            textContentColor = colors.textSecondary,
             title = { Text("Delete Model") },
             text = { Text("Are you sure you want to delete the $title model files to free space ($sizeEstimate)?") },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     onDelete()
-                }) { Text("Delete Model", color = ErrorText) }
+                }) { Text("Delete Model", color = colors.errorText) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = TextSecondary) }
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = colors.textSecondary) }
             }
         )
     }
     } else if (isVerifying) {
         Text(
             text = "Verifying model integrity…",
-            color = TextSecondary,
+            color = colors.textSecondary,
             style = FluenceTypography.labelLarge
         )
     } else if (isCorrupt) {
         Text(
             text = "Model is corrupted. Re-download required.",
-            color = Error,
+            color = colors.error,
             style = FluenceTypography.bodySmall
         )
         Spacer(modifier = Modifier.height(12.dp))
         Button(
             onClick = onDownload,
-            colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
             shape = FluenceShapes.Medium,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Re-download Model ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
+            Text("Re-download Model ($sizeEstimate)", color = colors.textPrimary, style = FluenceTypography.labelLarge)
         }
     } else {
         when (downloadState) {
@@ -557,12 +561,12 @@ private fun ModelDownloadCard(
                 ) {
                     Text(
                         text = if (downloadState == "VERIFYING") "Verifying…" else "Downloading…",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.labelLarge
                     )
                     Text(
                         text = "${(progressPercentage * 100).toInt()}%",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.labelLarge,
                     )
                 }
@@ -571,8 +575,8 @@ private fun ModelDownloadCard(
 
                 LinearProgressIndicator(
                     progress = { progressPercentage },
-                    color = TextPrimary,
-                    trackColor = TextPrimary.copy(alpha = 0.1f),
+                    color = colors.textPrimary,
+                    trackColor = colors.textPrimary.copy(alpha = 0.1f),
                     modifier = Modifier.fillMaxWidth().height(6.dp)
                 )
 
@@ -580,42 +584,42 @@ private fun ModelDownloadCard(
 
                 Button(
                     onClick = onCancel,
-                    colors = ButtonDefaults.buttonColors(containerColor = PanelElevated),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.panelElevated),
                     shape = FluenceShapes.Medium
                 ) {
-                    Text("Cancel", color = TextPrimary)
+                    Text("Cancel", color = colors.textPrimary)
                 }
             }
             "FAILED" -> {
                 Text(
                     text = "Download failed: ${errorMessage ?: "Unknown error"}",
-                    color = Error,
+                    color = colors.error,
                     style = FluenceTypography.bodySmall
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onDownload,
-                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Retry Download ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text("Retry Download ($sizeEstimate)", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
             }
             else -> {
                 Text(
                 text = "Model not installed.",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelLarge
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onDownload,
-                    colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Download Model ($sizeEstimate)", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text("Download Model ($sizeEstimate)", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
             }
         }
