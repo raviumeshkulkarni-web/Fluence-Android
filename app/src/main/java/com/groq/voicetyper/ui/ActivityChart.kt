@@ -638,12 +638,15 @@ fun FluenceActivityChart(
     // Dynamic Y gutter: base 32dp grows to fit the widest tick label so
     // four-digit counts never clip (Windows widens its Y gutter 32→44px when
     // labels reach four digits). Shared by the draw pass and nearestIndex so
-    // touch mapping stays aligned with the drawn plot origin.
-    val yGutterPx = remember(tickLayouts, density) {
-        tickLayouts.maxOfOrNull { (_, layout) ->
+    // touch mapping stays aligned with the drawn plot origin. Words view adds
+    // half a bar width: bars center on the plot edge, so without it the
+    // leftmost bar hangs over the tick labels.
+    val yGutterPx = remember(tickLayouts, density, metric) {
+        val labels = tickLayouts.maxOfOrNull { (_, layout) ->
             layout.size.width
         }?.plus(with(density) { 14.dp.toPx() })?.coerceAtLeast(with(density) { 32.dp.toPx() })
             ?: with(density) { 32.dp.toPx() }
+        labels + if (metric == ChartMetric.WORDS) with(density) { 16.dp.toPx() } else 0f
     }
 
     fun nearestIndex(x: Float): Int {
