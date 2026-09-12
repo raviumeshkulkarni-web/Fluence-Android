@@ -44,13 +44,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.composed
 import kotlin.math.sin
 
-// ── Expanded-pill themes (paint only) ───────────────────────────────────────
-// Curated presets for the expanded pill's static paints. Hardcoded literals:
+// ── Pill themes (paint only) ────────────────────────────────────────────────
+// Curated presets for the pill's static paints, collapsed shell included. Hardcoded literals:
 // the overlay service has no theme wrapper, so PrecisionTheme is BANNED in
-// this file (it would silently resolve to dark defaults). Agent-mode teal
-// overrides stay hardwired in every preset — accent state signaling is
-// functional, not decoration. Sizes, animation targets, Crossfade, gestures,
-// and sticky behavior are untouched by themes.
+// this file (it would silently resolve to dark defaults). Agent mode follows
+// the preset everywhere except the confirm button, which stays teal in every
+// preset as the single agent signal. Sizes, animation targets, Crossfade,
+// gestures, and sticky behavior are untouched by themes.
 enum class PillTheme(
     val prefValue: String,
     val label: String,
@@ -99,8 +99,9 @@ enum class PillTheme(
         confirmIcon = Color.White,
         glowBase = Color(0xFFFFFFFF),
         glowAlphaScale = 0.5f,
-        borderStart = Color(0xFFFFFFFF),
-        borderEnd = Color(0xFFFFFFFF),
+        // Seamless: obsidian shell color, so no visible border ring.
+        borderStart = Color(0xEA0D0E12),
+        borderEnd = Color(0xEA0D0E12),
     ),
     HIGH_CONTRAST(
         prefValue = FloatingBubblePreferences.PILL_THEME_HIGH_CONTRAST,
@@ -176,6 +177,7 @@ fun FloatingBubbleUI(
     val shape = RoundedCornerShape(cornerRadius)
     var idleOpacity by remember { mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context)) }
     var pillThemeName by remember { mutableStateOf(FloatingBubblePreferences.getPillTheme(context)) }
+    var glowEnabled by remember { mutableStateOf(FloatingBubblePreferences.isGlowEnabled(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -183,6 +185,8 @@ fun FloatingBubbleUI(
                 idleOpacity = FloatingBubblePreferences.getOpacity(context)
             } else if (key == FloatingBubblePreferences.KEY_PILL_THEME) {
                 pillThemeName = FloatingBubblePreferences.getPillTheme(context)
+            } else if (key == FloatingBubblePreferences.KEY_GLOW_ENABLED) {
+                glowEnabled = FloatingBubblePreferences.isGlowEnabled(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -233,7 +237,7 @@ fun FloatingBubbleUI(
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
-                .amethystObsidianGlow(isExpanded = isExpanded, theme = pillTheme, shape = shape, dimmed = dimmed)
+                .amethystObsidianGlow(isExpanded = isExpanded, theme = pillTheme, glowOn = glowEnabled, shape = shape, dimmed = dimmed)
                 .clip(shape)
                 // Idle dimming via RenderNode layer alpha — dims glow, border, background,
                 // and content together. Does not affect layout, hit testing, or the window.
@@ -426,16 +430,25 @@ fun FloatingBubbleUI(
 fun Modifier.amethystObsidianGlow(
     isExpanded: Boolean,
     theme: PillTheme,
+    glowOn: Boolean,
     glowRadius: Dp = 8.dp,
     shape: RoundedCornerShape,
     dimmed: Boolean = false
 ): Modifier = this.composed {
-    val isAgentMode by BubbleController.isAgentMode.collectAsState()
-    // Themes never touch the collapsed orb: non-expanded rendering stays
-    // pixel-identical under every preset (expanded-pill scope only).
-    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4)
-        else if (isExpanded) theme.glowBase else Color(0xFFA855F7)
-    val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.65f * theme.glowAlphaScale else 0.45f)
+    // Agent mode follows the preset everywhere except the confirm button
+    // (handled at the call site): teal confirm is the single agent signal in
+    // every theme. The preset also dresses the collapsed orb shell; only the
+    // dimmed idle branch below stays frozen, and animation targets, gestures,
+    // and sticky behavior are untouched by themes.
+    // Obsidian literals equal the pre-theme paints, so the default theme
+    // renders pixel-identical to the frozen look.
+    val baseGlowColor = theme.glowBase
+    val glowAlpha = when {
+        !glowOn -> 0f
+        !isExpanded -> 0.45f
+        else -> 0.65f * theme.glowAlphaScale
+    }
+    val glowColor = baseGlowColor.copy(alpha = glowAlpha)
 
     if (dimmed) {
         // Quiet-glass idle look: no glow/bloom layers, translucent obsidian base,
@@ -477,22 +490,10 @@ fun Modifier.amethystObsidianGlow(
     .border(
         width = 1.2.dp,
         brush = Brush.linearGradient(
-            colors = if (isAgentMode) {
-                listOf(
-                    Color(0xFF00F5D4),
-                    Color(0xFF00BBF9).copy(alpha = 0.5f)
-                )
-            } else if (isExpanded) {
-                listOf(
-                    theme.borderStart,
-                    theme.borderEnd.copy(alpha = 0.5f)
-                )
-            } else {
-                listOf(
-                    Color(0xFFA855F7), // Amethyst Glow
-                    Color(0xFF6366F1).copy(alpha = 0.5f) // Deep Indigo accent
-                )
-            }
+            colors = listOf(
+                theme.borderStart,
+                theme.borderEnd.copy(alpha = 0.5f)
+            )
         ),
         shape = shape
     )
@@ -524,11 +525,12 @@ fun SiriWaveform(
     themeForefront: Color,
 ) {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
-    val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val reducedMotion = rememberReducedMotion()
 
-    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else themePrimary
-    val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else themeForefront
+    // Waveform always follows the preset — agent mode is signaled by the teal
+    // confirm button, never by wave color.
+    val primaryColor = themePrimary
+    val forefrontColor = themeForefront
 
     // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
     // Amplitude is live data (not decoration), so it still responds under

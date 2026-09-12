@@ -15,6 +15,22 @@ object FloatingBubblePreferences {
     const val PILL_THEME_MONO = "mono"
     const val PILL_THEME_HIGH_CONTRAST = "high_contrast"
 
+    // Outer glow halo around the pill (collapsed orb included). Default on
+    // preserves today's look; the dimmed idle branch never had a halo.
+    const val KEY_GLOW_ENABLED = "floating_bubble_glow_enabled"
+
+    fun isGlowEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_GLOW_ENABLED, true)
+    }
+
+    fun setGlowEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_GLOW_ENABLED, enabled)
+            .apply()
+    }
+
     fun getPillTheme(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PILL_THEME, PILL_THEME_OBSIDIAN)

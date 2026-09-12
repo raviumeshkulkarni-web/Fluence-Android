@@ -22,6 +22,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -36,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -68,6 +71,9 @@ fun BubbleSettingsScreen(
     var bubbleOpacity by remember {
         mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context))
     }
+    var glowOn by remember {
+        mutableStateOf(FloatingBubblePreferences.isGlowEnabled(context))
+    }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -75,6 +81,8 @@ fun BubbleSettingsScreen(
                     pillThemeName = FloatingBubblePreferences.getPillTheme(context)
                 FloatingBubblePreferences.KEY_OPACITY ->
                     bubbleOpacity = FloatingBubblePreferences.getOpacity(context)
+                FloatingBubblePreferences.KEY_GLOW_ENABLED ->
+                    glowOn = FloatingBubblePreferences.isGlowEnabled(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -115,6 +123,73 @@ fun BubbleSettingsScreen(
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "In Agent mode the confirm button stays teal in every theme.",
+                color = colors.textTertiary,
+                style = FluenceTypography.bodySmall,
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            FluenceSectionHeader(label = "Pill glow")
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Surface(
+                color = colors.panel,
+                shape = FluenceShapes.Medium,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = FluenceSpacing.Base,
+                            vertical = FluenceSpacing.Base
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Outer glow",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = "Glow around the pill",
+                            color = colors.textSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
+
+                    Switch(
+                        checked = glowOn,
+                        onCheckedChange = { checked ->
+                            glowOn = checked
+                            FloatingBubblePreferences.setGlowEnabled(context, checked)
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.Switch
+                            stateDescription = if (glowOn) "On" else "Off"
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
+                        )
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
