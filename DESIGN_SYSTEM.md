@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — Bubble settings screen + expanded-pill presets (paint-only).**
+New `Screen.BubbleSettings` ("Floating Bubble" row in Settings hub): three curated expanded-pill presets — Obsidian (today's literals, default), Mono (neutral, dimmed glow), High contrast — behind `pill_theme` in `fluence_prefs`, plus the idle-opacity slider moved here from Permissions & Services (unchanged strings/range; the bubble enable switch stays where it is as service control). Presets feed static paints only (`PillTheme` enum, hardcoded literals — PrecisionTheme stays banned in the overlay service, which has no theme wrapper): wells, waveform tints, confirm tone, glow base/alpha, shell border. Agent-mode teal, collapsed orb, sizes, morph tweens, Crossfade, dim fades, drag/sticky, gestures, spinner, and error red are identical in every preset; theme state is hoisted in `FloatingBubbleUI`, never read in draw loops. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubblePreferences.kt`, `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt` (new), `ui/SettingsScreen.kt`, `ui/PermissionsScreen.kt`, `navigation/NavigationKeys.kt`, `navigation/Navigation.kt`.
+
 **2026-09-12 — Lockup text follows theme (Windows sidebar parity).**
 `FluenceProductLockup` text runs read `PrecisionTheme.colors` (`flu` → textPrimary, `ence` → functional cyan incl. white-mode teal, Allura product → textSecondary); sizes, weights, spacing, and the orb artwork stay frozen in both modes, matching Windows (ink wordmark + teal `ence` + secondary tagline on white, untouched logo-mark gradient). Amends the white-mode entry: `Brand.kt` is theme-aware for text only. Files touched: `DESIGN_SYSTEM.md` (this entry), Android `theme/Brand.kt`.
 

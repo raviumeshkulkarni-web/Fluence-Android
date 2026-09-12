@@ -40,6 +40,7 @@ import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
+import com.groq.voicetyper.ui.BubbleSettingsScreen
 import com.groq.voicetyper.ui.HistoryScreen
 import com.groq.voicetyper.ui.HomeScreen
 import com.groq.voicetyper.ui.OfflineConfigScreen
@@ -67,6 +68,7 @@ private val screenOrder = listOf(
     Screen.SyncConfig,
     Screen.Permissions,
     Screen.PrivacyExclusions,
+    Screen.BubbleSettings,
     Screen.About
 )
 
@@ -252,6 +254,9 @@ fun FluenceNavHost(
                     onNavigateBack = { navigateBack() }
                 )
                 Screen.PrivacyExclusions -> PrivacyExclusionsScreen(
+                    onNavigateBack = { navigateBack() }
+                )
+                Screen.BubbleSettings -> BubbleSettingsScreen(
                     onNavigateBack = { navigateBack() }
                 )
                 Screen.CustomDictionary -> DictionaryScreen(

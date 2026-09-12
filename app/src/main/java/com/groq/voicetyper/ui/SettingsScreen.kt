@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
@@ -232,6 +233,16 @@ fun SettingsScreen(
                     else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
                 },
                 onClick = { onNavigateTo(Screen.PrivacyExclusions) }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Floating Bubble
+            SettingsRow(
+                icon = Icons.Default.Circle,
+                title = "Floating Bubble",
+                summary = "Pill theme, idle opacity",
+                onClick = { onNavigateTo(Screen.BubbleSettings) }
             )
 
             Spacer(modifier = Modifier.height(16.dp))

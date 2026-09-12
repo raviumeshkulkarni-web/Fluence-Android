@@ -36,13 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.groq.voicetyper.FloatingBubblePreferences
 import com.groq.voicetyper.FluenceAccessibilityService
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.isAccessibilityServiceEnabled
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
-import kotlin.math.roundToInt
 
 @Composable
 private fun PermissionRow(
@@ -123,7 +121,6 @@ fun PermissionsScreen(
     var accessibilityEnabled by remember { mutableStateOf(false) }
     var batteryUnrestricted by remember { mutableStateOf(false) }
     var bubbleEnabled by remember { mutableStateOf(false) }
-    var bubbleOpacity by remember { mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context)) }
 
     val prefs = remember { context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE) }
 
@@ -139,7 +136,6 @@ fun PermissionsScreen(
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         batteryUnrestricted = pm.isIgnoringBatteryOptimizations(context.packageName)
         bubbleEnabled = prefs.getBoolean("floating_bubble_enabled", false)
-        bubbleOpacity = FloatingBubblePreferences.getOpacity(context)
     }
 
     LaunchedEffect(Unit) {
@@ -361,45 +357,6 @@ fun PermissionsScreen(
                         contentDescription = "Floating Bubble"
                     }
                 )
-            }
-
-            if (bubbleEnabled && accessibilityEnabled) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Idle Opacity",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodyMedium
-                        )
-                        Text(
-                            text = "${(bubbleOpacity * 100).roundToInt()}%",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleMedium
-                        )
-                    }
-                    Slider(
-                        value = bubbleOpacity,
-                        onValueChange = { newValue ->
-                            bubbleOpacity = newValue
-                            FloatingBubblePreferences.setOpacity(context, newValue)
-                        },
-                        valueRange = FloatingBubblePreferences.MIN_OPACITY..FloatingBubblePreferences.MAX_OPACITY,
-                        colors = SliderDefaults.colors(
-                        thumbColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        activeTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        inactiveTrackColor = colors.outlineSubtle
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

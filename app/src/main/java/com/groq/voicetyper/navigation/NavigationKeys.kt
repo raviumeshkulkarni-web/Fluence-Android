@@ -13,6 +13,7 @@ sealed interface Screen {
     data object OfflineConfig : Screen
     data object Permissions : Screen
     data object PrivacyExclusions : Screen
+    data object BubbleSettings : Screen
     data object CustomDictionary : Screen
     data object Snippets : Screen
     data object SyncConfig : Screen
@@ -33,6 +34,7 @@ private fun encodeScreen(screen: Screen): String = when (screen) {
     Screen.OfflineConfig -> "offline_config"
     Screen.Permissions -> "permissions"
     Screen.PrivacyExclusions -> "privacy_exclusions"
+    Screen.BubbleSettings -> "bubble_settings"
     Screen.CustomDictionary -> "dictionary"
     Screen.Snippets -> "snippets"
     Screen.SyncConfig -> "sync"
@@ -52,6 +54,7 @@ private fun decodeScreen(code: String): Screen? = when {
         "offline_config" -> Screen.OfflineConfig
         "permissions" -> Screen.Permissions
         "privacy_exclusions" -> Screen.PrivacyExclusions
+        "bubble_settings" -> Screen.BubbleSettings
         "dictionary" -> Screen.CustomDictionary
         "snippets" -> Screen.Snippets
         "sync" -> Screen.SyncConfig
