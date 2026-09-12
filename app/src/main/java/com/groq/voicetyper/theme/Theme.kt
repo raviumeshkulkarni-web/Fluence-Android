@@ -1,5 +1,6 @@
 package com.groq.voicetyper.theme
 
+import android.content.SharedPreferences
 import android.provider.Settings
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
@@ -235,6 +236,21 @@ private class FluenceRippleTheme(private val rippleColor: Color, private val lig
     @Composable
     override fun rippleAlpha(): RippleAlpha =
         RippleTheme.defaultRippleAlpha(Color.Black, lightTheme = light)
+}
+
+// ── White-mode preference (Windows localStorage `fluence_theme` parity) ────
+// Default dark preserves existing behavior for current installs. Stored in
+// the shared `fluence_prefs` file alongside `chart_metric`.
+const val FluencePrefsName = "fluence_prefs"
+const val ThemePrefKey = "theme_mode"
+const val ThemeModeDark = "dark"
+const val ThemeModeLight = "light"
+
+fun isWhiteMode(prefs: SharedPreferences): Boolean =
+    prefs.getString(ThemePrefKey, ThemeModeDark) == ThemeModeLight
+
+fun setWhiteMode(prefs: SharedPreferences, white: Boolean) {
+    prefs.edit().putString(ThemePrefKey, if (white) ThemeModeLight else ThemeModeDark).apply()
 }
 
 // ── Theme Composable ────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -127,10 +128,31 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            FluenceTranscribeTheme {
+            // White mode follows the persisted `theme_mode` pref (Windows
+            // `fluence_theme` parity, dark default). The listener keeps this
+            // in sync when Settings flips it — no restart required.
+            val prefs = remember {
+                applicationContext.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
+            }
+            var whiteMode by remember { mutableStateOf(isWhiteMode(prefs)) }
+            DisposableEffect(prefs) {
+                val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                    if (key == ThemePrefKey) whiteMode = isWhiteMode(prefs)
+                }
+                prefs.registerOnSharedPreferenceChangeListener(listener)
+                onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+            }
+            // Edge-to-edge system bars follow the theme: dark icons on white.
+            SideEffect {
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = whiteMode
+                    isAppearanceLightNavigationBars = whiteMode
+                }
+            }
+            FluenceTranscribeTheme(darkTheme = !whiteMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = AppBackground
+                    color = PrecisionTheme.colors.appBackground
                 ) {
                     val updateViewModel: com.groq.voicetyper.update.UpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                     val updateState by updateViewModel.updateState.collectAsState()

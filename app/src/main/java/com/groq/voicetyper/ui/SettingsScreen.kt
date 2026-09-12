@@ -11,7 +11,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -121,6 +123,10 @@ fun SettingsScreen(
     val modelReady = remember { mutableStateOf(false) }
     val duckingEnabled = remember { mutableStateOf(false) }
     val excludedAppCount = remember { mutableStateOf(0) }
+    val prefs = remember {
+        context.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
+    }
+    val whiteMode = remember { mutableStateOf(isWhiteMode(prefs)) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -276,6 +282,67 @@ fun SettingsScreen(
                         modifier = Modifier.semantics {
                             role = Role.Switch
                             stateDescription = if (duckingEnabled.value) "On" else "Off"
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Panel,
+                            checkedTrackColor = TextPrimary,
+                            uncheckedThumbColor = TextPrimary,
+                            uncheckedTrackColor = Panel
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Appearance (white mode)
+            Surface(
+                color = Panel,
+                shape = FluenceShapes.Medium,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (whiteMode.value) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "White mode",
+                            color = TextPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = "Light surfaces, deepened teal accents",
+                            color = TextSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
+
+                    Switch(
+                        checked = whiteMode.value,
+                        onCheckedChange = { checked ->
+                            whiteMode.value = checked
+                            setWhiteMode(prefs, checked)
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.Switch
+                            stateDescription = if (whiteMode.value) "On" else "Off"
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Panel,
