@@ -176,6 +176,7 @@ fun HistoryScreen(
     onRequestPermission: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val reducedMotion = LocalMotionPreferences.current.reducedMotion
@@ -279,7 +280,7 @@ fun HistoryScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -294,12 +295,12 @@ fun HistoryScreen(
             ) {
                 if (isMultiSelect) {
                     IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(48.dp)) {
-                        Icon(FluenceIcons.X, "Exit selection", tint = TextPrimary, modifier = Modifier.size(24.dp))
+                        Icon(FluenceIcons.X, "Exit selection", tint = colors.textPrimary, modifier = Modifier.size(24.dp))
                     }
                     Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     Text(
                         text = "${selectedIds.size} selected",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.headlineMedium
                     )
                     Spacer(modifier = Modifier.weight(1f))
@@ -310,7 +311,7 @@ fun HistoryScreen(
                         },
                         modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(FluenceIcons.Trash2, "Delete selected", tint = Error, modifier = Modifier.size(20.dp))
+                        Icon(FluenceIcons.Trash2, "Delete selected", tint = colors.error, modifier = Modifier.size(20.dp))
                     }
                 } else {
                     // Permanent sidebar is already visible in expanded windows —
@@ -320,13 +321,13 @@ fun HistoryScreen(
                             onClick = onOpenDrawer,
                             modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
                         ) {
-                            Icon(FluenceIcons.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(24.dp))
+                            Icon(FluenceIcons.Menu, "Open menu", tint = colors.textSecondary, modifier = Modifier.size(24.dp))
                         }
                         Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     }
                     Text(
                         text = "History",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.headlineMedium
                     )
                 }
@@ -335,7 +336,7 @@ fun HistoryScreen(
             if (!isMultiSelect) {
                 Text(
                     text = "Browse and search every transcription on this device",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.bodySmall,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                     modifier = Modifier
@@ -354,7 +355,7 @@ fun HistoryScreen(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = FluenceSpacing.Base)
-                    .background(CardSurface, FluenceShapes.Medium)
+                    .background(colors.cardSurface, FluenceShapes.Medium)
             ) {
                 // Card header: section label + Clear All (Windows parity).
                 Row(
@@ -365,7 +366,7 @@ fun HistoryScreen(
                 ) {
                     Text(
                         text = "RECENT TRANSCRIPTIONS",
-                        color = TextTertiary,
+                        color = colors.textTertiary,
                         style = FluenceTypography.labelSmall.copy(
                             fontFamily = GeistMonoFont,
                             fontWeight = FontWeight.SemiBold,
@@ -378,7 +379,7 @@ fun HistoryScreen(
                         contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
                         modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        Text("Clear All", color = ErrorText, style = FluenceTypography.labelMedium)
+                        Text("Clear All", color = colors.errorText, style = FluenceTypography.labelMedium)
                     }
                 }
 
@@ -416,13 +417,13 @@ fun HistoryScreen(
                         Icon(
                             imageVector = FluenceIcons.ArrowUpDown,
                             contentDescription = null,
-                            tint = TextSecondary,
+                            tint = colors.textSecondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
                         Text(
                             text = currentSortOption.displayName,
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.labelMedium
                         )
                     }
@@ -430,7 +431,7 @@ fun HistoryScreen(
                     Text(
                         text = if (displayedEntries.size == 1) "1 shown"
                         else "${displayedEntries.size} shown",
-                        color = TextTertiary,
+                        color = colors.textTertiary,
                         style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
                     )
                 }
@@ -557,9 +558,9 @@ fun HistoryScreen(
             val count = pendingDeleteIds.size
             AlertDialog(
                 onDismissRequest = { showDeleteDialog = false },
-                containerColor = DialogSurface,
-                titleContentColor = TextPrimary,
-                textContentColor = TextSecondary,
+                containerColor = colors.dialog,
+                titleContentColor = colors.textPrimary,
+                textContentColor = colors.textSecondary,
                 title = { Text("Delete transcription${if (count > 1) "s" else ""}") },
                 text = { Text("This action cannot be undone. Delete ${if (count > 1) "$count transcriptions" else "this transcription"}?") },
                 confirmButton = {
@@ -569,29 +570,29 @@ fun HistoryScreen(
                             selectedIds = selectedIds - pendingDeleteIds.toSet()
                         }
                         showDeleteDialog = false
-                    }) { Text("Delete", color = ErrorText, style = FluenceTypography.labelLarge) }
+                    }) { Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge) }
+                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge) }
                 }
             )
         }
         if (showClearAllDialog) {
             AlertDialog(
                 onDismissRequest = { showClearAllDialog = false },
-                containerColor = DialogSurface,
-                titleContentColor = TextPrimary,
-                textContentColor = TextSecondary,
+                containerColor = colors.dialog,
+                titleContentColor = colors.textPrimary,
+                textContentColor = colors.textSecondary,
                 title = { Text("Clear History") },
                 text = { Text("This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone. Statistics are unaffected.") },
                 confirmButton = {
                     TextButton(onClick = {
                         coroutineScope.launch { repository.clearAll() }
                         showClearAllDialog = false
-                    }) { Text("Clear All", color = ErrorText, style = FluenceTypography.labelLarge) }
+                    }) { Text("Clear All", color = colors.errorText, style = FluenceTypography.labelLarge) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge) }
+                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge) }
                 }
             )
         }
@@ -612,32 +613,33 @@ private fun HistorySearchBar(
     onSearchChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchChange,
         placeholder = {
-            Text("Search transcriptions…", color = TextSecondary, style = FluenceTypography.bodySmall)
+            Text("Search transcriptions…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
         },
         singleLine = true,
         leadingIcon = {
-            Icon(FluenceIcons.Search, "Search", tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Icon(FluenceIcons.Search, "Search", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
         },
         trailingIcon = {
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(FluenceSpacing.Xxl)) {
-                    Icon(FluenceIcons.X, "Clear search", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                    Icon(FluenceIcons.X, "Clear search", tint = colors.textSecondary, modifier = Modifier.size(16.dp))
                 }
             }
         },
         shape = FluenceShapes.Medium,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = TextSecondary,
-            unfocusedBorderColor = OutlineSubtle,
-            focusedContainerColor = Panel,
-            unfocusedContainerColor = Panel,
-            focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary,
-            cursorColor = TextPrimary
+                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+            unfocusedBorderColor = colors.outlineSubtle,
+            focusedContainerColor = colors.panel,
+            unfocusedContainerColor = colors.panel,
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            cursorColor = colors.textPrimary
         ),
         modifier = modifier.fillMaxWidth().heightIn(min = FluenceSpacing.Xxl)
     )
@@ -657,14 +659,17 @@ private fun historyRowMeta(entry: TranscriptionEntry): String {
 
 @Composable
 private fun ModeBadge(isAgentMode: Boolean) {
+    val colors = PrecisionTheme.colors
     // Windows parity: the row badge renders the raw mode string; agent is
     // neutral (amethyst is not a badge tone per DESIGN_SYSTEM.md) and
-    // transcription keeps the success treatment both sides use.
-    val tone = if (isAgentMode) TextSecondary else Success
+    // transcription keeps the success treatment both sides use. White mode
+    // follows the light container alphas (success 10%).
+    val tone = if (isAgentMode) colors.textSecondary else colors.success
+    val badgeAlpha = if (colors.isLight && !isAgentMode) 0.10f else 0.15f
     Box(
         modifier = Modifier
             .clip(CircleShape)
-            .background(tone.copy(alpha = 0.15f))
+            .background(tone.copy(alpha = badgeAlpha))
             .padding(horizontal = FluenceSpacing.Sm, vertical = 3.dp)
     ) {
         Text(
@@ -680,8 +685,14 @@ private fun ModeBadge(isAgentMode: Boolean) {
 
 /** Case-insensitive search-match highlighting for transcript rows. Returns
  * plain text when the query is blank. The span sets only a background so the
- * row's own text color (including the synced-foreign dimming) is preserved. */
-private fun highlightQueryMatches(text: String, query: String): AnnotatedString {
+ * row's own text color (including the synced-foreign dimming) is preserved.
+ * The mark wash is caller-provided (Windows mark-search: cyan wash in dark,
+ * teal 16% in white; dark keeps the existing neutral treatment, frozen). */
+private fun highlightQueryMatches(
+    text: String,
+    query: String,
+    mark: androidx.compose.ui.graphics.Color,
+): AnnotatedString {
     val q = query.trim()
     if (q.isEmpty() || text.isEmpty()) return AnnotatedString(text)
     return buildAnnotatedString {
@@ -693,7 +704,7 @@ private fun highlightQueryMatches(text: String, query: String): AnnotatedString 
                 break
             }
             append(text.substring(cursor, match))
-            withStyle(SpanStyle(background = TextPrimary.copy(alpha = 0.24f))) {
+                    withStyle(SpanStyle(background = mark)) {
                 append(text.substring(match, match + q.length))
             }
             cursor = match + q.length
@@ -716,9 +727,10 @@ private fun HistoryTranscriptRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     var showMenu by remember { mutableStateOf(false) }
     val foreign = com.groq.voicetyper.sync.SyncAccounts.isForeign(entry.syncAccount)
-    val bgColor = if (isSelected) TextPrimary.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent
+    val bgColor = if (isSelected) colors.textPrimary.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -758,15 +770,15 @@ private fun HistoryTranscriptRow(
                         .then(if (isRailEnd) Modifier.height(FluenceSpacing.Lg) else Modifier.fillMaxHeight())
                         .align(Alignment.TopCenter)
                         .offset(x = FluenceSpacing.N7)
-                        .background(OutlineSubtle)
+                        .background(colors.outlineSubtle)
                 )
                 Box(
                     modifier = Modifier
                         .size(FluenceSpacing.N7)
                         .align(Alignment.TopCenter)
                         .offset(x = FluenceSpacing.N7, y = FluenceSpacing.Base)
-                        .background(CardSurface, CircleShape)
-                        .border(1.5.dp, TextTertiary, CircleShape)
+                        .background(colors.cardSurface, CircleShape)
+                        .border(1.5.dp, colors.inputBorder, CircleShape)
                 )
             }
             if (isSelected) {
@@ -774,10 +786,10 @@ private fun HistoryTranscriptRow(
                     modifier = Modifier
                         .size(18.dp)
                         .clip(CircleShape)
-                        .background(TextPrimary),
+                        .background(colors.textPrimary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(FluenceIcons.Check, null, tint = Canvas, modifier = Modifier.size(12.dp))
+                    Icon(FluenceIcons.Check, null, tint = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas, modifier = Modifier.size(12.dp))
                 }
                 Spacer(modifier = Modifier.width(FluenceSpacing.Md))
             }
@@ -794,7 +806,7 @@ private fun HistoryTranscriptRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         historyRowMeta(entry),
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -805,13 +817,18 @@ private fun HistoryTranscriptRow(
                 if (foreign) {
                     Text(
                         "Synced to another account",
-                        color = TextTertiary,
+                        color = colors.textTertiary,
                         style = FluenceTypography.labelSmall
                     )
                 }
                 Text(
-                    highlightQueryMatches(entry.text, highlightQuery),
-                    color = if (foreign) TextSecondary else TextPrimary,
+                    highlightQueryMatches(
+                        entry.text,
+                        highlightQuery,
+                        if (colors.isLight) colors.brandCyan.copy(alpha = 0.16f)
+                        else colors.textPrimary.copy(alpha = 0.24f),
+                    ),
+                    color = if (foreign) colors.textSecondary else colors.textPrimary,
                     style = FluenceTypography.bodyMedium,
                     maxLines = if (expanded) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis
@@ -819,29 +836,29 @@ private fun HistoryTranscriptRow(
             }
             Box {
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(FluenceSpacing.Xxl)) {
-                    Icon(FluenceIcons.MoreHorizontal, "Options", tint = TextTertiary, modifier = Modifier.size(16.dp))
+                    Icon(FluenceIcons.MoreHorizontal, "Options", tint = colors.textTertiary, modifier = Modifier.size(16.dp))
                 }
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier
-                        .background(DialogSurface, FluenceShapes.Medium)
-                        .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                        .background(colors.dialog, FluenceShapes.Medium)
+                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                 ) {
                     DropdownMenuItem(
-                        text = { Text("View", color = TextPrimary, style = FluenceTypography.bodyLarge) },
-                        leadingIcon = { Icon(FluenceIcons.Eye, null, tint = TextSecondary, modifier = Modifier.size(20.dp)) },
+                        text = { Text("View", color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
+                        leadingIcon = { Icon(FluenceIcons.Eye, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
                         onClick = { onOpenDetail(); showMenu = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Copy", color = TextPrimary, style = FluenceTypography.bodyLarge) },
-                        leadingIcon = { Icon(FluenceIcons.Copy, null, tint = TextSecondary, modifier = Modifier.size(20.dp)) },
+                        text = { Text("Copy", color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
+                        leadingIcon = { Icon(FluenceIcons.Copy, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
                         onClick = { onCopy(); showMenu = false }
                     )
                     if (!foreign) {
                         DropdownMenuItem(
-                            text = { Text("Delete", color = Error, style = FluenceTypography.bodyLarge) },
-                            leadingIcon = { Icon(FluenceIcons.Trash2, null, tint = Error, modifier = Modifier.size(20.dp)) },
+                            text = { Text("Delete", color = colors.error, style = FluenceTypography.bodyLarge) },
+                            leadingIcon = { Icon(FluenceIcons.Trash2, null, tint = colors.error, modifier = Modifier.size(20.dp)) },
                             onClick = { onDelete(); showMenu = false }
                         )
                     }
@@ -858,6 +875,7 @@ private fun DayGroupHeader(
     collapsed: Boolean,
     onToggle: () -> Unit,
 ) {
+    val colors = PrecisionTheme.colors
     // Windows collapsible day headers: the whole header toggles, chevron
     // rotates, rows animate away. Opaque card background so sliding rows
     // never show through while stuck.
@@ -872,7 +890,7 @@ private fun DayGroupHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(CardSurface)
+            .background(colors.cardSurface)
     ) {
         Row(
             modifier = Modifier
@@ -889,7 +907,7 @@ private fun DayGroupHeader(
             Icon(
                 imageVector = FluenceIcons.ChevronDown,
                 contentDescription = null,
-                tint = TextTertiary,
+                tint = colors.textTertiary,
                 modifier = Modifier
                     .size(14.dp)
                     .rotate(chevronAngle)
@@ -897,7 +915,7 @@ private fun DayGroupHeader(
             Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
             Text(
                 text = label.uppercase(Locale.US),
-                color = TextTertiary,
+                color = colors.textTertiary,
                 style = FluenceTypography.labelSmall.copy(
                     fontFamily = GeistMonoFont,
                     fontWeight = FontWeight.SemiBold,
@@ -907,11 +925,11 @@ private fun DayGroupHeader(
             )
             Text(
                 text = countText,
-                color = TextTertiary,
+                color = colors.textTertiary,
                 style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
             )
         }
-        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
+        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)
     }
 }
 
@@ -922,12 +940,13 @@ private fun HistorySortBottomSheet(
     onOptionSelected: (SortOption) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = PanelElevated,
-        contentColor = TextPrimary,
+        containerColor = colors.panelElevated,
+        contentColor = colors.textPrimary,
         shape = FluenceShapes.Large,
         windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
             dragHandle = {
@@ -937,7 +956,7 @@ private fun HistorySortBottomSheet(
                         .width(FluenceSpacing.Xl)
                         .height(FluenceSpacing.Xs)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(TextPrimary.copy(alpha = 0.18f))
+                        .background(colors.textPrimary.copy(alpha = 0.18f))
                 )
             }
     ) {
@@ -949,7 +968,7 @@ private fun HistorySortBottomSheet(
         ) {
             Text(
                 text = "Sort by",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.headlineMedium,
                 modifier = Modifier.padding(start = FluenceSpacing.Lg, end = FluenceSpacing.Lg, top = FluenceSpacing.Xs, bottom = FluenceSpacing.Md)
             )
@@ -971,7 +990,7 @@ private fun HistorySortBottomSheet(
                 ) {
                     Text(
                         text = option.displayName,
-                        color = if (option == selectedOption) TextPrimary else TextSecondary,
+                        color = if (option == selectedOption) colors.textPrimary else colors.textSecondary,
                         style = FluenceTypography.bodyLarge.copy(
                             fontWeight = if (option == selectedOption) FontWeight.SemiBold else FontWeight.Normal
                         ),
@@ -981,7 +1000,7 @@ private fun HistorySortBottomSheet(
                         Icon(
                             imageVector = FluenceIcons.Check,
                             contentDescription = null,
-                            tint = TextPrimary,
+                            tint = colors.textPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }

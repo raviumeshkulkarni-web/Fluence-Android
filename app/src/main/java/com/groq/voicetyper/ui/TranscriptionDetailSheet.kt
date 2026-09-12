@@ -36,6 +36,7 @@ fun TranscriptionDetailSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
@@ -56,8 +57,8 @@ fun TranscriptionDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = PanelElevated,
-        contentColor = TextPrimary,
+        containerColor = colors.panelElevated,
+        contentColor = colors.textPrimary,
         tonalElevation = 4.dp,
         shape = FluenceShapes.Large,
         windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
@@ -68,7 +69,7 @@ fun TranscriptionDetailSheet(
                     .width(32.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(TextPrimary.copy(alpha = 0.18f))
+                    .background(colors.textPrimary.copy(alpha = 0.18f))
             )
         }
     ) {
@@ -81,7 +82,7 @@ fun TranscriptionDetailSheet(
             // Title
             Text(
                 text = "Transcription",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.headlineMedium,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
             )
@@ -97,7 +98,7 @@ fun TranscriptionDetailSheet(
                 ) {
                     Text(
                         text = item.text,
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.bodyLarge
                     )
                 }
@@ -108,7 +109,7 @@ fun TranscriptionDetailSheet(
                 val sdf = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
                 Text(
                     text = sdf.format(Date(item.timestamp)),
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont),
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
@@ -134,7 +135,7 @@ fun TranscriptionDetailSheet(
                             clipboard.setPrimaryClip(clip)
                             FeedbackBus.show("Copied to clipboard")
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = ButtonSecondary),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
                             .weight(1f)
@@ -143,11 +144,11 @@ fun TranscriptionDetailSheet(
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = null,
-                            tint = TextPrimary,
+                            tint = colors.textPrimary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Copy", color = TextPrimary, style = FluenceTypography.labelLarge)
+                        Text(text = "Copy", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
 
                     if (!foreign) {
@@ -155,7 +156,7 @@ fun TranscriptionDetailSheet(
                             onClick = {
                                 showDeleteConfirmation = true
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = ButtonSubtle),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSubtle),
                             shape = FluenceShapes.Medium,
                             modifier = Modifier
                                 .weight(1f)
@@ -164,11 +165,11 @@ fun TranscriptionDetailSheet(
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = null,
-                                tint = Error,
+                                tint = colors.error,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "Delete", color = Error, style = FluenceTypography.labelLarge)
+                            Text(text = "Delete", color = colors.error, style = FluenceTypography.labelLarge)
                         }
                     }
                 }
@@ -178,9 +179,9 @@ fun TranscriptionDetailSheet(
                 if (showDeleteConfirmation) {
                     AlertDialog(
                         onDismissRequest = { showDeleteConfirmation = false },
-                        containerColor = DialogSurface,
-                        titleContentColor = TextPrimary,
-                        textContentColor = TextSecondary,
+                        containerColor = colors.dialog,
+                        titleContentColor = colors.textPrimary,
+                        textContentColor = colors.textSecondary,
                         title = { Text("Delete transcription") },
                         text = { Text("This action cannot be undone. Delete this transcription?") },
                         confirmButton = {
@@ -193,14 +194,14 @@ fun TranscriptionDetailSheet(
                                     }
                                 }
                             ) {
-                                Text("Delete", color = ErrorText, style = FluenceTypography.labelLarge)
+                                Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
                             }
                         },
                         dismissButton = {
                             TextButton(
                                 onClick = { showDeleteConfirmation = false }
                             ) {
-                                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
+                                Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
                             }
                         }
                     )
@@ -212,7 +213,7 @@ fun TranscriptionDetailSheet(
                         .height(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             }
         }
