@@ -641,7 +641,7 @@ fun FluenceActivityChart(
         tickLayouts.forEach { (tick, layout) ->
             val y = plotBottom - (tick.toFloat() / niceMax) * plotH
             drawLine(
-                color = Color.White.copy(alpha = 0.06f),
+                color = TextPrimary.copy(alpha = 0.06f),
                 start = Offset(plotLeft, y),
                 end = Offset(plotRight, y),
                 strokeWidth = 1.dp.toPx(),
@@ -746,7 +746,7 @@ fun FluenceActivityChart(
             val sx = xAt(sel)
             val sy = yAt(point.count)
             drawLine(
-                color = Color.White.copy(alpha = 0.12f),
+                color = TextPrimary.copy(alpha = 0.12f),
                 start = Offset(sx, plotTop),
                 end = Offset(sx, plotBottom),
                 strokeWidth = 1.dp.toPx(),

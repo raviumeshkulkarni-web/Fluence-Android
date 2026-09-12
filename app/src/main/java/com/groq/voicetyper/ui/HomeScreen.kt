@@ -35,7 +35,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -530,7 +529,7 @@ private fun DashboardStatCell(
         // (touch-natural equivalent of the desktop Copy value menu item).
         Text(
             text = value,
-            color = Color.White,
+            color = TextPrimary,
             style = FluenceTypography.headlineLarge.copy(
                 fontFamily = SoraFont,
                 fontWeight = FontWeight.SemiBold,

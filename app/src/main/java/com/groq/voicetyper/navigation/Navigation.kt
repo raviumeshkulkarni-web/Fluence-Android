@@ -38,6 +38,7 @@ import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.Sidebar
+import com.groq.voicetyper.theme.TextPrimary
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
 import com.groq.voicetyper.ui.HistoryScreen
@@ -314,7 +315,7 @@ fun FluenceNavHost(
                         .fillMaxHeight()
                         .fillMaxWidth(0.80f),
                     color = Sidebar,
-                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    contentColor = TextPrimary,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
                 ) {
                     FluenceDrawer(
