@@ -37,6 +37,7 @@ fun SnippetsScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     var isEnabled by remember { mutableStateOf(SnippetPreferences.isSnippetsEnabled(context)) }
     val snippets by remember(context) { SnippetPreferences.observeSnippets(context) }
@@ -48,7 +49,7 @@ fun SnippetsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -64,7 +65,7 @@ fun SnippetsScreen(
 
             Text(
                 text = "Replace spoken trigger phrases with expansion text in every transcription",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
                 textAlign = TextAlign.Start,
                 modifier = Modifier
@@ -78,16 +79,16 @@ fun SnippetsScreen(
 
             if (!isEnabled) {
                 Surface(
-                    color = PanelElevated,
+                    color = colors.panelElevated,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .border(1.dp, OutlineSubtle, RoundedCornerShape(12.dp))
+                        .border(1.dp, colors.outlineSubtle, RoundedCornerShape(12.dp))
                 ) {
                     Text(
                         text = "Voice Snippets are currently paused. Expansions will not apply during transcription.",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
                         modifier = Modifier.padding(12.dp)
                     )
@@ -100,7 +101,7 @@ fun SnippetsScreen(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = FluenceSpacing.Base)
-                    .background(CardSurface, FluenceShapes.Medium)
+                    .background(colors.cardSurface, FluenceShapes.Medium)
             ) {
                 Row(
                     modifier = Modifier
@@ -113,13 +114,13 @@ fun SnippetsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Enable Text Expansion",
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Dictate a short trigger and Fluence pastes your expansion text instead",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
                         )
                     }
@@ -131,15 +132,15 @@ fun SnippetsScreen(
                         },
                         modifier = Modifier.semantics { contentDescription = "Enable text expansion" },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Panel,
-                            checkedTrackColor = TextPrimary,
-                            uncheckedThumbColor = TextPrimary,
-                            uncheckedTrackColor = Panel
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
                         )
                     )
                 }
                 HorizontalDivider(
-                    color = OutlineSubtle,
+                    color = colors.outlineSubtle,
                     thickness = 1.dp,
                     modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                 )
@@ -182,7 +183,7 @@ fun SnippetsScreen(
                             )
                             if (index < snippets.lastIndex) {
                                 HorizontalDivider(
-                                    color = OutlineSubtle,
+                                    color = colors.outlineSubtle,
                                     thickness = 1.dp,
                                     modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                                 )
@@ -230,6 +231,7 @@ private fun SnippetRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -245,14 +247,14 @@ private fun SnippetRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = snippet.trigger,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = "→ ${snippet.expansion}",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -264,7 +266,7 @@ private fun SnippetRow(
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Delete", color = Error, style = FluenceTypography.labelMedium)
+            Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
         }
     }
 }
@@ -275,17 +277,18 @@ private fun AddEditSnippetDialog(
     onDismiss: () -> Unit,
     onSave: (trigger: String, expansion: String) -> String?
 ) {
+    val colors = PrecisionTheme.colors
     var triggerText by remember { mutableStateOf(snippetToEdit?.trigger ?: "") }
     var expansionText by remember { mutableStateOf(snippetToEdit?.expansion ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DialogSurface,
+        containerColor = colors.dialog,
         title = {
             Text(
                 text = if (snippetToEdit == null) "Add Snippet" else "Edit Snippet",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.headlineSmall
             )
         },
@@ -304,15 +307,15 @@ private fun AddEditSnippetDialog(
                     placeholder = { Text("e.g. my linkedin") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedLabelColor = TextPrimary,
-                        unfocusedLabelColor = TextSecondary,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = TextPrimary
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedLabelColor = colors.textPrimary,
+                        unfocusedLabelColor = colors.textSecondary,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        cursorColor = colors.textPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -327,15 +330,15 @@ private fun AddEditSnippetDialog(
                     placeholder = { Text("e.g. https://linkedin.com/in/…") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedLabelColor = TextPrimary,
-                        unfocusedLabelColor = TextSecondary,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = TextPrimary
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedLabelColor = colors.textPrimary,
+                        unfocusedLabelColor = colors.textSecondary,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        cursorColor = colors.textPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -343,7 +346,7 @@ private fun AddEditSnippetDialog(
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
-                        color = Error,
+                        color = colors.error,
                         style = FluenceTypography.labelMedium
                     )
                 }
@@ -368,12 +371,12 @@ private fun AddEditSnippetDialog(
                     }
                 }
             ) {
-                Text("Save", color = TextPrimary, style = FluenceTypography.labelLarge)
+                Text("Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
+                Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

@@ -66,6 +66,7 @@ fun SyncScreen(
     signInError: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val status by manager.status.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -130,7 +131,7 @@ fun SyncScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .nestedScroll(pullRefreshState.nestedScrollConnection)
             .statusBarsPadding()
             .navigationBarsPadding()
@@ -151,9 +152,9 @@ fun SyncScreen(
 
             // ── Account & Status Card ──────────────────────────────────────────
             Surface(
-                color = Panel,
+                color = colors.panel,
                 shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, OutlineSubtle),
+                border = BorderStroke(1.dp, colors.outlineSubtle),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -169,14 +170,14 @@ fun SyncScreen(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
-                                .background(PanelElevated)
-                                .border(1.dp, OutlineSubtle, CircleShape),
+                                .background(colors.panelElevated)
+                                .border(1.dp, colors.outlineSubtle, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = if (status.signedIn) Icons.Default.CloudSync else Icons.Default.AccountCircle,
                                 contentDescription = null,
-                                tint = if (status.signedIn) TextPrimary else TextSecondary,
+                                tint = if (status.signedIn) colors.textPrimary else colors.textSecondary,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -190,7 +191,7 @@ fun SyncScreen(
                                 } else {
                                     "Not Connected"
                                 },
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 style = FluenceTypography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -201,7 +202,7 @@ fun SyncScreen(
                                         modifier = Modifier
                                             .size(8.dp)
                                             .clip(CircleShape)
-                                            .background(if (status.lastError != null) Error else Success)
+                                            .background(if (status.lastError != null) colors.error else colors.success)
                                             // Optical centering: font cap-height sits ~1dp above geometric center,
                                             // without this offset the dot reads as floating above the label.
                                             .offset(y = 1.dp)
@@ -219,9 +220,9 @@ fun SyncScreen(
                                         else -> "Connected"
                                     },
                                     color = when {
-                                        status.lastError != null || status.secureStorageUnavailable -> Error
-                                        status.signedIn -> TextSecondary
-                                        else -> TextTertiary
+                                        status.lastError != null || status.secureStorageUnavailable -> colors.error
+                                        status.signedIn -> colors.textSecondary
+                                        else -> colors.textTertiary
                                     },
                                     style = FluenceTypography.bodySmall
                                 )
@@ -231,7 +232,7 @@ fun SyncScreen(
 
                     if (status.signedIn) {
                         Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
+                        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)
                         Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
                         Row(
@@ -241,7 +242,7 @@ fun SyncScreen(
                             Icon(
                                 imageVector = Icons.Default.Sync,
                                 contentDescription = null,
-                                tint = TextSecondary,
+                                tint = colors.textSecondary,
                                 modifier = Modifier
                                     .size(16.dp)
                                     .graphicsLayer {
@@ -263,7 +264,7 @@ fun SyncScreen(
                                     }
                                     else -> "Ready to sync"
                                 },
-                                color = if (status.lastError != null || status.secureStorageUnavailable) Error else TextSecondary,
+                                color = if (status.lastError != null || status.secureStorageUnavailable) colors.error else colors.textSecondary,
                                 style = FluenceTypography.bodySmall
                             )
                         }
@@ -273,7 +274,7 @@ fun SyncScreen(
                             Spacer(modifier = Modifier.height(FluenceSpacing.Base))
                             Button(
                                 onClick = { if (status.recoveryPending) onConsentClick() else onSignInClick() },
-                                colors = ButtonDefaults.buttonColors(containerColor = TextPrimary, contentColor = Canvas),
+                                colors = ButtonDefaults.buttonColors(containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary, contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas),
                                 shape = FluenceShapes.Medium,
                                 modifier = Modifier.fillMaxWidth().height(48.dp)
                             ) {
@@ -282,7 +283,7 @@ fun SyncScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "We could not connect to Google Drive. Tap to reconnect.",
-                                color = TextSecondary,
+                                color = colors.textSecondary,
                                 style = FluenceTypography.bodySmall
                             )
                         }
@@ -295,9 +296,9 @@ fun SyncScreen(
             // ── Automatic Sync Toggle (When Signed In) ───────────────────────────
             if (status.signedIn) {
                 Surface(
-                    color = Panel,
+                    color = colors.panel,
                     shape = FluenceShapes.Medium,
-                    border = BorderStroke(1.dp, OutlineSubtle),
+                    border = BorderStroke(1.dp, colors.outlineSubtle),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -309,13 +310,13 @@ fun SyncScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Automatic Sync",
-                                color = TextPrimary,
+                                color = colors.textPrimary,
                                 style = FluenceTypography.titleMedium
                             )
                             Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                             Text(
                                 text = "Sync in background and on app launch",
-                                color = TextSecondary,
+                                color = colors.textSecondary,
                                 style = FluenceTypography.bodySmall
                             )
                         }
@@ -331,11 +332,11 @@ fun SyncScreen(
                                 stateDescription = if (status.syncEnabled) "On" else "Off"
                             },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = Panel,
-                                checkedTrackColor = TextPrimary,
-                                uncheckedThumbColor = TextPrimary,
-                                uncheckedTrackColor = Panel,
-                                uncheckedBorderColor = OutlineSubtle
+                                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                uncheckedThumbColor = colors.textPrimary,
+                                uncheckedTrackColor = colors.panel,
+                                uncheckedBorderColor = colors.outlineSubtle
                             )
                         )
                     }
@@ -355,10 +356,10 @@ fun SyncScreen(
                         onClick = { manager.syncNow() },
                         enabled = status.signedIn && status.syncEnabled && !status.running,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = TextPrimary,
-                            contentColor = Canvas,
-                            disabledContainerColor = PanelElevated,
-                            disabledContentColor = TextDisabled
+                            containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
+                            disabledContainerColor = colors.panelElevated,
+                            disabledContentColor = colors.textDisabled
                         ),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
@@ -387,9 +388,9 @@ fun SyncScreen(
                         onClick = onSignOutClick,
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = Color.Transparent,
-                            contentColor = TextSecondary
+                            contentColor = colors.textSecondary
                         ),
-                        border = BorderStroke(1.dp, OutlineSubtle),
+                        border = BorderStroke(1.dp, colors.outlineSubtle),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
                             .height(48.dp)
@@ -399,13 +400,13 @@ fun SyncScreen(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = TextSecondary
+                            tint = colors.textSecondary
                         )
                         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                         Text(
                             text = "Sign Out",
                             style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                            color = TextSecondary
+                            color = colors.textSecondary
                         )
                     }
                 }
@@ -413,7 +414,7 @@ fun SyncScreen(
                     Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
                     Text(
                         text = "Enable sync to use Sync now",
-                        color = TextTertiary,
+                        color = colors.textTertiary,
                         style = FluenceTypography.bodySmall
                     )
                 }
@@ -422,7 +423,7 @@ fun SyncScreen(
                     if (status.secureStorageUnavailable) {
                         Text(
                             text = "Sync is temporarily unavailable. Please restart the app.",
-                            color = Error,
+                            color = colors.error,
                             style = FluenceTypography.bodySmall,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -431,8 +432,8 @@ fun SyncScreen(
                     Button(
                         onClick = onSignInClick,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = TextPrimary,
-                            contentColor = Canvas
+                            containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
                         ),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
@@ -455,7 +456,7 @@ fun SyncScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = signInError,
-                            color = Error,
+                            color = colors.error,
                             style = FluenceTypography.bodySmall,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -467,9 +468,9 @@ fun SyncScreen(
 
             // ── Privacy & Security Note ────────────────────────────────────────
             Surface(
-                color = PanelElevated,
+                color = colors.panelElevated,
                 shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, OutlineSubtle),
+                border = BorderStroke(1.dp, colors.outlineSubtle),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -481,7 +482,7 @@ fun SyncScreen(
                     Icon(
                         imageVector = Icons.Default.Lock,
                         contentDescription = null,
-                        tint = TextTertiary,
+                        tint = colors.textTertiary,
                         modifier = Modifier
                             .size(18.dp)
                             .padding(top = 2.dp)
@@ -489,7 +490,7 @@ fun SyncScreen(
                     Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                     Text(
                         text = "Your dictionary and settings are backed up securely to your Google Drive. Only you can access them. Transcripts never leave this device.",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall
                     )
                 }
@@ -507,8 +508,8 @@ fun SyncScreen(
                 // bleeds at the very top edge (overlaps the camera cutout) when
                 // the list is at rest. Keep it visible only while pulling/refreshing.
                 .graphicsLayer { alpha = if (pullRefreshState.isRefreshing) 1f else 0f },
-            containerColor = Panel,
-            contentColor = TextPrimary
+            containerColor = colors.panel,
+            contentColor = colors.textPrimary
         )
     }
 }

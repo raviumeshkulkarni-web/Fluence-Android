@@ -34,6 +34,7 @@ fun UpdateDialogHost(
     onDismissError: () -> Unit,
     onRequestInstallPermission: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     when (updateState) {
         is UpdateState.UpdateAvailable -> {
             UpdateAvailableDialog(
@@ -76,9 +77,10 @@ private fun UpdateAvailableDialog(
     onRemindMeLater: () -> Unit,
     onSkipVersion: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     Dialog(onDismissRequest = onRemindMeLater) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = DialogSurface),
+            colors = CardDefaults.cardColors(containerColor = colors.dialog),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -92,14 +94,14 @@ private fun UpdateAvailableDialog(
                 Text(
                     text = "Update Available",
                     style = FluenceTypography.headlineMedium,
-                    color = TextPrimary
+                    color = colors.textPrimary
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = "Version ${state.metadata.versionName} (Build ${state.metadata.versionCode})",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelLarge
                 )
 
@@ -107,7 +109,7 @@ private fun UpdateAvailableDialog(
 
                 Text(
                     text = "What's New:",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.labelLarge
                 )
 
@@ -118,13 +120,13 @@ private fun UpdateAvailableDialog(
                         .fillMaxWidth()
                         .heightIn(max = 180.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Canvas)
+                        .background(colors.canvas)
                         .padding(12.dp)
                 ) {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         Text(
                             text = formatReleaseNotes(state.releaseNotes),
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
                     }
@@ -135,15 +137,15 @@ private fun UpdateAvailableDialog(
                 Button(
                     onClick = onUpdate,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = ButtonSecondary,
-                        contentColor = TextPrimary
+                        containerColor = colors.buttonSecondary,
+                        contentColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
                     modifier = Modifier
                         .fillMaxWidth()
                         .pressScale(remember { MutableInteractionSource() })
                 ) {
-                    Text("Update Now", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text("Update Now", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -153,10 +155,10 @@ private fun UpdateAvailableDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     TextButton(onClick = onSkipVersion) {
-                        Text("Skip Version", color = TextSecondary, style = FluenceTypography.labelMedium)
+                        Text("Skip Version", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                     }
                     TextButton(onClick = onRemindMeLater) {
-                        Text("Remind Me Later", color = TextSecondary, style = FluenceTypography.labelMedium)
+                        Text("Remind Me Later", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                     }
                 }
             }
@@ -169,9 +171,10 @@ private fun UpdateDownloadingDialog(
     state: UpdateState.Downloading,
     onCancel: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     Dialog(onDismissRequest = {}) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = DialogSurface),
+            colors = CardDefaults.cardColors(containerColor = colors.dialog),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -185,7 +188,7 @@ private fun UpdateDownloadingDialog(
             ) {
                 Text(
                     text = "Downloading Update…",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.headlineMedium
                 )
 
@@ -198,8 +201,8 @@ private fun UpdateDownloadingDialog(
                         .fillMaxWidth()
                         .height(8.dp)
                         .clip(RoundedCornerShape(4.dp)),
-                    color = TextPrimary,
-                    trackColor = Canvas,
+                    color = colors.textPrimary,
+                    trackColor = colors.sunken,
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -213,12 +216,12 @@ private fun UpdateDownloadingDialog(
                 ) {
                     Text(
                         text = "${state.progressPercent}%",
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         style = FluenceTypography.bodySmall
                     )
                     Text(
                         text = if (state.totalBytes > 0) "$downloadedFormatted / $totalFormatted" else downloadedFormatted,
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall
                     )
                 }
@@ -228,7 +231,7 @@ private fun UpdateDownloadingDialog(
                 OutlinedButton(
                     onClick = onCancel,
                     shape = FluenceShapes.Medium,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.textSecondary),
                     modifier = Modifier.pressScale(remember { MutableInteractionSource() })
                 ) {
                     Text("Cancel Download", style = FluenceTypography.labelLarge)
@@ -246,9 +249,10 @@ private fun UpdateReadyToInstallDialog(
     onRequestPermission: () -> Unit,
     onRemindMeLater: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     Dialog(onDismissRequest = onRemindMeLater) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = DialogSurface),
+            colors = CardDefaults.cardColors(containerColor = colors.dialog),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -262,14 +266,14 @@ private fun UpdateReadyToInstallDialog(
                 Text(
                     text = "Ready to Install",
                     style = FluenceTypography.headlineMedium,
-                    color = TextPrimary
+                    color = colors.textPrimary
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
                     text = "Fluence Transcribe Version ${state.metadata.versionName} has been downloaded and verified.",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelLarge
                 )
 
@@ -279,12 +283,12 @@ private fun UpdateReadyToInstallDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Warning.copy(alpha = 0.15f))
+                            .background(colors.warning.copy(alpha = if (colors.isLight) 0.10f else 0.15f))
                             .padding(12.dp)
                     ) {
                         Text(
                             text = "To complete installation, please allow 'Install unknown apps' permission in System Settings.",
-                            color = Warning,
+                            color = colors.warning,
                             style = FluenceTypography.bodySmall
                         )
                     }
@@ -296,29 +300,29 @@ private fun UpdateReadyToInstallDialog(
                     Button(
                         onClick = onInstall,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = ButtonSecondary,
-                            contentColor = TextPrimary
+                            containerColor = colors.buttonSecondary,
+                            contentColor = colors.textPrimary
                         ),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
                             .fillMaxWidth()
                             .pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text("Install Now", color = TextPrimary, style = FluenceTypography.labelLarge)
+                        Text("Install Now", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
                 } else {
                     Button(
                         onClick = onRequestPermission,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = ButtonSecondary,
-                            contentColor = TextPrimary
+                            containerColor = colors.buttonSecondary,
+                            contentColor = colors.textPrimary
                         ),
                         shape = FluenceShapes.Medium,
                         modifier = Modifier
                             .fillMaxWidth()
                             .pressScale(remember { MutableInteractionSource() })
                     ) {
-                        Text("Grant Permission", color = TextPrimary, style = FluenceTypography.labelLarge)
+                        Text("Grant Permission", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
                 }
 
@@ -328,7 +332,7 @@ private fun UpdateReadyToInstallDialog(
                     onClick = onRemindMeLater,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Later", color = TextSecondary, style = FluenceTypography.labelMedium)
+                    Text("Later", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                 }
             }
         }
@@ -341,23 +345,24 @@ private fun UpdateErrorDialog(
     onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DialogSurface,
+        containerColor = colors.dialog,
         title = {
-            Text("Update Failed", color = ErrorText, style = FluenceTypography.headlineSmall)
+            Text("Update Failed", color = colors.errorText, style = FluenceTypography.headlineSmall)
         },
         text = {
-            Text(message, color = TextSecondary, style = FluenceTypography.labelLarge)
+            Text(message, color = colors.textSecondary, style = FluenceTypography.labelLarge)
         },
         confirmButton = {
             TextButton(onClick = onRetry) {
-                Text("Retry", color = TextPrimary, style = FluenceTypography.labelLarge)
+                Text("Retry", color = colors.textPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Dismiss", color = TextSecondary, style = FluenceTypography.labelLarge)
+                Text("Dismiss", color = colors.textSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

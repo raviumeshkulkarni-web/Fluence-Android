@@ -41,6 +41,7 @@ fun DictionaryScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -57,7 +58,7 @@ fun DictionaryScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -75,7 +76,7 @@ fun DictionaryScreen(
 
             Text(
                 text = "Correct specific words or phrases automatically after transcription",
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
                 textAlign = TextAlign.Start,
                 modifier = Modifier
@@ -89,16 +90,16 @@ fun DictionaryScreen(
 
             if (!isEnabled) {
                 Surface(
-                    color = PanelElevated,
+                    color = colors.panelElevated,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .border(1.dp, OutlineSubtle, RoundedCornerShape(12.dp))
+                        .border(1.dp, colors.outlineSubtle, RoundedCornerShape(12.dp))
                 ) {
                     Text(
                         text = "Custom Dictionary is currently paused. Replacements will not apply during transcription.",
-                        color = TextSecondary,
+                        color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
                         modifier = Modifier.padding(12.dp)
                     )
@@ -112,7 +113,7 @@ fun DictionaryScreen(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = FluenceSpacing.Base)
-                    .background(CardSurface, FluenceShapes.Medium)
+                    .background(colors.cardSurface, FluenceShapes.Medium)
             ) {
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     item {
@@ -132,7 +133,7 @@ fun DictionaryScreen(
                     }
                     item {
                         HorizontalDivider(
-                            color = OutlineSubtle,
+                            color = colors.outlineSubtle,
                             thickness = 1.dp,
                             modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                         )
@@ -193,7 +194,7 @@ fun DictionaryScreen(
                             )
                             if (index < visibleEntries.lastIndex) {
                                 HorizontalDivider(
-                                    color = OutlineSubtle,
+                                    color = colors.outlineSubtle,
                                     thickness = 1.dp,
                                     modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                                 )
@@ -253,6 +254,7 @@ private fun LearningRow(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -263,13 +265,13 @@ private fun LearningRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
-                color = TextSecondary,
+                color = colors.textSecondary,
                 style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
             )
         }
@@ -278,10 +280,10 @@ private fun LearningRow(
             onCheckedChange = onCheckedChange,
             modifier = Modifier.semantics { contentDescription = toggleLabel },
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Panel,
-                checkedTrackColor = TextPrimary,
-                uncheckedThumbColor = TextPrimary,
-                uncheckedTrackColor = Panel
+                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                uncheckedThumbColor = colors.textPrimary,
+                uncheckedTrackColor = colors.panel
             )
         )
     }
@@ -294,6 +296,7 @@ private fun DictionaryEntryRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -308,7 +311,7 @@ private fun DictionaryEntryRow(
         ) {
             Text(
                 text = entry.spokenText,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -316,12 +319,12 @@ private fun DictionaryEntryRow(
             )
             Text(
                 text = " → ",
-                color = TextTertiary,
+                color = colors.textTertiary,
                 style = FluenceTypography.bodyMedium
             )
             Text(
                 text = entry.replacementText,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -334,7 +337,7 @@ private fun DictionaryEntryRow(
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Delete", color = Error, style = FluenceTypography.labelMedium)
+            Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
         }
     }
 }
@@ -345,17 +348,18 @@ private fun AddEditDictionaryDialog(
     onDismiss: () -> Unit,
     onSave: (spoken: String, replacement: String) -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     var spokenText by remember { mutableStateOf(entryToEdit?.spokenText ?: "") }
     var replacementText by remember { mutableStateOf(entryToEdit?.replacementText ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = DialogSurface,
+        containerColor = colors.dialog,
         title = {
             Text(
                 text = if (entryToEdit == null) "Add Dictionary Entry" else "Edit Dictionary Entry",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.headlineSmall
             )
         },
@@ -374,15 +378,15 @@ private fun AddEditDictionaryDialog(
                     placeholder = { Text("e.g. fluence") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedLabelColor = TextPrimary,
-                        unfocusedLabelColor = TextSecondary,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = TextPrimary
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedLabelColor = colors.textPrimary,
+                        unfocusedLabelColor = colors.textSecondary,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        cursorColor = colors.textPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -397,15 +401,15 @@ private fun AddEditDictionaryDialog(
                     placeholder = { Text("e.g. Fluence") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = InputBg,
-                        unfocusedContainerColor = InputBg,
-                        focusedBorderColor = TextSecondary,
-                        unfocusedBorderColor = OutlineSubtle,
-                        focusedLabelColor = TextPrimary,
-                        unfocusedLabelColor = TextSecondary,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = TextPrimary
+                        focusedContainerColor = colors.inputBg,
+                        unfocusedContainerColor = colors.inputBg,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
+                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedLabelColor = colors.textPrimary,
+                        unfocusedLabelColor = colors.textSecondary,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        cursorColor = colors.textPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -413,7 +417,7 @@ private fun AddEditDictionaryDialog(
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
-                        color = Error,
+                        color = colors.error,
                         style = FluenceTypography.labelMedium
                     )
                 }
@@ -431,12 +435,12 @@ private fun AddEditDictionaryDialog(
                     }
                 }
             ) {
-                Text("Save", color = TextPrimary, style = FluenceTypography.labelLarge)
+                Text("Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary, style = FluenceTypography.labelLarge)
+                Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
             }
         }
     )

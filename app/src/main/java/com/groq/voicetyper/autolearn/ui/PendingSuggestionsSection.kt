@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 fun PendingSuggestionsSection(
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pendingSuggestions by remember(context) { SuggestionRepository.getPendingSuggestions(context) }
@@ -61,14 +62,14 @@ fun PendingSuggestionsSection(
                         else pendingSuggestions.map { it.id }.toSet()
                 },
                 colors = CheckboxDefaults.colors(
-                    checkedColor = TextPrimary,
-                    checkmarkColor = Canvas,
-                    uncheckedColor = TextSecondary
+                    checkedColor = colors.textPrimary,
+                    checkmarkColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
+                    uncheckedColor = colors.textSecondary
                 )
             )
             Text(
                 text = "${selectedIds.size} selected",
-                color = TextTertiary,
+                color = colors.textTertiary,
                 style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
             )
             Spacer(modifier = Modifier.weight(1f))
@@ -91,7 +92,7 @@ fun PendingSuggestionsSection(
             ) {
                 Text(
                     "Dismiss Selected",
-                    color = if (selectedIds.isNotEmpty()) TextSecondary else TextDisabled,
+                    color = if (selectedIds.isNotEmpty()) colors.textSecondary else colors.textDisabled,
                     style = FluenceTypography.labelMedium
                 )
             }
@@ -101,7 +102,7 @@ fun PendingSuggestionsSection(
                     contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text("Cancel", color = TextSecondary, style = FluenceTypography.labelMedium)
+                    Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                 }
             }
         }
@@ -138,7 +139,7 @@ fun PendingSuggestionsSection(
                     )
                     if (index < pendingSuggestions.lastIndex) {
                         HorizontalDivider(
-                            color = OutlineSubtle,
+                            color = colors.outlineSubtle,
                             thickness = 1.dp,
                             modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                         )
@@ -158,6 +159,7 @@ private fun SuggestionRow(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -169,22 +171,22 @@ private fun SuggestionRow(
             checked = selected,
             onCheckedChange = onToggleSelect,
             colors = CheckboxDefaults.colors(
-                checkedColor = TextPrimary,
-                checkmarkColor = Canvas,
-                uncheckedColor = TextSecondary
+                checkedColor = colors.textPrimary,
+                checkmarkColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
+                uncheckedColor = colors.textSecondary
             )
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "${suggestion.spokenText} → ${suggestion.correctedText}",
-                color = TextPrimary,
+                color = colors.textPrimary,
                 style = FluenceTypography.bodyMedium,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
             Text(
                 text = "Seen ${suggestion.frequency}x",
-                color = TextTertiary,
+                color = colors.textTertiary,
                 style = FluenceTypography.labelSmall
             )
         }
@@ -193,14 +195,14 @@ private fun SuggestionRow(
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Accept", color = TextSecondary, style = FluenceTypography.labelMedium)
+            Text("Accept", color = colors.textSecondary, style = FluenceTypography.labelMedium)
         }
         TextButton(
             onClick = onDismiss,
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Dismiss", color = TextSecondary, style = FluenceTypography.labelMedium)
+            Text("Dismiss", color = colors.textSecondary, style = FluenceTypography.labelMedium)
         }
     }
 }

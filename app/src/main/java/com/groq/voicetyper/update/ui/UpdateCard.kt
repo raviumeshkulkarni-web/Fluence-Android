@@ -26,6 +26,7 @@ fun AboutAndUpdateCard(
     viewModel: UpdateViewModel,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val state by viewModel.updateState.collectAsState()
     val preferences = viewModel.preferences
     var autoCheck by remember { mutableStateOf(preferences.autoCheckEnabled) }
@@ -40,7 +41,7 @@ fun AboutAndUpdateCard(
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = PanelElevated),
+        colors = CardDefaults.cardColors(containerColor = colors.panelElevated),
         shape = FluenceShapes.Medium,
         modifier = modifier.fillMaxWidth()
     ) {
@@ -55,13 +56,13 @@ fun AboutAndUpdateCard(
                 Icon(
                     imageVector = Icons.Default.SystemUpdate,
                     contentDescription = null,
-                    tint = TextPrimary,
+                    tint = colors.textPrimary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                 Text(
                     text = "App Updates",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.titleMedium
                 )
             }
@@ -74,10 +75,10 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Installed Version", color = TextSecondary, style = FluenceTypography.bodyMedium)
+                Text("Installed Version", color = colors.textSecondary, style = FluenceTypography.bodyMedium)
                 Text(
                     "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                 )
             }
@@ -90,7 +91,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Latest Version", color = TextSecondary, style = FluenceTypography.bodyMedium)
+                Text("Latest Version", color = colors.textSecondary, style = FluenceTypography.bodyMedium)
                 val statusText = when (state) {
                     is UpdateState.Checking -> "Checking…"
                     is UpdateState.UpdateAvailable -> {
@@ -105,7 +106,7 @@ fun AboutAndUpdateCard(
                 }
                 Text(
                     statusText,
-                    color = if (state is UpdateState.UpdateAvailable) TextPrimary else TextSecondary,
+                    color = if (state is UpdateState.UpdateAvailable) colors.textPrimary else colors.textSecondary,
                     style = FluenceTypography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                 )
             }
@@ -118,10 +119,10 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Last Checked", color = TextSecondary, style = FluenceTypography.bodyMedium)
+                Text("Last Checked", color = colors.textSecondary, style = FluenceTypography.bodyMedium)
                 Text(
                     formattedLastChecked,
-                    color = TextTertiary,
+                    color = colors.textTertiary,
                     style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont)
                 )
             }
@@ -134,7 +135,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Automatic Updates Check", color = TextPrimary, style = FluenceTypography.labelLarge)
+                Text("Automatic Updates Check", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 Switch(
                     checked = autoCheck,
                     onCheckedChange = { checked ->
@@ -142,10 +143,10 @@ fun AboutAndUpdateCard(
                         viewModel.setAutoCheckEnabled(checked)
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
+                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        uncheckedThumbColor = colors.textPrimary,
+                        uncheckedTrackColor = colors.panel
                     )
                 )
             }
@@ -157,7 +158,7 @@ fun AboutAndUpdateCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Download over Mobile Data", style = FluenceTypography.labelLarge, color = TextPrimary)
+                Text("Download over Mobile Data", style = FluenceTypography.labelLarge, color = colors.textPrimary)
                 Switch(
                     checked = allowMeteredDownload,
                     onCheckedChange = { checked ->
@@ -165,10 +166,10 @@ fun AboutAndUpdateCard(
                         viewModel.setAllowMeteredDownloads(checked)
                     },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Panel,
-                        checkedTrackColor = TextPrimary,
-                        uncheckedThumbColor = TextPrimary,
-                        uncheckedTrackColor = Panel
+                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        uncheckedThumbColor = colors.textPrimary,
+                        uncheckedTrackColor = colors.panel
                     )
                 )
             }
@@ -180,8 +181,8 @@ fun AboutAndUpdateCard(
                 onClick = { viewModel.checkForUpdates(force = true) },
                 enabled = state !is UpdateState.Checking && state !is UpdateState.Downloading,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ButtonSecondary,
-                    contentColor = TextPrimary
+                    containerColor = colors.buttonSecondary,
+                    contentColor = colors.textPrimary
                 ),
                 shape = FluenceShapes.Medium,
                 modifier = Modifier
@@ -191,20 +192,20 @@ fun AboutAndUpdateCard(
                 if (state is UpdateState.Checking) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
-                        color = TextPrimary,
+                        color = colors.textPrimary,
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Checking…", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text("Checking…", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = null,
-                        tint = TextPrimary,
+                        tint = colors.textPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Check for Updates", color = TextPrimary, style = FluenceTypography.labelLarge)
+                    Text("Check for Updates", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
             }
         }
