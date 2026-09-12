@@ -171,8 +171,11 @@ enum class PillTheme(
         waveAFore = Color(0xFF0E7490),
         confirmBg = Color(0xFF3F3F46),
         confirmIcon = Color.White,
-        glowBase = Color(0xFFFFFFFF),
-        glowAlphaScale = 0.5f,
+        // Contrast gray halo: white glow vanishes on white apps, so Light
+        // uses a mid-gray that reads on bright surfaces and stays subtle
+        // on dark ones.
+        glowBase = Color(0xFF8E8E93),
+        glowAlphaScale = 0.55f,
         borderStart = Color(0xFFD4D4D8),
         borderEnd = Color(0xFFD4D4D8),
         dimmedBase = Color(0x1FFFFFFF),

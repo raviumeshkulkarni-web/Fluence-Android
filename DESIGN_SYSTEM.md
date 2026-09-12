@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — Light pill halo goes contrast gray.**
+White glow is invisible on white apps, so the Light preset uses a mid-gray halo (`#8E8E93`) that reads on bright surfaces and stays subtle on dark ones. Nothing else changes. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`.
+
 **2026-09-12 — Light pill preset; wave pairs per preset; visual mode legend.**
 Fourth preset Light: white-smoke shell, charcoal confirm (app white-mode parity), dark glyphs, deepened wave hues (brand amethyst `#8B45D8` / deep teal `#0E7490`, Windows-light parity) since bright teal washes out on white; shell, wells, spinner, error, and dimmed-idle all get light twins. Waveform is now per-preset mode pairs (caller picks by mode) instead of globals. Bubble settings replaces the text note with a two-row color-dot legend (`Transcription mode` / `Agent mode`) using the selected theme's actual wave colors; hub card summary simplified to "Personalize the bubble look". Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`, `ui/SettingsScreen.kt`.
 
