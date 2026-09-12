@@ -303,7 +303,7 @@ fun HomeScreen(
                         Icon(
                             FluenceIcons.Mic,
                             contentDescription = null,
-                            tint = BrandAmethyst.copy(alpha = 0.4f),
+                            tint = TextTertiary,
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Sm))

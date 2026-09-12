@@ -82,6 +82,7 @@ be used only for:
 - Toggle buttons in an active/selected state (extends the existing
   active controls entry to explicitly cover toggle buttons)
 - Link-style text (the `link` button variant text color)
+- Onboarding/setup action text (TextButton labels that advance first-run setup: Enable, Grant, Configure)
 - Inline code text color (`.ProseMirror code`)
 - Blockquote left-border color (`.ProseMirror blockquote`)
 
@@ -252,6 +253,9 @@ The notebook color system (9-index shared palette, index-based sync) is
 a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
+
+**2026-09-12 — Solid accent closed list: onboarding/setup action text permitted; empty-state icon neutralized.**
+Onboarding TextButton labels (Enable, Grant, Configure) ruled as functional-role accent consistent with the existing link-style-text entry — they advance first-run setup, confirmed correct on visual review. Empty-state mic icon moves from amethyst 40% to text-tertiary per the iconography rule (decorative-adjacent icon follows surrounding content). Files touched: `DESIGN_SYSTEM.md` (this entry + closed-list entry), Android `ui/HomeScreen.kt`.
 
 **2026-09-11 — Android type scale +1sp (+2sp headlines), ratios preserved.**
 Bodies/labels/titles +1sp, headlines +2sp, displays +1sp; every line-height
