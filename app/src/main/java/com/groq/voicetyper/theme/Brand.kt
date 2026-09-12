@@ -23,9 +23,12 @@ import com.groq.voicetyper.R
  * The product name ("Transcribe" / "Capture") is brand artwork rendered in Allura.
  * Proportions mirror the Windows desktop lockup exactly:
  *   - wordmark "fluence": weight 700, letter-spacing -0.03em
- *   - "ence" in brand cyan #0BD6E3 (BrandCyan)
+ *   - "ence" in functional cyan (teal #0E7490 in white mode, Windows parity)
  *   - product name: Allura, weight 400, ≈91% of wordmark size, gap ≈30% of
- *     product size, color = TextSecondary (matches Web text-secondary #A0A0A0).
+ *     product size, color = textSecondary (Web #A0A0A0 dark / #52525B white).
+ * The orb artwork stays frozen in both modes (Windows keeps the logo-mark
+ * gradient stops untouched in white mode). Only the three text runs follow
+ * the theme — sizes, weights, and spacing never change.
  * Do not use this for Feature Identity surfaces — those use the master orb only.
  */
 @Composable
@@ -37,6 +40,7 @@ fun FluenceProductLockup(
 ) {
     val productSize = (wordmarkSize.value * 0.91).sp
     val productGap = (productSize.value * 0.30).dp
+    val colors = PrecisionTheme.colors
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Image(
             painter = painterResource(id = R.drawable.ic_fluence_logo),
@@ -46,7 +50,7 @@ fun FluenceProductLockup(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "flu",
-            color = TextPrimary,
+            color = colors.textPrimary,
             fontSize = wordmarkSize,
             fontWeight = FontWeight.Bold,
             fontFamily = SoraFont,
@@ -54,7 +58,7 @@ fun FluenceProductLockup(
         )
         Text(
             text = "ence",
-            color = BrandCyan,
+            color = colors.brandCyan,
             fontSize = wordmarkSize,
             fontWeight = FontWeight.Bold,
             fontFamily = SoraFont,
@@ -63,7 +67,7 @@ fun FluenceProductLockup(
         Spacer(modifier = Modifier.width(productGap))
         Text(
             text = productName,
-            color = TextSecondary,
+            color = colors.textSecondary,
             fontSize = productSize,
             fontWeight = FontWeight.Normal,
             fontFamily = AlluraFont,
