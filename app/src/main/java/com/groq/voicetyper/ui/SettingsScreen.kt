@@ -50,16 +50,17 @@ private fun SettingsRow(
     summary: String,
     onClick: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     Surface(
-        color = Panel,
+        color = colors.panel,
         shape = FluenceShapes.Medium,
         shadowElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = FluenceSpacing.Base)
             .pressScale(interactionSource)
-            .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             .clickable(
                 onClickLabel = "Open $title",
                 role = androidx.compose.ui.semantics.Role.Button,
@@ -75,7 +76,7 @@ private fun SettingsRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(22.dp)
             )
 
@@ -84,13 +85,13 @@ private fun SettingsRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.titleMedium
                 )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                 Text(
                     text = summary,
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.bodySmall
                 )
             }
@@ -98,7 +99,7 @@ private fun SettingsRow(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -113,6 +114,7 @@ fun SettingsScreen(
     syncManager: SyncManager? = null,
     syncSection: @Composable () -> Unit = {}
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
 
     val sttPreset = remember { mutableStateOf("groq") }
@@ -158,7 +160,7 @@ fun SettingsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
@@ -236,13 +238,13 @@ fun SettingsScreen(
 
             // Audio Focus Ducking
             Surface(
-                color = Panel,
+                color = colors.panel,
                 shape = FluenceShapes.Medium,
                 shadowElevation = 0.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             ) {
                 Row(
                     modifier = Modifier
@@ -253,7 +255,7 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Default.VolumeDown,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = colors.textSecondary,
                         modifier = Modifier.size(22.dp)
                     )
 
@@ -262,13 +264,13 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Reduce media volume while dictating",
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             style = FluenceTypography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                         Text(
                             text = "Duck other apps' audio while recording",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
                     }
@@ -284,10 +286,10 @@ fun SettingsScreen(
                             stateDescription = if (duckingEnabled.value) "On" else "Off"
                         },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Panel,
-                            checkedTrackColor = TextPrimary,
-                            uncheckedThumbColor = TextPrimary,
-                            uncheckedTrackColor = Panel
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
                         )
                     )
                 }
@@ -297,13 +299,13 @@ fun SettingsScreen(
 
             // Appearance (white mode)
             Surface(
-                color = Panel,
+                color = colors.panel,
                 shape = FluenceShapes.Medium,
                 shadowElevation = 0.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, OutlineSubtle, FluenceShapes.Medium)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             ) {
                 Row(
                     modifier = Modifier
@@ -314,7 +316,7 @@ fun SettingsScreen(
                     Icon(
                         imageVector = if (whiteMode.value) Icons.Default.LightMode else Icons.Default.DarkMode,
                         contentDescription = null,
-                        tint = TextSecondary,
+                        tint = colors.textSecondary,
                         modifier = Modifier.size(22.dp)
                     )
 
@@ -323,13 +325,13 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "White mode",
-                            color = TextPrimary,
+                            color = colors.textPrimary,
                             style = FluenceTypography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                         Text(
                             text = "Light surfaces, deepened teal accents",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
                     }
@@ -345,10 +347,10 @@ fun SettingsScreen(
                             stateDescription = if (whiteMode.value) "On" else "Off"
                         },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Panel,
-                            checkedTrackColor = TextPrimary,
-                            uncheckedThumbColor = TextPrimary,
-                            uncheckedTrackColor = Panel
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
                         )
                     )
                 }
