@@ -197,8 +197,18 @@ fun HomeScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+        // Fixed header: hamburger + product lockup never scroll. No surface,
+        // divider, or elevation change here, so it reads as one continuous
+        // canvas with the content below.
+        HomeHeader(
+            onOpenDrawer = onOpenDrawer,
+            showDrawerButton = showDrawerButton
+        )
         BoxWithConstraints(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             val viewportHeight = maxHeight
             val density = LocalDensity.current
@@ -230,10 +240,6 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .onSizeChanged { aboveHeight = with(density) { it.height.toDp() } }
             ) {
-                HomeHeader(
-                onOpenDrawer = onOpenDrawer,
-                showDrawerButton = showDrawerButton
-            )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             HomeStatusBanner(
                 isKeyboardActive = isKeyboardActive,
@@ -330,6 +336,7 @@ fun HomeScreen(
                     )
                 }
             }
+        }
         }
     }
 }
