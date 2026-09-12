@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — Pill presets: waveform carries the mode signal.**
+Waveform is fixed by mode in every preset — amethyst = transcription, teal = agent — so themes need no agent exceptions; the confirm button follows the preset unconditionally (unused wave-tint theme fields removed). Settings note states the rule. Amends the previous entry's teal-confirm rule. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`.
+
 **2026-09-12 — Pill presets: agent-mode rule, glow toggle, collapsed shell, seamless Mono.**
 Agent mode follows the preset everywhere except the confirm button, which stays teal in every theme as the single agent signal; waveform agent branches removed. New `pill_glow` bool pref (default on) with a switch in the bubble settings screen gates the halo in both states. Presets now dress the collapsed orb shell too (Obsidian literals equal the old paints, so the default is pixel-identical); Mono border is seamless shell-obsidian, white ring is High-contrast-only. Still frozen: sizes, morph tweens, Crossfade, dim fades, drag/sticky, gestures, spinner, error red, logo PNG. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubblePreferences.kt`, `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`.
 

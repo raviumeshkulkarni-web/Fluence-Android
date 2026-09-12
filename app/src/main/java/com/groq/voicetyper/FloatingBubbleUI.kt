@@ -55,12 +55,10 @@ enum class PillTheme(
     val prefValue: String,
     val label: String,
     val description: String,
-    // Wells + waveform (non-agent branch only).
+    // Wells.
     val cancelWell: Color,
     val waveWellBg: Color,
     val waveWellBorder: Color,
-    val wavePrimary: Color,
-    val waveForefront: Color,
     // Confirm button (non-agent branch only).
     val confirmBg: Color,
     val confirmIcon: Color,
@@ -77,8 +75,6 @@ enum class PillTheme(
         cancelWell = Color(0x1AFFFFFF),
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x0DFFFFFF),
-        wavePrimary = Color(0xFFA855F7),
-        waveForefront = Color(0xFFF3E8FF),
         confirmBg = Color(0xFFA855F7),
         confirmIcon = Color.White,
         glowBase = Color(0xFFA855F7),
@@ -93,8 +89,6 @@ enum class PillTheme(
         cancelWell = Color(0x1AFFFFFF),
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x0DFFFFFF),
-        wavePrimary = Color(0xFFFFFFFF),
-        waveForefront = Color(0xFFFFFFFF),
         confirmBg = Color(0x29FFFFFF),
         confirmIcon = Color.White,
         glowBase = Color(0xFFFFFFFF),
@@ -110,8 +104,6 @@ enum class PillTheme(
         cancelWell = Color(0x1AFFFFFF),
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x33FFFFFF),
-        wavePrimary = Color(0xFFFFFFFF),
-        waveForefront = Color(0xFFFFFFFF),
         confirmBg = Color(0xFFFFFFFF),
         confirmIcon = Color(0xFF0D0E12),
         glowBase = Color(0xFFFFFFFF),
@@ -385,17 +377,14 @@ fun FloatingBubbleUI(
                                     modifier = Modifier.padding(horizontal = 4.dp)
                                 )
                             } else {
-                                SiriWaveform(
-                                    themePrimary = pillTheme.wavePrimary,
-                                    themeForefront = pillTheme.waveForefront,
-                                )
+                                SiriWaveform()
                             }
                         }
 
-                        // 3. Confirm Button (Right)
-                        val isAgentMode by BubbleController.isAgentMode.collectAsState()
-                        val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else pillTheme.confirmBg
-                        val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else pillTheme.confirmIcon
+                        // 3. Confirm Button (Right) — always preset; mode is read
+                        // from the waveform, never from this button.
+                        val confirmBgColor = pillTheme.confirmBg
+                        val confirmIconColor = pillTheme.confirmIcon
                         IconButton(
                             onClick = { BubbleController.stopRecording(context) },
                             modifier = Modifier
@@ -520,17 +509,16 @@ fun FluenceLogoIcon() {
  * Siri-Style multi-layered animated sine wave visualizer.
  */
 @Composable
-fun SiriWaveform(
-    themePrimary: Color,
-    themeForefront: Color,
-) {
+fun SiriWaveform() {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
+    val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val reducedMotion = rememberReducedMotion()
 
-    // Waveform always follows the preset — agent mode is signaled by the teal
-    // confirm button, never by wave color.
-    val primaryColor = themePrimary
-    val forefrontColor = themeForefront
+    // Fixed mode signal in every preset: amethyst wave = transcription, teal
+    // wave = agent. Never themed — this is how the modes stay distinguishable
+    // while the rest of the pill follows the preset.
+    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
+    val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else Color(0xFFF3E8FF)
 
     // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
     // Amplitude is live data (not decoration), so it still responds under

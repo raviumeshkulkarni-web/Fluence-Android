@@ -128,7 +128,7 @@ fun BubbleSettingsScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "In Agent mode the confirm button stays teal in every theme.",
+                text = "Amethyst waveform means transcription, teal means Agent mode — in every theme.",
                 color = colors.textTertiary,
                 style = FluenceTypography.bodySmall,
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
