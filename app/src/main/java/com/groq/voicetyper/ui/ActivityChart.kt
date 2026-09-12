@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -63,6 +64,8 @@ import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.theme.BrandCyan
 import com.groq.voicetyper.theme.CardBorder
 import com.groq.voicetyper.theme.CardSurface
+import com.groq.voicetyper.theme.ChartDuoEnd
+import com.groq.voicetyper.theme.ChartDuoStart
 import com.groq.voicetyper.theme.ChartDuoEnd
 import com.groq.voicetyper.theme.ChartDuoMid
 import com.groq.voicetyper.theme.ChartDuoStart
@@ -118,7 +121,17 @@ data class ActivityPoint(
     val label: String,
     val fullLabel: String,
     val count: Int,
+    val words: Int,
 )
+
+// Chart metric: the area reads the sessions trend, bars read discrete words
+// per bucket. One toggle switches both type and metric together (Windows
+// parity) — never a type-times-metric matrix. Words come from the same
+// synced ledger counters as sessions; no transcript sync involved.
+enum class ChartMetric(val tabLabel: String) {
+    SESSIONS("Sessions"),
+    WORDS("Words"),
+}
 
 data class ActivitySeries(
     val range: ChartRange,
@@ -247,23 +260,24 @@ fun buildActivitySeries(
         // Trailing-N-days window ending today, zero-filled (Windows parity).
         val n = range.days
         var sessions = 0L
-        var words = 0L
+        var wordsTotal = 0L
         var ms = 0L
         val points = (0 until n).map { i ->
             val dayMs = todayStart - (n - 1 - i) * DAY_MS
             val counters = daily[StatsCalculator.utcDateOf(dayMs)]
             val count = counters?.count?.toInt() ?: 0
+            val words = counters?.words?.toInt() ?: 0
             sessions += count
-            words += counters?.words ?: 0L
+            wordsTotal += words
             ms += counters?.ms ?: 0L
             val label = if (range == ChartRange.D7) {
                 weekdayFmt.format(java.util.Date(dayMs))
             } else {
                 dayMonthFmt.format(java.util.Date(dayMs))
             }
-            ActivityPoint(label = label, fullLabel = label, count = count)
+            ActivityPoint(label = label, fullLabel = label, count = count, words = words)
         }
-        return ActivitySeries(range, points, sessions, words, ms)
+        return ActivitySeries(range, points, sessions, wordsTotal, ms)
     }
 
     // ALL: adaptive resolution mirroring Windows (daily ≤92d, Monday weeks
@@ -284,38 +298,47 @@ fun buildActivitySeries(
         spanDays <= 92 -> {
             (0 until spanDays).map { i ->
                 val dayMs = todayStart - (spanDays - 1 - i) * DAY_MS
-                val count = daily[StatsCalculator.utcDateOf(dayMs)]?.count?.toInt() ?: 0
+                val counters = daily[StatsCalculator.utcDateOf(dayMs)]
                 val label = dayMonthFmt.format(java.util.Date(dayMs))
-                ActivityPoint(label = label, fullLabel = label, count = count)
+                ActivityPoint(
+                    label = label,
+                    fullLabel = label,
+                    count = counters?.count?.toInt() ?: 0,
+                    words = counters?.words?.toInt() ?: 0,
+                )
             }
         }
         spanDays <= 730 -> {
-            val weeks = java.util.TreeMap<Long, Long>()
+            val weeks = java.util.TreeMap<Long, Pair<Long, Long>>()
             dayEntries.forEach { (dayMs, _, counters) ->
                 val monday = mondayOf(dayMs)
-                weeks[monday] = (weeks[monday] ?: 0L) + counters.count
+                val prev = weeks[monday] ?: (0L to 0L)
+                weeks[monday] = (prev.first + counters.count) to (prev.second + counters.words)
             }
-            weeks.map { (monday, count) ->
+            weeks.map { (monday, totals) ->
                 ActivityPoint(
                     label = dayMonthFmt.format(java.util.Date(monday)),
                     fullLabel = mondayChip(monday),
-                    count = count.toInt(),
+                    count = totals.first.toInt(),
+                    words = totals.second.toInt(),
                 )
             }
         }
         else -> {
-            val months = java.util.TreeMap<String, Long>()
+            val months = java.util.TreeMap<String, Pair<Long, Long>>()
             dayEntries.forEach { (_, key, counters) ->
                 val monthKey = key.substring(0, 7)
-                months[monthKey] = (months[monthKey] ?: 0L) + counters.count
+                val prev = months[monthKey] ?: (0L to 0L)
+                months[monthKey] = (prev.first + counters.count) to (prev.second + counters.words)
             }
-            months.map { (monthKey, count) ->
+            months.map { (monthKey, totals) ->
                 val cal = Calendar.getInstance(UTC)
                 cal.set(monthKey.substring(0, 4).toInt(), monthKey.substring(5, 7).toInt() - 1, 1, 0, 0, 0)
                 ActivityPoint(
                     label = monthAxisFmt.format(cal.time),
                     fullLabel = monthFullFmt.format(cal.time),
-                    count = count.toInt(),
+                    count = totals.first.toInt(),
+                    words = totals.second.toInt(),
                 )
             }
         }
@@ -414,6 +437,24 @@ fun ActivityRangeSelector(
 }
 
 @Composable
+fun ActivityMetricSelector(
+    selected: ChartMetric,
+    onSelect: (ChartMetric) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Same control as the range selector — metric mapping only, no visual fork.
+    val options = remember {
+        ChartMetric.entries.map { SegmentChoice(it.tabLabel, "Show ${it.tabLabel.lowercase()}") }
+    }
+    FluenceSegmentedControl(
+        options = options,
+        selectedIndex = selected.ordinal,
+        onSelect = { onSelect(ChartMetric.entries[it]) },
+        modifier = modifier,
+    )
+}
+
+@Composable
 fun ActivityChartCard(
     range: ChartRange,
     onRangeChange: (ChartRange) -> Unit,
@@ -429,6 +470,18 @@ fun ActivityChartCard(
             .border(1.dp, CardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Lg),
     ) {
+        val context = LocalContext.current
+        // Metric choice persists across restarts (Windows localStorage parity).
+        val prefs = remember {
+            context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
+        }
+        var metricName by remember {
+            mutableStateOf(
+                prefs.getString("chart_metric", ChartMetric.SESSIONS.name)
+                    ?: ChartMetric.SESSIONS.name
+            )
+        }
+        val metric = ChartMetric.valueOf(metricName)
         val density = LocalDensity.current
         // Card chrome above the plot (header + selector). Measured so Home can
         // size the plot to fill the remaining viewport. Heights here never
@@ -460,6 +513,14 @@ fun ActivityChartCard(
             selected = range,
             onSelect = onRangeChange,
         )
+        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+        ActivityMetricSelector(
+            selected = metric,
+            onSelect = {
+                prefs.edit().putString("chart_metric", it.name).apply()
+                metricName = it.name
+            },
+        )
         Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
         }
         if (series.totalSessions == 0L) {
@@ -490,6 +551,7 @@ fun ActivityChartCard(
                 FluenceActivityChart(
                     series = series,
                     range = range,
+                    metric = metric,
                     modifier = Modifier.fillMaxWidth(),
                     plotHeight = plotHeight,
                 )
@@ -505,6 +567,7 @@ fun ActivityChartCard(
                     FluenceActivityChart(
                         series = fading,
                         range = fading.range,
+                        metric = metric,
                         modifier = Modifier.fillMaxWidth(),
                         plotHeight = plotHeight,
                     )
@@ -518,11 +581,14 @@ fun ActivityChartCard(
 fun FluenceActivityChart(
     series: ActivitySeries,
     range: ChartRange,
+    metric: ChartMetric = ChartMetric.SESSIONS,
     modifier: Modifier = Modifier,
     plotHeight: Dp = ChartPlotMinHeight,
 ) {
     val points = series.points
     if (points.isEmpty()) return
+    fun valueOf(p: ActivityPoint): Int = if (metric == ChartMetric.WORDS) p.words else p.count
+    val noun = if (metric == ChartMetric.WORDS) "word" else "session"
     val reducedMotion = LocalMotionPreferences.current.reducedMotion
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -557,7 +623,7 @@ fun FluenceActivityChart(
             color = TextSecondary,
         )
     }
-    val maxCount = remember(points) { points.maxOf { it.count }.coerceAtLeast(1) }
+    val maxCount = remember(points, metric) { points.maxOf { valueOf(it) }.coerceAtLeast(1) }
     val ticks = remember(maxCount) { niceSessionTicks(maxCount) }
     val niceMax = remember(ticks) { ticks.last().coerceAtLeast(1) }
 
@@ -589,14 +655,16 @@ fun FluenceActivityChart(
         return ((x - plotLeft) / gap).roundToInt().coerceIn(0, points.size - 1)
     }
 
-    val peak = points.maxByOrNull { it.count }
+    val peak = points.maxByOrNull { valueOf(it) }
+    val total = if (metric == ChartMetric.WORDS) series.totalWords else series.totalSessions
+    val unit = if (metric == ChartMetric.WORDS) "words" else "sessions"
     var description = "Activity, ${range.rangeName}: " +
-        "${series.totalSessions} sessions" +
-        (if (peak != null && peak.count > 0) ", peak ${peak.count} sessions on ${peak.fullLabel}" else "")
+        "$total $unit" +
+        (if (peak != null && valueOf(peak) > 0) ", peak ${valueOf(peak)} $unit on ${peak.fullLabel}" else "")
     val sel = selectedIndex
     if (sel in points.indices) {
         val p = points[sel]
-        description += "; selected ${p.fullLabel}: ${p.count} sessions"
+        description += "; selected ${p.fullLabel}: ${valueOf(p)} $unit"
     }
     Canvas(
         modifier = modifier
@@ -660,7 +728,7 @@ fun FluenceActivityChart(
         fun xAt(i: Int): Float =
             if (n < 2) plotLeft + plotW / 2f else plotLeft + (i.toFloat() / (n - 1)) * plotW
 
-        fun yAt(count: Int): Float = plotBottom - (count.toFloat() / niceMax) * plotH
+        fun yAt(value: Int): Float = plotBottom - (value.toFloat() / niceMax) * plotH
 
         // X labels, Windows preserveEnd parity: the oldest and newest labels
         // are always drawn, and intermediates step no closer than MinLabelGap
@@ -698,14 +766,37 @@ fun FluenceActivityChart(
             )
         }
 
-        val pts = points.mapIndexed { i, p -> Offset(xAt(i), yAt(p.count)) }
+        val pts = points.mapIndexed { i, p -> Offset(xAt(i), yAt(valueOf(p))) }
+        // Words read as discrete bars (Windows parity); sessions keep the
+        // monotone area. Bars fade in on the same reveal — no grow motion.
+        fun drawBar(i: Int, value: Int) {
+            if (value <= 0) return
+            val gap = if (n < 2) 28.dp.toPx() else plotW / (n - 1)
+            val barW = (gap * 0.6f).coerceAtMost(28.dp.toPx())
+            val cx = xAt(i)
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    0f to ChartDuoStart.copy(alpha = 0.9f),
+                    1f to ChartDuoEnd.copy(alpha = 0.9f),
+                    startY = yAt(value),
+                    endY = plotBottom,
+                ),
+                topLeft = Offset(cx - barW / 2f, yAt(value)),
+                size = Size(barW, (plotBottom - yAt(value)).coerceAtLeast(0f)),
+                cornerRadius = CornerRadius(3.dp.toPx()),
+                alpha = reveal,
+            )
+        }
         if (n == 1) {
-            drawCircle(
+            if (metric == ChartMetric.WORDS) drawBar(0, valueOf(points[0]))
+            else drawCircle(
                 color = BrandCyan,
                 radius = 4.dp.toPx(),
                 center = pts[0],
                 alpha = reveal,
             )
+        } else if (metric == ChartMetric.WORDS) {
+            points.forEachIndexed { i, p -> drawBar(i, valueOf(p)) }
         } else if (reveal > 0f) {
             val full = monotonePath(pts)
             val measure = PathMeasure()
@@ -750,7 +841,7 @@ fun FluenceActivityChart(
         if (sel in points.indices) {
             val point = points[sel]
             val sx = xAt(sel)
-            val sy = yAt(point.count)
+            val sy = yAt(valueOf(point))
             drawLine(
                 color = TextPrimary.copy(alpha = 0.12f),
                 start = Offset(sx, plotTop),
@@ -768,9 +859,10 @@ fun FluenceActivityChart(
                 center = Offset(sx, sy),
             )
             val chipText = buildAnnotatedString {
+                val v = valueOf(point)
                 withStyle(SpanStyle(color = TextPrimary)) {
-                    append(point.count.toString())
-                    append(if (point.count == 1) " session" else " sessions")
+                    append(v.toString())
+                    append(if (v == 1) " $noun" else " ${noun}s")
                 }
                 withStyle(SpanStyle(color = TextTertiary)) {
                     append(" · " + point.fullLabel)
