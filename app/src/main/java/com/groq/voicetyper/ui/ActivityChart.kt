@@ -646,7 +646,7 @@ fun FluenceActivityChart(
             layout.size.width
         }?.plus(with(density) { 14.dp.toPx() })?.coerceAtLeast(with(density) { 32.dp.toPx() })
             ?: with(density) { 32.dp.toPx() }
-        labels + if (metric == ChartMetric.WORDS) with(density) { 16.dp.toPx() } else 0f
+        labels + if (metric == ChartMetric.WORDS) with(density) { 8.dp.toPx() } else 0f
     }
 
     fun nearestIndex(x: Float): Int {
@@ -710,7 +710,12 @@ fun FluenceActivityChart(
         val plotW = (plotRight - plotLeft).coerceAtLeast(1f)
         val plotH = (plotBottom - plotTop).coerceAtLeast(1f)
 
-        // Restrained horizontal grid + integer Y labels.
+        // Restrained horizontal grid + integer Y labels. In Words view the
+        // labels end a full bar-half plus padding left of the plot edge:
+        // bars center on that edge, and bar half-width is capped at 14dp on
+        // every screen size, so this clearance is proof against overlap.
+        val labelClearance =
+            if (metric == ChartMetric.WORDS) with(density) { 22.dp.toPx() } else with(density) { 6.dp.toPx() }
         tickLayouts.forEach { (tick, layout) ->
             val y = plotBottom - (tick.toFloat() / niceMax) * plotH
             drawLine(
@@ -722,7 +727,7 @@ fun FluenceActivityChart(
             drawText(
                 layout,
                 topLeft = Offset(
-                    plotLeft - 6.dp.toPx() - layout.size.width,
+                    plotLeft - labelClearance - layout.size.width,
                     y - layout.size.height / 2f,
                 ),
             )
