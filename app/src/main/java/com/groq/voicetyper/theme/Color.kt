@@ -36,6 +36,14 @@ val TextDisabled   = Color(0xFF4A4A4A)
 val BrandAmethyst  = Color(0xFF8B45D8)
 val BrandCyan      = Color(0xFF0BD6E3)
 
+// ── Chart Duo (muted amethyst-to-cyan, Windows parity 2026-09-12) ─────────────
+// Desaturated activity-chart ramp shared with the Windows dashboard chart.
+// Charts are an explicit accent opt-in (see DESIGN_SYSTEM.md changelog).
+// Never use outside charts without a new changelog entry.
+val ChartDuoStart  = Color(0xFF8E7CC3)
+val ChartDuoMid    = Color(0xFF7498C6)
+val ChartDuoEnd    = Color(0xFF5FB4C2)
+
 // ── IME Accent (Agent Mode pill) ────────────────────────────────────────────
 // Promoted verbatim from IMEScreen hex literals — values must stay identical
 // to the frozen IME recording visuals.

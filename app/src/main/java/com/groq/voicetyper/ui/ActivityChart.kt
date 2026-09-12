@@ -60,10 +60,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.sync.stats.DayCounters
-import com.groq.voicetyper.theme.BrandAmethyst
 import com.groq.voicetyper.theme.BrandCyan
 import com.groq.voicetyper.theme.CardBorder
 import com.groq.voicetyper.theme.CardSurface
+import com.groq.voicetyper.theme.ChartDuoEnd
+import com.groq.voicetyper.theme.ChartDuoMid
+import com.groq.voicetyper.theme.ChartDuoStart
 import com.groq.voicetyper.theme.DialogSurface
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
@@ -721,9 +723,9 @@ fun FluenceActivityChart(
             drawPath(
                 fill,
                 brush = Brush.verticalGradient(
-                    0f to BrandCyan.copy(alpha = 0.45f),
-                    0.5f to BrandAmethyst.copy(alpha = 0.30f),
-                    1f to BrandAmethyst.copy(alpha = 0.14f),
+                    0f to ChartDuoStart.copy(alpha = 0.22f),
+                    0.5f to ChartDuoMid.copy(alpha = 0.10f),
+                    1f to ChartDuoEnd.copy(alpha = 0.03f),
                     startY = plotTop,
                     endY = plotBottom,
                 ),
@@ -731,7 +733,11 @@ fun FluenceActivityChart(
             )
             drawPath(
                 seg,
-                color = BrandCyan,
+                brush = Brush.horizontalGradient(
+                    0f to ChartDuoStart,
+                    0.55f to ChartDuoMid,
+                    1f to ChartDuoEnd,
+                ),
                 style = Stroke(
                     width = 2.dp.toPx(),
                     cap = StrokeCap.Round,

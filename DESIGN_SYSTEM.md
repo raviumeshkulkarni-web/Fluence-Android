@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — Activity chart muted duo (Windows parity).**
+Chart stroke and fill move from full-saturation cyan/amethyst to the desaturated trio shared with the Windows dashboard (`ChartDuoStart #8E7CC3`, `ChartDuoMid #7498C6`, `ChartDuoEnd #5FB4C2`; fill alphas 0.22/0.10/0.03, no glow). Selection dot/halo and the single-point dot stay full cyan as touch-selection affordance. Charts remain an explicit accent opt-in. Files touched: `DESIGN_SYSTEM.md` (this entry), Android `theme/Color.kt`, `ui/ActivityChart.kt`.
+
 **2026-09-12 — Solid accent closed list: onboarding/setup action text permitted; empty-state icon neutralized.**
 Onboarding TextButton labels (Enable, Grant, Configure) ruled as functional-role accent consistent with the existing link-style-text entry — they advance first-run setup, confirmed correct on visual review. Empty-state mic icon moves from amethyst 40% to text-tertiary per the iconography rule (decorative-adjacent icon follows surrounding content). Files touched: `DESIGN_SYSTEM.md` (this entry + closed-list entry), Android `ui/HomeScreen.kt`.
 
