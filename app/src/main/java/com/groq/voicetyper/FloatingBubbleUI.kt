@@ -44,6 +44,87 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.composed
 import kotlin.math.sin
 
+// ── Expanded-pill themes (paint only) ───────────────────────────────────────
+// Curated presets for the expanded pill's static paints. Hardcoded literals:
+// the overlay service has no theme wrapper, so PrecisionTheme is BANNED in
+// this file (it would silently resolve to dark defaults). Agent-mode teal
+// overrides stay hardwired in every preset — accent state signaling is
+// functional, not decoration. Sizes, animation targets, Crossfade, gestures,
+// and sticky behavior are untouched by themes.
+enum class PillTheme(
+    val prefValue: String,
+    val label: String,
+    val description: String,
+    // Wells + waveform (non-agent branch only).
+    val cancelWell: Color,
+    val waveWellBg: Color,
+    val waveWellBorder: Color,
+    val wavePrimary: Color,
+    val waveForefront: Color,
+    // Confirm button (non-agent branch only).
+    val confirmBg: Color,
+    val confirmIcon: Color,
+    // Pill shell (non-agent branch only).
+    val glowBase: Color,
+    val glowAlphaScale: Float,
+    val borderStart: Color,
+    val borderEnd: Color,
+) {
+    OBSIDIAN(
+        prefValue = FloatingBubblePreferences.PILL_THEME_OBSIDIAN,
+        label = "Obsidian",
+        description = "Signature amethyst glow",
+        cancelWell = Color(0x1AFFFFFF),
+        waveWellBg = Color(0x0CFFFFFF),
+        waveWellBorder = Color(0x0DFFFFFF),
+        wavePrimary = Color(0xFFA855F7),
+        waveForefront = Color(0xFFF3E8FF),
+        confirmBg = Color(0xFFA855F7),
+        confirmIcon = Color.White,
+        glowBase = Color(0xFFA855F7),
+        glowAlphaScale = 1f,
+        borderStart = Color(0xFFA855F7),
+        borderEnd = Color(0xFF6366F1),
+    ),
+    MONO(
+        prefValue = FloatingBubblePreferences.PILL_THEME_MONO,
+        label = "Mono",
+        description = "No glow color, all neutral",
+        cancelWell = Color(0x1AFFFFFF),
+        waveWellBg = Color(0x0CFFFFFF),
+        waveWellBorder = Color(0x0DFFFFFF),
+        wavePrimary = Color(0xFFFFFFFF),
+        waveForefront = Color(0xFFFFFFFF),
+        confirmBg = Color(0x29FFFFFF),
+        confirmIcon = Color.White,
+        glowBase = Color(0xFFFFFFFF),
+        glowAlphaScale = 0.5f,
+        borderStart = Color(0xFFFFFFFF),
+        borderEnd = Color(0xFFFFFFFF),
+    ),
+    HIGH_CONTRAST(
+        prefValue = FloatingBubblePreferences.PILL_THEME_HIGH_CONTRAST,
+        label = "High contrast",
+        description = "Maximum legibility",
+        cancelWell = Color(0x1AFFFFFF),
+        waveWellBg = Color(0x0CFFFFFF),
+        waveWellBorder = Color(0x33FFFFFF),
+        wavePrimary = Color(0xFFFFFFFF),
+        waveForefront = Color(0xFFFFFFFF),
+        confirmBg = Color(0xFFFFFFFF),
+        confirmIcon = Color(0xFF0D0E12),
+        glowBase = Color(0xFFFFFFFF),
+        glowAlphaScale = 0.7f,
+        borderStart = Color(0xFFFFFFFF),
+        borderEnd = Color(0xFFFFFFFF),
+    );
+
+    companion object {
+        fun forName(raw: String?): PillTheme =
+            entries.firstOrNull { it.prefValue == raw } ?: OBSIDIAN
+    }
+}
+
 @Composable
 fun FloatingBubbleUI(
     isAnchoredRight: Boolean,
@@ -94,11 +175,14 @@ fun FloatingBubbleUI(
 
     val shape = RoundedCornerShape(cornerRadius)
     var idleOpacity by remember { mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context)) }
+    var pillThemeName by remember { mutableStateOf(FloatingBubblePreferences.getPillTheme(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == FloatingBubblePreferences.KEY_OPACITY) {
                 idleOpacity = FloatingBubblePreferences.getOpacity(context)
+            } else if (key == FloatingBubblePreferences.KEY_PILL_THEME) {
+                pillThemeName = FloatingBubblePreferences.getPillTheme(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -107,6 +191,10 @@ fun FloatingBubbleUI(
         }
     }
 
+    // Theme preset is hoisted here (never read inside draw loops) and only
+    // feeds static paints — animation targets, gestures, and sticky behavior
+    // never see it.
+    val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
     // Idle dimming — pure Compose render-layer opacity, no WindowManager involvement.
     // Fully opaque while active (expanded, recording/transcribing, or error feedback);
     // dims to idleOpacity when idle. Starts dimmed on mount; after a real active→idle
@@ -145,7 +233,7 @@ fun FloatingBubbleUI(
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
-                .amethystObsidianGlow(isExpanded = isExpanded, shape = shape, dimmed = dimmed)
+                .amethystObsidianGlow(isExpanded = isExpanded, theme = pillTheme, shape = shape, dimmed = dimmed)
                 .clip(shape)
                 // Idle dimming via RenderNode layer alpha — dims glow, border, background,
                 // and content together. Does not affect layout, hit testing, or the window.
@@ -239,7 +327,7 @@ fun FloatingBubbleUI(
                             onClick = { BubbleController.cancelRecording() },
                             modifier = Modifier
                                 .size(44.dp)
-                                .background(Color(0x1AFFFFFF), CircleShape)
+                                .background(pillTheme.cancelWell, CircleShape)
                         ) {
                             Canvas(modifier = Modifier.size(14.dp)) {
                                 val w = size.width
@@ -268,8 +356,8 @@ fun FloatingBubbleUI(
                                 .height(48.dp)
                                 .padding(horizontal = 8.dp)
                                 .clip(RoundedCornerShape(24.dp))
-                                .background(Color(0x0CFFFFFF))
-                                .border(1.dp, Color(0x0DFFFFFF), RoundedCornerShape(24.dp))
+                                .background(pillTheme.waveWellBg)
+                                .border(1.dp, pillTheme.waveWellBorder, RoundedCornerShape(24.dp))
                                 .clickable {
                                     if (recordingState == RecordingState.RECORDING) {
                                         BubbleController.stopRecording(context)
@@ -293,14 +381,17 @@ fun FloatingBubbleUI(
                                     modifier = Modifier.padding(horizontal = 4.dp)
                                 )
                             } else {
-                                SiriWaveform()
+                                SiriWaveform(
+                                    themePrimary = pillTheme.wavePrimary,
+                                    themeForefront = pillTheme.waveForefront,
+                                )
                             }
                         }
 
                         // 3. Confirm Button (Right)
                         val isAgentMode by BubbleController.isAgentMode.collectAsState()
-                        val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-                        val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else Color.White
+                        val confirmBgColor = if (isAgentMode) Color(0xFF00F5D4) else pillTheme.confirmBg
+                        val confirmIconColor = if (isAgentMode) Color(0xFF0D0E12) else pillTheme.confirmIcon
                         IconButton(
                             onClick = { BubbleController.stopRecording(context) },
                             modifier = Modifier
@@ -334,13 +425,17 @@ fun FloatingBubbleUI(
  */
 fun Modifier.amethystObsidianGlow(
     isExpanded: Boolean,
+    theme: PillTheme,
     glowRadius: Dp = 8.dp,
     shape: RoundedCornerShape,
     dimmed: Boolean = false
 ): Modifier = this.composed {
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
-    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-    val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.65f else 0.45f)
+    // Themes never touch the collapsed orb: non-expanded rendering stays
+    // pixel-identical under every preset (expanded-pill scope only).
+    val baseGlowColor = if (isAgentMode) Color(0xFF00F5D4)
+        else if (isExpanded) theme.glowBase else Color(0xFFA855F7)
+    val glowColor = baseGlowColor.copy(alpha = if (isExpanded) 0.65f * theme.glowAlphaScale else 0.45f)
 
     if (dimmed) {
         // Quiet-glass idle look: no glow/bloom layers, translucent obsidian base,
@@ -387,6 +482,11 @@ fun Modifier.amethystObsidianGlow(
                     Color(0xFF00F5D4),
                     Color(0xFF00BBF9).copy(alpha = 0.5f)
                 )
+            } else if (isExpanded) {
+                listOf(
+                    theme.borderStart,
+                    theme.borderEnd.copy(alpha = 0.5f)
+                )
             } else {
                 listOf(
                     Color(0xFFA855F7), // Amethyst Glow
@@ -419,13 +519,16 @@ fun FluenceLogoIcon() {
  * Siri-Style multi-layered animated sine wave visualizer.
  */
 @Composable
-fun SiriWaveform() {
+fun SiriWaveform(
+    themePrimary: Color,
+    themeForefront: Color,
+) {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
     val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val reducedMotion = rememberReducedMotion()
 
-    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-    val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else Color(0xFFF3E8FF)
+    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else themePrimary
+    val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else themeForefront
 
     // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
     // Amplitude is live data (not decoration), so it still responds under
