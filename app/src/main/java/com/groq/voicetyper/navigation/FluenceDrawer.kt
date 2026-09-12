@@ -48,11 +48,12 @@ fun FluenceDrawer(
     onNavigate: (Screen) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Column(
         modifier = modifier
             .fillMaxHeight()
             .fillMaxWidth()
-            .background(Sidebar)
+            .background(colors.sidebar)
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(vertical = FluenceSpacing.Md)
@@ -63,7 +64,7 @@ fun FluenceDrawer(
         // Top section segregation header
         Text(
             text = "WORKSPACE",
-            color = TextTertiary,
+            color = colors.textTertiary,
             style = FluenceTypography.labelSmall.copy(
                 fontFamily = GeistMonoFont,
                 fontWeight = FontWeight.SemiBold,
@@ -92,7 +93,7 @@ fun FluenceDrawer(
 
         // Divider separating top section and bottom section
         HorizontalDivider(
-            color = OutlineSubtle,
+            color = colors.outlineSubtle,
             thickness = 1.dp,
             modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
         )
@@ -100,7 +101,7 @@ fun FluenceDrawer(
         // Bottom section segregation header
         Text(
             text = "PREFERENCES",
-            color = TextTertiary,
+            color = colors.textTertiary,
             style = FluenceTypography.labelSmall.copy(
                 fontFamily = GeistMonoFont,
                 fontWeight = FontWeight.SemiBold,
@@ -136,16 +137,17 @@ private fun DrawerRow(
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     // Windows selected treatment: elevated surface + structural border +
     // primary semibold text; idle icons sit at reduced opacity.
-    val bg = if (selected) PanelElevated else androidx.compose.ui.graphics.Color.Transparent
+    val bg = if (selected) colors.panelElevated else androidx.compose.ui.graphics.Color.Transparent
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = FluenceSpacing.Sm)
             .clip(FluenceShapes.Small)
             .background(bg)
-            .then(if (selected) Modifier.border(1.dp, OutlineSubtle, FluenceShapes.Small) else Modifier)
+            .then(if (selected) Modifier.border(1.dp, colors.outlineSubtle, FluenceShapes.Small) else Modifier)
             .clickable(onClickLabel = "Open $label", onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp)
             .heightIn(min = 48.dp),
@@ -154,7 +156,7 @@ private fun DrawerRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (selected) TextPrimary else TextSecondary,
+            tint = if (selected) colors.textPrimary else colors.textSecondary,
             modifier = Modifier
                 .size(20.dp)
                 .alpha(if (selected) 1f else 0.65f)
@@ -162,7 +164,7 @@ private fun DrawerRow(
         Spacer(modifier = Modifier.width(FluenceSpacing.Base))
         Text(
             text = label,
-            color = if (selected) TextPrimary else TextSecondary,
+            color = if (selected) colors.textPrimary else colors.textSecondary,
             style = FluenceTypography.titleSmall,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.weight(1f)

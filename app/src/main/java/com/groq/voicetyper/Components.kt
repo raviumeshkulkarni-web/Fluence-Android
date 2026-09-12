@@ -49,19 +49,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import com.groq.voicetyper.theme.Canvas
-import com.groq.voicetyper.theme.DialogSurface
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.LocalMotionPreferences
-import com.groq.voicetyper.theme.OutlineSubtle
-import com.groq.voicetyper.theme.PanelElevated
-import com.groq.voicetyper.theme.TextPrimary
-import com.groq.voicetyper.theme.TextSecondary
-import com.groq.voicetyper.theme.TextTertiary
+import com.groq.voicetyper.theme.PrecisionTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -107,6 +101,7 @@ fun ProviderLogo(
     modifier: Modifier = Modifier,
     size: Dp = 24.dp
 ) {
+    val colors = PrecisionTheme.colors
     val drawableRes = when (providerId) {
         "openai"    -> R.drawable.ic_provider_openai
         "anthropic" -> R.drawable.ic_provider_anthropic
@@ -135,6 +130,7 @@ fun SettingsTopBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val backInteraction = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
@@ -152,7 +148,7 @@ fun SettingsTopBar(
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
-                tint = TextPrimary,
+                tint = colors.textPrimary,
                 modifier = Modifier.size(24.dp)
             )
         }
@@ -161,7 +157,7 @@ fun SettingsTopBar(
 
         Text(
             text = title,
-            color = TextPrimary,
+            color = colors.textPrimary,
             style = FluenceTypography.headlineLarge
         )
     }
@@ -181,6 +177,7 @@ fun FluenceEmptyState(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null
 ) {
+    val colors = PrecisionTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -191,28 +188,28 @@ fun FluenceEmptyState(
             modifier = Modifier
                 .size(72.dp)
                 .clip(CircleShape)
-                .background(PanelElevated)
-                .border(1.dp, OutlineSubtle, CircleShape),
+                .background(colors.panelElevated)
+                .border(1.dp, colors.outlineSubtle, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(30.dp)
             )
         }
         Spacer(modifier = Modifier.height(FluenceSpacing.Base))
         Text(
             text = title,
-            color = TextPrimary,
+            color = colors.textPrimary,
             style = FluenceTypography.headlineSmall,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
         Text(
             text = description,
-            color = TextSecondary,
+            color = colors.textSecondary,
             style = FluenceTypography.bodyMedium,
             textAlign = TextAlign.Center
         )
@@ -221,8 +218,8 @@ fun FluenceEmptyState(
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = TextPrimary,
-                    contentColor = Canvas
+                        containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
                 ),
                 shape = FluenceShapes.Small
             ) {
@@ -246,6 +243,7 @@ fun FluenceSectionHeader(
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -254,7 +252,7 @@ fun FluenceSectionHeader(
     ) {
         Text(
             text = label,
-            color = TextTertiary,
+            color = colors.textTertiary,
             style = FluenceTypography.labelSmall.copy(
                 fontFamily = GeistMonoFont,
                 fontWeight = FontWeight.SemiBold,
@@ -268,7 +266,7 @@ fun FluenceSectionHeader(
                 contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text(actionLabel, color = TextPrimary, style = FluenceTypography.labelMedium)
+                Text(actionLabel, color = colors.textPrimary, style = FluenceTypography.labelMedium)
             }
         }
     }
@@ -292,6 +290,7 @@ object FeedbackBus {
 
 @Composable
 fun FluenceFeedbackHost(modifier: Modifier = Modifier) {
+    val colors = PrecisionTheme.colors
     val hostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         FeedbackBus.messages.collect { msg ->
@@ -305,8 +304,8 @@ fun FluenceFeedbackHost(modifier: Modifier = Modifier) {
         Snackbar(
             snackbarData = data,
             shape = FluenceShapes.Small,
-            containerColor = DialogSurface,
-            contentColor = TextPrimary
+            containerColor = colors.dialog,
+            contentColor = colors.textPrimary
         )
     }
 }

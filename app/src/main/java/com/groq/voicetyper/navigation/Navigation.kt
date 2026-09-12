@@ -37,8 +37,7 @@ import com.groq.voicetyper.sync.ui.SyncScreen
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.LocalMotionPreferences
-import com.groq.voicetyper.theme.Sidebar
-import com.groq.voicetyper.theme.TextPrimary
+import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
 import com.groq.voicetyper.ui.HistoryScreen
@@ -288,12 +287,13 @@ fun FluenceNavHost(
         }
     }
 
+    val colors = PrecisionTheme.colors
     if (usePermanentDrawer) {
         PermanentNavigationDrawer(
             drawerContent = {
                 PermanentDrawerSheet(
                     modifier = Modifier.width(PermanentDrawerWidth),
-                    drawerContainerColor = Sidebar,
+                    drawerContainerColor = colors.sidebar,
                 ) {
                     FluenceDrawer(
                         current = current,
@@ -314,8 +314,8 @@ fun FluenceNavHost(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(0.80f),
-                    color = Sidebar,
-                    contentColor = TextPrimary,
+                    color = colors.sidebar,
+                    contentColor = colors.textPrimary,
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
                 ) {
                     FluenceDrawer(
