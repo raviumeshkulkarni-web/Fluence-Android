@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -68,6 +69,7 @@ fun BubbleSettingsScreen(
     var pillThemeName by remember {
         mutableStateOf(FloatingBubblePreferences.getPillTheme(context))
     }
+    val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
     var bubbleOpacity by remember {
         mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context))
     }
@@ -127,12 +129,11 @@ fun BubbleSettingsScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = "Amethyst waveform means transcription, teal means Agent mode — in every theme.",
-                color = colors.textTertiary,
-                style = FluenceTypography.bodySmall,
-                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-            )
+            ModeLegendRow(dot = pillTheme.waveT, label = "Transcription mode")
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            ModeLegendRow(dot = pillTheme.waveA, label = "Agent mode")
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -237,6 +238,34 @@ fun BubbleSettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun ModeLegendRow(
+    dot: Color,
+    label: String,
+) {
+    val colors = PrecisionTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = FluenceSpacing.Base),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(dot)
+                .border(1.dp, colors.outlineSubtle, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+        Text(
+            text = label,
+            color = colors.textSecondary,
+            style = FluenceTypography.bodyMedium
+        )
     }
 }
 

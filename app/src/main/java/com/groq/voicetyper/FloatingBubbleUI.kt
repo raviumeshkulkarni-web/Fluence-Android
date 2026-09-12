@@ -45,50 +45,81 @@ import androidx.compose.ui.composed
 import kotlin.math.sin
 
 // ── Pill themes (paint only) ────────────────────────────────────────────────
-// Curated presets for the pill's static paints, collapsed shell included. Hardcoded literals:
-// the overlay service has no theme wrapper, so PrecisionTheme is BANNED in
-// this file (it would silently resolve to dark defaults). Agent mode follows
-// the preset everywhere except the confirm button, which stays teal in every
-// preset as the single agent signal. Sizes, animation targets, Crossfade,
-// gestures, and sticky behavior are untouched by themes.
+// Curated presets for the pill's static paints, collapsed shell included.
+// Hardcoded literals: the overlay service has no theme wrapper, so
+// PrecisionTheme is BANNED in this file (it would silently resolve to dark
+// defaults). The waveform is NOT themed — amethyst wave = transcription, teal
+// wave = agent, in every preset except Light, which deepens both hues for
+// contrast on white (Windows light-mode parity). That fixed signal is how the
+// modes stay distinguishable while everything else follows the preset.
+// Sizes, animation targets, Crossfade, gestures, and sticky behavior are
+// untouched by themes.
 enum class PillTheme(
     val prefValue: String,
     val label: String,
     val description: String,
-    // Wells.
+    // Shell + wells.
+    val shellBase: Color,
     val cancelWell: Color,
+    val cancelIcon: Color,
     val waveWellBg: Color,
     val waveWellBorder: Color,
-    // Confirm button (non-agent branch only).
+    // Waveform mode pairs (T = transcription, A = agent).
+    val waveT: Color,
+    val waveTFore: Color,
+    val waveA: Color,
+    val waveAFore: Color,
+    // Confirm button.
     val confirmBg: Color,
     val confirmIcon: Color,
-    // Pill shell (non-agent branch only).
+    // Shell dressing.
     val glowBase: Color,
     val glowAlphaScale: Float,
     val borderStart: Color,
     val borderEnd: Color,
+    // Dimmed idle branch + functional states.
+    val dimmedBase: Color,
+    val dimmedHairline: Color,
+    val spinner: Color,
+    val error: Color,
 ) {
     OBSIDIAN(
         prefValue = FloatingBubblePreferences.PILL_THEME_OBSIDIAN,
         label = "Obsidian",
         description = "Signature amethyst glow",
+        shellBase = Color(0xEA0D0E12),
         cancelWell = Color(0x1AFFFFFF),
+        cancelIcon = Color.White,
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x0DFFFFFF),
+        waveT = Color(0xFFA855F7),
+        waveTFore = Color(0xFFF3E8FF),
+        waveA = Color(0xFF00F5D4),
+        waveAFore = Color(0xFFE6FFFA),
         confirmBg = Color(0xFFA855F7),
         confirmIcon = Color.White,
         glowBase = Color(0xFFA855F7),
         glowAlphaScale = 1f,
         borderStart = Color(0xFFA855F7),
         borderEnd = Color(0xFF6366F1),
+        dimmedBase = Color(0x1F0D0E12),
+        dimmedHairline = Color(0x4DFFFFFF),
+        spinner = TextPrimary,
+        error = Color(0xFFFF5252),
     ),
     MONO(
         prefValue = FloatingBubblePreferences.PILL_THEME_MONO,
         label = "Mono",
         description = "No glow color, all neutral",
+        shellBase = Color(0xEA0D0E12),
         cancelWell = Color(0x1AFFFFFF),
+        cancelIcon = Color.White,
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x0DFFFFFF),
+        waveT = Color(0xFFA855F7),
+        waveTFore = Color(0xFFF3E8FF),
+        waveA = Color(0xFF00F5D4),
+        waveAFore = Color(0xFFE6FFFA),
         confirmBg = Color(0x29FFFFFF),
         confirmIcon = Color.White,
         glowBase = Color(0xFFFFFFFF),
@@ -96,20 +127,58 @@ enum class PillTheme(
         // Seamless: obsidian shell color, so no visible border ring.
         borderStart = Color(0xEA0D0E12),
         borderEnd = Color(0xEA0D0E12),
+        dimmedBase = Color(0x1F0D0E12),
+        dimmedHairline = Color(0x4DFFFFFF),
+        spinner = TextPrimary,
+        error = Color(0xFFFF5252),
     ),
     HIGH_CONTRAST(
         prefValue = FloatingBubblePreferences.PILL_THEME_HIGH_CONTRAST,
         label = "High contrast",
         description = "Maximum legibility",
+        shellBase = Color(0xEA0D0E12),
         cancelWell = Color(0x1AFFFFFF),
+        cancelIcon = Color.White,
         waveWellBg = Color(0x0CFFFFFF),
         waveWellBorder = Color(0x33FFFFFF),
+        waveT = Color(0xFFA855F7),
+        waveTFore = Color(0xFFF3E8FF),
+        waveA = Color(0xFF00F5D4),
+        waveAFore = Color(0xFFE6FFFA),
         confirmBg = Color(0xFFFFFFFF),
         confirmIcon = Color(0xFF0D0E12),
         glowBase = Color(0xFFFFFFFF),
         glowAlphaScale = 0.7f,
         borderStart = Color(0xFFFFFFFF),
         borderEnd = Color(0xFFFFFFFF),
+        dimmedBase = Color(0x1F0D0E12),
+        dimmedHairline = Color(0x4DFFFFFF),
+        spinner = Color.White,
+        error = Color(0xFFFF5252),
+    ),
+    LIGHT(
+        prefValue = FloatingBubblePreferences.PILL_THEME_LIGHT,
+        label = "Light",
+        description = "Bright shell for light setups",
+        shellBase = Color(0xF2F5F5F7),
+        cancelWell = Color(0x14000000),
+        cancelIcon = Color(0xFF18181B),
+        waveWellBg = Color(0x0F000000),
+        waveWellBorder = Color(0x1F000000),
+        waveT = Color(0xFF8B45D8),
+        waveTFore = Color(0xFF8B45D8),
+        waveA = Color(0xFF0E7490),
+        waveAFore = Color(0xFF0E7490),
+        confirmBg = Color(0xFF3F3F46),
+        confirmIcon = Color.White,
+        glowBase = Color(0xFFFFFFFF),
+        glowAlphaScale = 0.5f,
+        borderStart = Color(0xFFD4D4D8),
+        borderEnd = Color(0xFFD4D4D8),
+        dimmedBase = Color(0x1FFFFFFF),
+        dimmedHairline = Color(0x4D000000),
+        spinner = Color(0xFF18181B),
+        error = Color(0xFFDC2626),
     );
 
     companion object {
@@ -191,6 +260,7 @@ fun FloatingBubbleUI(
     // feeds static paints — animation targets, gestures, and sticky behavior
     // never see it.
     val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
+    val waveAgentMode by BubbleController.isAgentMode.collectAsState()
     // Idle dimming — pure Compose render-layer opacity, no WindowManager involvement.
     // Fully opaque while active (expanded, recording/transcribing, or error feedback);
     // dims to idleOpacity when idle. Starts dimmed on mount; after a real active→idle
@@ -329,14 +399,14 @@ fun FloatingBubbleUI(
                                 val w = size.width
                                 val h = size.height
                                 drawLine(
-                                    color = Color.White,
+                                    color = pillTheme.cancelIcon,
                                     start = Offset(0f, 0f),
                                     end = Offset(w, h),
                                     strokeWidth = 2.dp.toPx(),
                                     cap = StrokeCap.Round
                                 )
                                 drawLine(
-                                    color = Color.White,
+                                    color = pillTheme.cancelIcon,
                                     start = Offset(w, 0f),
                                     end = Offset(0f, h),
                                     strokeWidth = 2.dp.toPx(),
@@ -364,20 +434,23 @@ fun FloatingBubbleUI(
                             if (recordingState == RecordingState.TRANSCRIBING) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
-                                    color = TextPrimary,
+                                    color = pillTheme.spinner,
                                     strokeWidth = 2.dp
                                 )
                             } else if (recordingState == RecordingState.ERROR) {
                                 Text(
                                     text = errorMessage ?: "Error",
-                                    color = Color(0xFFFF5252),
+                                    color = pillTheme.error,
                                     style = FluenceTypography.labelSmall,
                                     textAlign = TextAlign.Center,
                                     maxLines = 1,
                                     modifier = Modifier.padding(horizontal = 4.dp)
                                 )
                             } else {
-                                SiriWaveform()
+                                SiriWaveform(
+                                    theme = pillTheme,
+                                    agentMode = waveAgentMode,
+                                )
                             }
                         }
 
@@ -440,14 +513,14 @@ fun Modifier.amethystObsidianGlow(
     val glowColor = baseGlowColor.copy(alpha = glowAlpha)
 
     if (dimmed) {
-        // Quiet-glass idle look: no glow/bloom layers, translucent obsidian base,
-        // faint neutral hairline. The callsite graphicsLayer alpha further subdues it.
+        // Quiet-glass idle look: no glow/bloom layers, translucent base,
+        // faint hairline. The callsite graphicsLayer alpha further subdues it.
         return@composed this.background(
-            color = Color(0x1F0D0E12), // translucent obsidian glass
+            color = theme.dimmedBase,
             shape = shape
         ).border(
             width = 0.8.dp,
-            color = Color(0x4DFFFFFF), // faint white hairline for discoverability
+            color = theme.dimmedHairline,
             shape = shape
         )
     }
@@ -473,7 +546,7 @@ fun Modifier.amethystObsidianGlow(
         }
     }
     .background(
-        color = Color(0xEA0D0E12), // Deep Obsidian base
+        color = theme.shellBase,
         shape = shape
     )
     .border(
@@ -509,16 +582,18 @@ fun FluenceLogoIcon() {
  * Siri-Style multi-layered animated sine wave visualizer.
  */
 @Composable
-fun SiriWaveform() {
+fun SiriWaveform(
+    theme: PillTheme,
+    agentMode: Boolean,
+) {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
-    val isAgentMode by BubbleController.isAgentMode.collectAsState()
     val reducedMotion = rememberReducedMotion()
 
-    // Fixed mode signal in every preset: amethyst wave = transcription, teal
-    // wave = agent. Never themed — this is how the modes stay distinguishable
-    // while the rest of the pill follows the preset.
-    val primaryColor = if (isAgentMode) Color(0xFF00F5D4) else Color(0xFFA855F7)
-    val forefrontColor = if (isAgentMode) Color(0xFFE6FFFA) else Color(0xFFF3E8FF)
+    // Mode pairs from the preset — amethyst-family wave = transcription, teal
+    // wave = agent. This fixed-per-mode mapping is how the modes stay
+    // distinguishable while everything else follows the preset.
+    val primaryColor = if (agentMode) theme.waveA else theme.waveT
+    val forefrontColor = if (agentMode) theme.waveAFore else theme.waveTFore
 
     // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
     // Amplitude is live data (not decoration), so it still responds under

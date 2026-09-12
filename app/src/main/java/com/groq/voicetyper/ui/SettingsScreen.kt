@@ -241,7 +241,7 @@ fun SettingsScreen(
             SettingsRow(
                 icon = Icons.Default.Circle,
                 title = "Floating Bubble",
-                summary = "Pill theme, idle opacity",
+                summary = "Personalize the bubble look",
                 onClick = { onNavigateTo(Screen.BubbleSettings) }
             )
 

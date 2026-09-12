@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — Light pill preset; wave pairs per preset; visual mode legend.**
+Fourth preset Light: white-smoke shell, charcoal confirm (app white-mode parity), dark glyphs, deepened wave hues (brand amethyst `#8B45D8` / deep teal `#0E7490`, Windows-light parity) since bright teal washes out on white; shell, wells, spinner, error, and dimmed-idle all get light twins. Waveform is now per-preset mode pairs (caller picks by mode) instead of globals. Bubble settings replaces the text note with a two-row color-dot legend (`Transcription mode` / `Agent mode`) using the selected theme's actual wave colors; hub card summary simplified to "Personalize the bubble look". Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`, `ui/SettingsScreen.kt`.
+
 **2026-09-12 — Pill presets: waveform carries the mode signal.**
 Waveform is fixed by mode in every preset — amethyst = transcription, teal = agent — so themes need no agent exceptions; the confirm button follows the preset unconditionally (unused wave-tint theme fields removed). Settings note states the rule. Amends the previous entry's teal-confirm rule. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`.
 

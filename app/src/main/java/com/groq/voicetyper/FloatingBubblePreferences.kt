@@ -14,6 +14,7 @@ object FloatingBubblePreferences {
     const val PILL_THEME_OBSIDIAN = "obsidian"
     const val PILL_THEME_MONO = "mono"
     const val PILL_THEME_HIGH_CONTRAST = "high_contrast"
+    const val PILL_THEME_LIGHT = "light"
 
     // Outer glow halo around the pill (collapsed orb included). Default on
     // preserves today's look; the dimmed idle branch never had a halo.
@@ -34,12 +35,12 @@ object FloatingBubblePreferences {
     fun getPillTheme(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_PILL_THEME, PILL_THEME_OBSIDIAN)
-        return if (raw == PILL_THEME_MONO || raw == PILL_THEME_HIGH_CONTRAST) raw
+        return if (raw == PILL_THEME_MONO || raw == PILL_THEME_HIGH_CONTRAST || raw == PILL_THEME_LIGHT) raw
             else PILL_THEME_OBSIDIAN
     }
 
     fun setPillTheme(context: Context, theme: String) {
-        val safe = if (theme == PILL_THEME_MONO || theme == PILL_THEME_HIGH_CONTRAST) theme
+        val safe = if (theme == PILL_THEME_MONO || theme == PILL_THEME_HIGH_CONTRAST || theme == PILL_THEME_LIGHT) theme
             else PILL_THEME_OBSIDIAN
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
