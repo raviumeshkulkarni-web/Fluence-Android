@@ -119,6 +119,7 @@ fun HomeScreen(
     onRequestPermission: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     var isKeyboardActive by remember { mutableStateOf(false) }
     var isMicGranted by remember { mutableStateOf(false) }
@@ -193,7 +194,7 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Canvas)
+            .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -302,27 +303,27 @@ fun HomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(CardSurface, FluenceShapes.Medium)
-                            .border(1.dp, CardBorder, FluenceShapes.Medium)
+                            .background(colors.cardSurface, FluenceShapes.Medium)
+                            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
                             .padding(FluenceSpacing.Xl),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             FluenceIcons.Mic,
                             contentDescription = null,
-                            tint = TextTertiary,
+                            tint = colors.textTertiary,
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
                         Text(
                             "Your dashboard will come alive here",
-                            color = TextSecondary,
+                            color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
                         Text(
                             "Start dictating to see your weekly activity",
-                            color = TextTertiary,
+                            color = colors.textTertiary,
                             style = FluenceTypography.labelSmall
                         )
                     }
@@ -346,6 +347,7 @@ private fun HomeHeader(
     onOpenDrawer: () -> Unit,
     showDrawerButton: Boolean = true
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -357,7 +359,7 @@ private fun HomeHeader(
                 onClick = onOpenDrawer,
                 modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
             ) {
-                Icon(FluenceIcons.Menu, "Open menu", tint = TextSecondary, modifier = Modifier.size(24.dp))
+                Icon(FluenceIcons.Menu, "Open menu", tint = colors.textSecondary, modifier = Modifier.size(24.dp))
             }
         } else {
             // Permanent sidebar is already visible — keep the balance spacer
@@ -378,13 +380,14 @@ private fun HomeStatusBanner(
     sttModel: String,
     context: Context
 ) {
-    val statusColor = if (isKeyboardActive) Success else Error
+    val colors = PrecisionTheme.colors
+    val statusColor = if (isKeyboardActive) colors.success else colors.error
     val statusText = if (isKeyboardActive) "Ready" else "Inactive"
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(CardSurface, FluenceShapes.Medium)
-            .border(1.dp, CardBorder, FluenceShapes.Medium)
+            .background(colors.cardSurface, FluenceShapes.Medium)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             .clickable(onClickLabel = "Open keyboard settings") {
                 context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
             }
@@ -399,9 +402,9 @@ private fun HomeStatusBanner(
                 .background(statusColor)
         )
         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-        Text(statusText, color = TextPrimary, style = FluenceTypography.labelLarge)
+        Text(statusText, color = colors.textPrimary, style = FluenceTypography.labelLarge)
         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-        Text("·", color = TextTertiary, style = FluenceTypography.bodySmall)
+        Text("·", color = colors.textTertiary, style = FluenceTypography.bodySmall)
         Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
         Text(
             text = if (OfflinePreferences.isOfflineModeEnabled(context)) {
@@ -409,7 +412,7 @@ private fun HomeStatusBanner(
             } else {
                 "$sttProvider · $sttModel"
             },
-            color = TextSecondary,
+            color = colors.textSecondary,
             style = FluenceTypography.labelMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -428,11 +431,12 @@ private fun DashboardHeroStats(
     scopeLabel: String,
     trend: TrendInfo?,
 ) {
+    val colors = PrecisionTheme.colors
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(CardSurface, FluenceShapes.Medium)
-            .border(1.dp, CardBorder, FluenceShapes.Medium)
+            .background(colors.cardSurface, FluenceShapes.Medium)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
     ) {
         Column {
             Row(
@@ -452,7 +456,7 @@ private fun DashboardHeroStats(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(1.dp)
-                        .background(OutlineSubtle)
+                        .background(colors.outlineSubtle)
                 )
                 DashboardStatCell(
                     title = "Typing Time Saved",
@@ -462,7 +466,7 @@ private fun DashboardHeroStats(
                     modifier = Modifier.weight(1f)
                 )
             }
-            HorizontalDivider(color = OutlineSubtle, thickness = 1.dp)
+            HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -480,7 +484,7 @@ private fun DashboardHeroStats(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(1.dp)
-                        .background(OutlineSubtle)
+                        .background(colors.outlineSubtle)
                 )
                 DashboardStatCell(
                     title = "Sessions",
@@ -503,6 +507,7 @@ private fun DashboardStatCell(
     trend: TrendInfo?,
     modifier: Modifier = Modifier
 ) {
+    val colors = PrecisionTheme.colors
     val context = LocalContext.current
     Column(
         modifier = modifier
@@ -524,7 +529,7 @@ private fun DashboardStatCell(
         // string stays title-case for accessibility services.
         Text(
             text = title.uppercase(Locale.US),
-            color = TextSecondary,
+            color = colors.textSecondary,
             style = FluenceTypography.labelLarge.copy(
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.56.sp,
@@ -537,7 +542,7 @@ private fun DashboardStatCell(
         // (touch-natural equivalent of the desktop Copy value menu item).
         Text(
             text = value,
-            color = TextPrimary,
+            color = colors.textPrimary,
             style = FluenceTypography.headlineLarge.copy(
                 fontFamily = SoraFont,
                 fontWeight = FontWeight.SemiBold,
@@ -554,7 +559,7 @@ private fun DashboardStatCell(
         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
         Text(
             text = foot,
-            color = TextTertiary,
+            color = colors.textTertiary,
             style = FluenceTypography.labelMedium,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
@@ -564,25 +569,29 @@ private fun DashboardStatCell(
 
 @Composable
 private fun TrendBadge(trend: TrendInfo) {
+    val colors = PrecisionTheme.colors
     val container: Color
     val content: Color
     val icon: androidx.compose.ui.graphics.vector.ImageVector
+    // Windows container alphas: 15% in dark; white mode follows the light
+    // tokens (success 10%, error 8%).
+    val light = colors.isLight
     when {
         trend.delta > 0 -> {
-            container = Success.copy(alpha = 0.15f)
-            content = Success
+            container = colors.success.copy(alpha = if (light) 0.10f else 0.15f)
+            content = colors.success
             icon = FluenceIcons.TrendingUp
         }
         trend.delta < 0 -> {
-            container = Error.copy(alpha = 0.15f)
-            content = Error
+            container = colors.error.copy(alpha = if (light) 0.08f else 0.15f)
+            content = colors.error
             icon = FluenceIcons.TrendingDown
         }
         else -> {
             // Windows .badge-secondary: surface-secondary fill (#1E1E1E),
             // on-surface-variant text, and the 1px border token.
-            container = Panel
-            content = TextSecondary
+            container = colors.panel
+            content = colors.textSecondary
             icon = FluenceIcons.Minus
         }
     }
@@ -594,7 +603,7 @@ private fun TrendBadge(trend: TrendInfo) {
             .background(container)
             .then(
                 if (trend.delta == 0L) {
-                    Modifier.border(1.dp, CardBorder, CircleShape)
+                    Modifier.border(1.dp, colors.cardBorder, CircleShape)
                 } else {
                     Modifier
                 },
@@ -633,13 +642,14 @@ private fun FirstRunOnboardingCard(
     onNavigateToSttConfig: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val colors = PrecisionTheme.colors
     val completedCount = listOf(isKeyboardActive, isMicGranted, isApiKeySet, hasTranscriptions).count { it }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(CardSurface, FluenceShapes.Medium)
-            .border(1.dp, CardBorder, FluenceShapes.Medium)
+            .background(colors.cardSurface, FluenceShapes.Medium)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Md)
     ) {
         Row(
@@ -649,13 +659,13 @@ private fun FirstRunOnboardingCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Welcome to Fluence Transcribe",
-                    color = TextPrimary,
+                    color = colors.textPrimary,
                     style = FluenceTypography.titleMedium
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "$completedCount of 4 setup steps completed",
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.bodySmall
                 )
             }
@@ -666,7 +676,7 @@ private fun FirstRunOnboardingCard(
                 Icon(
                     imageVector = FluenceIcons.X,
                     contentDescription = "Dismiss checklist",
-                    tint = TextTertiary,
+                    tint = colors.textTertiary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -682,7 +692,7 @@ private fun FirstRunOnboardingCard(
             onAction = onNavigateToSettings
         )
 
-        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
 
         OnboardingStepRow(
             stepNumber = 2,
@@ -692,7 +702,7 @@ private fun FirstRunOnboardingCard(
             onAction = onRequestPermission
         )
 
-        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
 
         OnboardingStepRow(
             stepNumber = 3,
@@ -702,7 +712,7 @@ private fun FirstRunOnboardingCard(
             onAction = onNavigateToSttConfig
         )
 
-        HorizontalDivider(color = OutlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
+        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp, modifier = Modifier.padding(vertical = FluenceSpacing.Xs))
 
         OnboardingStepRow(
             stepNumber = 4,
@@ -722,6 +732,7 @@ private fun OnboardingStepRow(
     actionLabel: String?,
     onAction: (() -> Unit)?
 ) {
+    val colors = PrecisionTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -732,20 +743,20 @@ private fun OnboardingStepRow(
             modifier = Modifier
                 .size(24.dp)
                 .clip(CircleShape)
-                .background(if (isDone) Success.copy(alpha = 0.2f) else PanelElevated),
+                .background(if (isDone) colors.success.copy(alpha = if (colors.isLight) 0.10f else 0.2f) else colors.panelElevated),
             contentAlignment = Alignment.Center
         ) {
             if (isDone) {
                 Icon(
                     imageVector = FluenceIcons.Check,
                     contentDescription = "Step $stepNumber completed",
-                    tint = Success,
+                    tint = colors.success,
                     modifier = Modifier.size(14.dp)
                 )
             } else {
                 Text(
                     text = stepNumber.toString(),
-                    color = TextSecondary,
+                    color = colors.textSecondary,
                     style = FluenceTypography.labelSmall
                 )
             }
@@ -755,7 +766,7 @@ private fun OnboardingStepRow(
 
         Text(
             text = title,
-            color = if (isDone) TextSecondary else TextPrimary,
+            color = if (isDone) colors.textSecondary else colors.textPrimary,
             style = FluenceTypography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
