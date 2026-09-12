@@ -82,3 +82,42 @@ val ButtonSecondary = Color(0x26FFFFFF)
 
 // ── Editor Body Text ────────────────────────────────────────────────────────
 val EditorBody      = Color(0xFFD4D4D4)
+
+// ── Light (white-mode) palette — Windows [data-theme="light"] parity ────────
+// Values verbatim from Fluence-Windows `design-tokens.css` light block, the
+// DashboardPage light chart duo, and the light overrides in ui.css / app.css /
+// settings.css / global.css. Dark vals above stay frozen; nothing above moves.
+// `Light` prefix keeps the dark defaults unambiguous at call sites. Reached
+// only through PrecisionColors — never referenced raw in UI code.
+// Frozen in light mode (Windows parity): BrandAmethyst (logo only) and the
+// logo-mark gradient stops keep their dark values; only functional cyan
+// deepens to teal. The floating bubble and IME stay dark in both modes.
+val LightAppBackground  = Color(0xFFEFF0F3)
+val LightCanvas         = Color(0xFFEFF0F3)
+val LightSidebar        = Color(0xFFFFFFFF)
+val LightPanel          = Color(0xFFF5F5F7)
+val LightPanelElevated  = Color(0xFFFFFFFF)
+val LightDialogSurface  = Color(0xFFFFFFFF)
+val LightDialogElevated = Color(0xFFF5F5F7)
+val LightCardSurface    = Color(0xFFFFFFFF)
+val LightCardBorder     = Color(0x14000000) // hairline: between --color-border-muted (4%) and --color-border (8%)
+val LightOutlineSubtle  = Color(0xFFDFE0E4) // --color-border-structural
+val LightTextPrimary    = Color(0xFF18181B)
+val LightTextSecondary  = Color(0xFF52525B)
+val LightTextTertiary   = Color(0xFF71717A)
+val LightTextDisabled   = Color(0xFFA1A1AA)
+val LightTextLink       = Color(0xFF6D28D9)
+val LightBrandCyan      = Color(0xFF0E7490) // functional teal, AA on white; wordmark "ence" follows it (Windows Sidebar parity)
+val LightChartDuoStart  = Color(0xFF6E5AA8) // deepened light stops (Windows DashboardPage parity)
+val LightChartDuoMid    = Color(0xFF4E7FA8)
+val LightChartDuoEnd    = Color(0xFF2E8B99)
+val LightSuccess        = Color(0xFF15803D)
+val LightWarning        = Color(0xFFB45309)
+val LightError          = Color(0xFFDC2626)
+val LightErrorText      = Color(0xFFB91C1C)
+val LightInputBg        = Color(0xFFFFFFFF)
+val LightInputBorder    = Color(0xFFD4D4D8) // untreated checkbox / kbd border
+val LightSunken         = Color(0xFFE7E8EC) // skeleton, sunken wells
+// Matte charcoal: light-mode primary-button + toggle-ON fill
+// (Windows --color-charcoal). No dark equivalent — dark reserves white.
+val Charcoal            = Color(0xFF3F3F46)

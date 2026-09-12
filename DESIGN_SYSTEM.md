@@ -254,6 +254,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-09-12 — White-mode (light) token twins + theme infra (Windows `[data-theme="light"]` parity, slice 1).**
+Light values verbatim from the Windows light block, light chart duo, and light overrides (ui/app/settings/global css): zinc paper `#EFF0F3`, white cards, structural hairline `#DFE0E4`, ink `#18181B`/`#52525B`/`#71717A`, functional teal `#0E7490`, link `#6D28D9`, deepened chart duo `#6E5AA8`/`#4E7FA8`/`#2E8B99`, matte charcoal `#3F3F46` (primary-button + toggle-ON fill), semantic `#15803D`/`#B45309`/`#DC2626` (+`ErrorText #B91C1C`). `PrecisionColors` gains `isLight`, `textLink`, `charcoal`, `chartDuo*`; `FluenceTranscribeTheme(darkTheme = true)` selects the M3 light scheme + light precision set. Default stays dark — zero visual change until a later slice wires the persisted preference and migrates call sites off raw dark vals. Frozen in both modes: amethyst/logo gradient, floating bubble, IME. Files touched: `DESIGN_SYSTEM.md` (this entry), Android `theme/Color.kt`, `theme/Theme.kt`.
+
 **2026-09-12 — Chart metric toggle: Sessions area / Words bars (Windows parity).**
 One toggle switches both type and metric together (area for the sessions trend, bars for discrete words per bucket); no type-times-metric matrix. Words come from the same synced ledger counters as sessions (whitespace-delimited on both platforms, verified against Windows `split_whitespace`). Bars reuse the muted chart duo, fade in on the existing reveal, share the tooltip chip and reduced-motion behavior. Choice persists via `fluence_prefs`. Files touched: `DESIGN_SYSTEM.md` (this entry), Android `ui/ActivityChart.kt`.
 **2026-09-12 — Activity chart muted duo (Windows parity).**
