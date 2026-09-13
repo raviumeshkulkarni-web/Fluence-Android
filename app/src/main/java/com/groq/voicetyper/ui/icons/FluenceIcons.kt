@@ -135,6 +135,15 @@ object FluenceIcons {
             "M12 2H12A3 3 0 0 1 15 5V12A3 3 0 0 1 12 15H12A3 3 0 0 1 9 12V5A3 3 0 0 1 12 2Z",
         ),
     )
+    // Lucide "audio-waveform" (v0.294.0): single continuous sine trace for the
+    // minimal collapsed bubble. Arc flags space-delimited per the rules above;
+    // geometry otherwise verbatim.
+    val AudioWaveform: ImageVector = lucideIcon(
+        "AudioWaveform",
+        listOf(
+            "M2 13 a2 2 0 0 0 2 -2 V7 a2 2 0 0 1 4 0 v13 a2 2 0 0 0 4 0 V4 a2 2 0 0 1 4 0 v13 a2 2 0 0 0 4 0 v-4 a2 2 0 0 1 2 -2",
+        ),
+    )
     val X: ImageVector = lucideIcon(
         "X",
         listOf(

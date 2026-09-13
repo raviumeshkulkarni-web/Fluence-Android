@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -42,6 +45,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.composed
+import kotlin.math.PI
 import kotlin.math.sin
 
 // ── Pill themes (paint only) ────────────────────────────────────────────────
@@ -242,6 +246,7 @@ fun FloatingBubbleUI(
     var idleOpacity by remember { mutableFloatStateOf(FloatingBubblePreferences.getOpacity(context)) }
     var pillThemeName by remember { mutableStateOf(FloatingBubblePreferences.getPillTheme(context)) }
     var glowEnabled by remember { mutableStateOf(FloatingBubblePreferences.isGlowEnabled(context)) }
+    var collapsedStyleName by remember { mutableStateOf(FloatingBubblePreferences.getCollapsedStyle(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -251,6 +256,8 @@ fun FloatingBubbleUI(
                 pillThemeName = FloatingBubblePreferences.getPillTheme(context)
             } else if (key == FloatingBubblePreferences.KEY_GLOW_ENABLED) {
                 glowEnabled = FloatingBubblePreferences.isGlowEnabled(context)
+            } else if (key == FloatingBubblePreferences.KEY_COLLAPSED_STYLE) {
+                collapsedStyleName = FloatingBubblePreferences.getCollapsedStyle(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -262,7 +269,19 @@ fun FloatingBubbleUI(
     // Theme preset is hoisted here (never read inside draw loops) and only
     // feeds static paints — animation targets, gestures, and sticky behavior
     // never see it.
+    // Collapsed vs expanded are INDEPENDENT: the expanded pill follows
+    // pillTheme, the collapsed bubble follows collapsedStyle only. Minimal
+    // adapts to Light for contrast (white shell needs the dark mic variant);
+    // otherwise it stays neutral mono regardless of the expanded theme.
     val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
+    val collapsedTheme = remember(collapsedStyleName, pillThemeName) {
+        when {
+            collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL &&
+                pillThemeName == FloatingBubblePreferences.PILL_THEME_LIGHT -> PillTheme.LIGHT
+            collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL -> PillTheme.MONO
+            else -> PillTheme.OBSIDIAN
+        }
+    }
     val waveAgentMode by BubbleController.isAgentMode.collectAsState()
     // Idle dimming — pure Compose render-layer opacity, no WindowManager involvement.
     // Fully opaque while active (expanded, recording/transcribing, or error feedback);
@@ -271,14 +290,37 @@ fun FloatingBubbleUI(
     val isActive = isExpanded || recordingState != RecordingState.IDLE || errorMessage != null
     var wasActive by remember { mutableStateOf(false) }
     var dimmed by remember { mutableStateOf(true) }
+    // One-shot confirmation pop — fires on idle→active (tap feedback) and on
+    // expanded→collapsed (transcription finished). Mount, drag, and theme
+    // changes never fire it. Animatable (not key()) so firing never disposes
+    // the gesture subtree; zero cost at rest.
+    var confirmKey by remember { mutableIntStateOf(0) }
+    var prevExpanded by remember { mutableStateOf(false) }
+    val confirmT = remember { Animatable(1f) }
     LaunchedEffect(isActive) {
         if (isActive) {
+            if (!wasActive) confirmKey++
             dimmed = false
         } else if (wasActive) {
             kotlinx.coroutines.delay(2500)
             dimmed = true
         }
         wasActive = isActive
+    }
+    LaunchedEffect(isExpanded) {
+        if (prevExpanded && !isExpanded) confirmKey++
+        prevExpanded = isExpanded
+    }
+    LaunchedEffect(confirmKey) {
+        if (confirmKey == 0) return@LaunchedEffect
+        if (reducedMotion) {
+            confirmT.snapTo(1f)
+        } else {
+            confirmT.snapTo(0f)
+            // 450ms: slow enough to read the orb's single spin, quick enough
+            // to stay a confirmation beat rather than ambient motion.
+            confirmT.animateTo(1f, tween(durationMillis = 450, easing = FastOutSlowInEasing))
+        }
     }
     val dimAlpha by animateFloatAsState(
         targetValue = if (dimmed) idleOpacity else 1f,
@@ -302,11 +344,20 @@ fun FloatingBubbleUI(
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
-                .amethystObsidianGlow(isExpanded = isExpanded, theme = pillTheme, glowOn = glowEnabled, shape = shape, dimmed = dimmed)
+                .amethystObsidianGlow(isExpanded = isExpanded, theme = if (isExpanded) pillTheme else collapsedTheme, glowOn = glowEnabled, shape = shape, dimmed = dimmed, agentMode = waveAgentMode)
                 .clip(shape)
                 // Idle dimming via RenderNode layer alpha — dims glow, border, background,
                 // and content together. Does not affect layout, hit testing, or the window.
-                .graphicsLayer { alpha = dimAlpha }
+                // The confirmation beat rides the same layer (settle + fade, one shot)
+                // so the tap→expand morph is felt; the collapsed mark itself blooms
+                // separately below, which is the clearly visible part.
+                .graphicsLayer {
+                    val t = confirmT.value
+                    alpha = dimAlpha * (0.5f + 0.5f * t)
+                    val settle = 0.9f + 0.1f * t
+                    scaleX = settle
+                    scaleY = settle
+                }
                 // Gesture handling for Collapsed state (drag, instant tap, hold for agent mode)
                 .run {
                     if (!isExpanded) {
@@ -382,7 +433,40 @@ fun FloatingBubbleUI(
                 label = "bubbleContent"
             ) { targetExpanded ->
                 if (!targetExpanded) {
-                    FluenceLogoIcon()
+                    // Minimal is fully static — no beat, no bloom, no wipe.
+                    // Classic and Original play the confirmation beat below.
+                    val beatT = if (collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL) {
+                        1f
+                    } else {
+                        confirmT.value
+                    }
+                    // Mark bloom: the collapsed mark scales 0.6→1.0 and fades in
+                    // on every confirmation beat — the visible moment after
+                    // collapse. Same beat drives the Classic bars via live and
+                    // the orb's single spin.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = beatT
+                                val bloom = 0.6f + 0.4f * beatT
+                                scaleX = bloom
+                                scaleY = bloom
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Classic and Original stay alive only during the
+                        // post-collapse full-glow hold — never dimmed, never
+                        // reduced-motion. Minimal rests above at beat 1.
+                        val collapsedLive = !isExpanded && !dimmed
+                        when (collapsedStyleName) {
+                            FloatingBubblePreferences.COLLAPSED_MINIMAL ->
+                                MinimalCollapsedIcon(theme = collapsedTheme, drawIn = beatT)
+                            FloatingBubblePreferences.COLLAPSED_CLASSIC ->
+                                ClassicCollapsedOrb(live = collapsedLive)
+                            else -> FluenceLogoIcon(spin = beatT)
+                        }
+                    }
                 } else {
                     Row(
                         modifier = Modifier
@@ -457,10 +541,16 @@ fun FloatingBubbleUI(
                             }
                         }
 
-                        // 3. Confirm Button (Right) — always preset; mode is read
-                        // from the waveform, never from this button.
-                        val confirmBgColor = pillTheme.confirmBg
-                        val confirmIconColor = pillTheme.confirmIcon
+                        // 3. Confirm Button (Right) — preset, except Obsidian
+                        // agent mode takes the teal bg like previous versions
+                        // (X stays preset). Mono / High contrast / Light keep
+                        // their preset accept — only their waveform changes.
+                        val obsidianAgentConfirm = waveAgentMode &&
+                            pillTheme.prefValue == FloatingBubblePreferences.PILL_THEME_OBSIDIAN
+                        val confirmBgColor =
+                            if (obsidianAgentConfirm) pillTheme.waveA else pillTheme.confirmBg
+                        val confirmIconColor =
+                            if (obsidianAgentConfirm) Color(0xFF0D0E12) else pillTheme.confirmIcon
                         IconButton(
                             onClick = { BubbleController.stopRecording(context) },
                             modifier = Modifier
@@ -498,16 +588,21 @@ fun Modifier.amethystObsidianGlow(
     glowOn: Boolean,
     glowRadius: Dp = 8.dp,
     shape: RoundedCornerShape,
-    dimmed: Boolean = false
+    dimmed: Boolean = false,
+    agentMode: Boolean = false
 ): Modifier = this.composed {
-    // Agent mode follows the preset everywhere except the confirm button
-    // (handled at the call site): teal confirm is the single agent signal in
-    // every theme. The preset also dresses the collapsed orb shell; only the
-    // dimmed idle branch below stays frozen, and animation targets, gestures,
-    // and sticky behavior are untouched by themes.
+    // Agent mode follows the preset everywhere except two call-site/override
+    // points: the teal confirm button (handled at the call site, every theme)
+    // and — Obsidian expanded only — a teal border + glow takeover so agent
+    // mode reads instantly on the signature theme. Other themes keep their
+    // own dressing (Mono stays seamless neutral). The preset also dresses the
+    // collapsed orb shell; only the dimmed idle branch below stays frozen,
+    // and animation targets, gestures, and sticky behavior are untouched.
     // Obsidian literals equal the pre-theme paints, so the default theme
     // renders pixel-identical to the frozen look.
-    val baseGlowColor = theme.glowBase
+    val obsidianAgent = agentMode && isExpanded &&
+        theme.prefValue == FloatingBubblePreferences.PILL_THEME_OBSIDIAN
+    val baseGlowColor = if (obsidianAgent) theme.waveA else theme.glowBase
     val glowAlpha = when {
         !glowOn -> 0f
         !isExpanded -> 0.45f
@@ -555,10 +650,17 @@ fun Modifier.amethystObsidianGlow(
     .border(
         width = 1.2.dp,
         brush = Brush.linearGradient(
-            colors = listOf(
-                theme.borderStart,
-                theme.borderEnd.copy(alpha = 0.5f)
-            )
+            colors = if (obsidianAgent) {
+                listOf(
+                    theme.waveA,
+                    theme.waveA.copy(alpha = 0.5f)
+                )
+            } else {
+                listOf(
+                    theme.borderStart,
+                    theme.borderEnd.copy(alpha = 0.5f)
+                )
+            }
         ),
         shape = shape
     )
@@ -566,9 +668,13 @@ fun Modifier.amethystObsidianGlow(
 
 /**
  * Fluence brand logo icon — replaces the old animated orb for a clean, premium look.
+ *
+ * [spin] drives one quick circular rotation per confirmation beat (0→1 maps
+ * to 0→360°, resting exactly at today's look). Reduced motion is handled
+ * upstream — the beat snaps to 1, so 0° static.
  */
 @Composable
-fun FluenceLogoIcon() {
+fun FluenceLogoIcon(spin: Float = 1f) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -576,8 +682,161 @@ fun FluenceLogoIcon() {
         Image(
             painter = painterResource(id = R.drawable.ic_fluence_logo),
             contentDescription = "Fluence",
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { rotationZ = spin * 360f }
         )
+    }
+}
+
+/**
+ * Classic collapsed orb — the pre-logo look, restored verbatim from the
+ * V1 MiniFluenceOrb paints: amethyst aura (frozen at mid-pulse), frosted
+ * amethyst glass circle, white 3-line equalizer. When [live] the equalizer
+ * bars gently bounce (bounded to the post-collapse full-glow hold — never
+ * while dimmed, never under reduced motion, so zero idle cost). Same 56dp
+ * frame, same gestures and touch envelope — paint only.
+ */
+@Composable
+fun ClassicCollapsedOrb(live: Boolean = false) {
+    val reducedMotion = rememberReducedMotion()
+    val animateBars = live && !reducedMotion
+    val phase by if (animateBars) {
+        rememberInfiniteTransition(label = "eqHold").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "eqPhase"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+    val pulseScale = 1f
+    val pulseAlpha = 0.6f
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Glowing Outer Radial Aura
+        Canvas(modifier = Modifier.size(56.dp)) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFA855F7).copy(alpha = 0.4f * pulseAlpha),
+                        Color(0xFFA855F7).copy(alpha = 0.02f * pulseAlpha),
+                        Color.Transparent
+                    )
+                ),
+                radius = size.width / 2 * pulseScale
+            )
+        }
+
+        // Inner frosted amethyst glass circle
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF7C3AED).copy(alpha = 0.5f),
+                            Color(0xFFC084FC).copy(alpha = 0.2f)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.3f),
+                            Color(0xFFA855F7).copy(alpha = 0.1f)
+                        )
+                    ),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Mini 3-line equalizer. At rest the bars sit at their static
+            // heights; while live each bar breathes around its base with a
+            // phase offset (one shared loop, no per-bar clocks).
+            Canvas(modifier = Modifier.size(14.dp)) {
+                val lineStroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+
+                fun barHeight(base: Float, offset: Float): Float {
+                    if (!animateBars) return size.height * base
+                    val wave = sin((phase + offset) * 2f * Math.PI.toFloat())
+                    return size.height * base * (0.8f + 0.2f * wave)
+                }
+                val h1 = barHeight(0.4f, 0f)
+                val h2 = barHeight(0.8f, 0.33f)
+                val h3 = barHeight(0.5f, 0.66f)
+
+                drawLine(
+                    color = Color.White,
+                    start = Offset(size.width * 0.25f, size.height * 0.5f - h1 / 2),
+                    end = Offset(size.width * 0.25f, size.height * 0.5f + h1 / 2),
+                    strokeWidth = lineStroke.width,
+                    cap = lineStroke.cap
+                )
+                drawLine(
+                    color = Color.White,
+                    start = Offset(size.width * 0.5f, size.height * 0.5f - h2 / 2),
+                    end = Offset(size.width * 0.5f, size.height * 0.5f + h2 / 2),
+                    strokeWidth = lineStroke.width,
+                    cap = lineStroke.cap
+                )
+                drawLine(
+                    color = Color.White,
+                    start = Offset(size.width * 0.75f, size.height * 0.5f - h3 / 2),
+                    end = Offset(size.width * 0.75f, size.height * 0.5f + h3 / 2),
+                    strokeWidth = lineStroke.width,
+                    cap = lineStroke.cap
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Minimal collapsed icon — quiet Lucide waveform trace on the collapsed
+ * shell. Tint comes from the collapsed theme (white on dark, near-black on
+ * Light) so it stays legible without the colorful orb. Same 56dp frame,
+ * same gestures and touch envelope — paint only.
+ */
+@Composable
+fun MinimalCollapsedIcon(theme: PillTheme, drawIn: Float = 1f) {
+    // The exact static Lucide glyph — at rest (drawIn = 1) pixel-identical to
+    // today's look. On the confirmation beat a start-anchored window wipes it
+    // in left→right with a fade, once, then rests until dim. Reduced motion
+    // snaps the beat to 1.
+    val progress = drawIn.coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer { alpha = 0.35f + 0.65f * progress },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress.coerceAtLeast(0.001f))
+                    .clipToBounds()
+            ) {
+                Icon(
+                    imageVector = FluenceIcons.AudioWaveform,
+                    contentDescription = "Fluence",
+                    tint = theme.cancelIcon,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
     }
 }
 

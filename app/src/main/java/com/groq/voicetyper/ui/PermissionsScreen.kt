@@ -12,7 +12,6 @@ import com.groq.voicetyper.FeedbackBus
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -25,9 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
@@ -120,9 +116,6 @@ fun PermissionsScreen(
     var overlayGranted by remember { mutableStateOf(false) }
     var accessibilityEnabled by remember { mutableStateOf(false) }
     var batteryUnrestricted by remember { mutableStateOf(false) }
-    var bubbleEnabled by remember { mutableStateOf(false) }
-
-    val prefs = remember { context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE) }
 
     fun refreshStatuses() {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -135,7 +128,6 @@ fun PermissionsScreen(
         accessibilityEnabled = isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java)
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         batteryUnrestricted = pm.isIgnoringBatteryOptimizations(context.packageName)
-        bubbleEnabled = prefs.getBoolean("floating_bubble_enabled", false)
     }
 
     LaunchedEffect(Unit) {
@@ -278,86 +270,6 @@ fun PermissionsScreen(
                     }
                 }
             )
-
-            SectionDivider()
-
-            val interactionSource = remember { MutableInteractionSource() }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .pressScale(interactionSource)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = LocalIndication.current,
-                        onClick = {
-                            if (!accessibilityEnabled) {
-                                FeedbackBus.show("Enable accessibility service first")
-                            } else {
-                                val newValue = !bubbleEnabled
-                                prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
-                                bubbleEnabled = newValue
-                                if (!newValue) {
-                                    FeedbackBus.show("Floating bubble disabled")
-                                }
-                            }
-                        }
-                    )
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.BubbleChart,
-                    contentDescription = null,
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(22.dp)
-                )
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Floating Bubble",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = when {
-                            !accessibilityEnabled -> "Enable accessibility first"
-                            bubbleEnabled -> "Active — orb will appear in text fields"
-                            else -> "Tap to enable"
-                        },
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodySmall
-                    )
-                }
-
-                Switch(
-                    checked = bubbleEnabled,
-                    onCheckedChange = { newValue ->
-                        if (!accessibilityEnabled) {
-                            FeedbackBus.show("Enable accessibility service first")
-                        } else {
-                            prefs.edit().putBoolean("floating_bubble_enabled", newValue).apply()
-                            bubbleEnabled = newValue
-                            if (!newValue) {
-                                FeedbackBus.show("Floating bubble disabled")
-                            }
-                        }
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        uncheckedThumbColor = colors.textPrimary,
-                        uncheckedTrackColor = colors.panel
-                    ),
-                    modifier = Modifier.semantics {
-                        role = Role.Switch
-                        stateDescription = if (bubbleEnabled) "On" else "Off"
-                        contentDescription = "Floating Bubble"
-                    }
-                )
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
         }

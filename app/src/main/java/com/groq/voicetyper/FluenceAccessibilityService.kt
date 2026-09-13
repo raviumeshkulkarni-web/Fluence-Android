@@ -63,7 +63,7 @@ class FluenceAccessibilityService : AccessibilityService() {
 
     private val prefListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-            if (key == "floating_bubble_enabled") {
+            if (key == FloatingBubblePreferences.KEY_BUBBLE_ENABLED) {
                 isFloatingBubbleEnabled = prefs.getBoolean(key, false)
                 if (!isFloatingBubbleEnabled) {
                     cancelPendingEvaluation()
@@ -77,7 +77,7 @@ class FluenceAccessibilityService : AccessibilityService() {
         accessibilityWindowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         activeInstance = this
         val sharedPrefs = getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
-        isFloatingBubbleEnabled = sharedPrefs.getBoolean("floating_bubble_enabled", false)
+        isFloatingBubbleEnabled = sharedPrefs.getBoolean(FloatingBubblePreferences.KEY_BUBBLE_ENABLED, false)
         sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
     }
 

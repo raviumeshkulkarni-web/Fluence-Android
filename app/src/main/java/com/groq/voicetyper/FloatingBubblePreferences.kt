@@ -4,6 +4,47 @@ import android.content.Context
 
 object FloatingBubblePreferences {
     private const val PREFS_NAME = "fluence_prefs"
+
+    // Master on/off switch. Same key the accessibility service and the
+    // Permissions screen already use — helpers only, value unchanged.
+    const val KEY_BUBBLE_ENABLED = "floating_bubble_enabled"
+
+    fun isBubbleEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_BUBBLE_ENABLED, false)
+    }
+
+    fun setBubbleEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_BUBBLE_ENABLED, enabled)
+            .apply()
+    }
+
+    // Collapsed-bubble style, INDEPENDENT from the expanded-pill theme.
+    // original = today's colorful orb (fixed obsidian paints + logo PNG).
+    // classic  = pre-orb amethyst glass equalizer (fixed obsidian paints).
+    // minimal  = quiet mono mark (neutral paints + waveform vector).
+    // Unknown values fall back to original (today's look).
+    const val KEY_COLLAPSED_STYLE = "floating_bubble_collapsed_style"
+    const val COLLAPSED_ORIGINAL = "original"
+    const val COLLAPSED_CLASSIC = "classic"
+    const val COLLAPSED_MINIMAL = "minimal"
+
+    fun getCollapsedStyle(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_COLLAPSED_STYLE, COLLAPSED_ORIGINAL)
+        return if (raw == COLLAPSED_MINIMAL || raw == COLLAPSED_CLASSIC) raw else COLLAPSED_ORIGINAL
+    }
+
+    fun setCollapsedStyle(context: Context, style: String) {
+        val safe = if (style == COLLAPSED_MINIMAL || style == COLLAPSED_CLASSIC) style else COLLAPSED_ORIGINAL
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_COLLAPSED_STYLE, safe)
+            .apply()
+    }
+
     const val KEY_OPACITY = "floating_bubble_opacity"
     const val DEFAULT_OPACITY = 0.35f
     const val MIN_OPACITY = 0.10f
