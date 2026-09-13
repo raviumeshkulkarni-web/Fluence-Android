@@ -30,6 +30,9 @@ object HistoryRepository {
 
     fun getAll(): Flow<List<TranscriptionEntry>> = dao?.getAll() ?: emptyFlow()
 
+    /** Cheap existence/count signal — indexed, no rows loaded. */
+    fun getCount(): Flow<Int> = dao?.getCount() ?: emptyFlow()
+
     fun getById(id: Long): Flow<TranscriptionEntry?> = dao?.getById(id) ?: emptyFlow()
 
     fun search(query: String): Flow<List<TranscriptionEntry>> = dao?.search(query) ?: emptyFlow()
@@ -169,8 +172,9 @@ object HistoryRepository {
                         )
                     )
                 }
-                // Cap history atomically with insert — avoids window where >50 rows survive a crash
-                dao?.deleteAllExceptNewest(50)
+                // History is unbounded (Windows parity: paged reads, no cap).
+                // Stats/stat_sync events are written from this insert's values
+                // above, so keeping every row can never double-count.
             }
         } catch (e: Exception) {
             Log.e("HistoryRepository", "Failed to save transcription to history", e)

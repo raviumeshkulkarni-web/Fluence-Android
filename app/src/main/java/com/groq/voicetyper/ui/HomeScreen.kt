@@ -182,7 +182,9 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        repository.getAll().collect { hasTranscriptions = it.isNotEmpty() }
+        // Existence check only — never collect the full table here or Home
+        // pays the cost of the (now unbounded) history on every keystroke.
+        repository.getCount().collect { hasTranscriptions = it > 0 }
     }
 
     var chartRangeName by rememberSaveable { mutableStateOf(ChartRange.D7.name) }

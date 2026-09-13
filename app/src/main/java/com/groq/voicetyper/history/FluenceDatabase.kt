@@ -19,7 +19,7 @@ import com.groq.voicetyper.sync.v1.SyncMetadataDao
 
 @Database(
     entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class, SyncFileCache::class, DictationIncrement::class, DeviceMetaEntry::class, AccountDailyStat::class, StatSyncEntry::class, SyncMetadata::class],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class FluenceDatabase : RoomDatabase() {
@@ -283,6 +283,19 @@ abstract class FluenceDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Unbounded history (50-row cap removed): index the live-read
+                // path or every getAll()/search() emission degrades into a
+                // full SCAN + sort as the table grows. Additive, idempotent,
+                // no row changes — cannot lose data.
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transcription_history_deletedAt_timestamp` " +
+                        "ON `transcription_history` (`deletedAt`, `timestamp`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
                 // Do NOT re-add allowMainThreadQueries — Room will throw
@@ -292,7 +305,7 @@ abstract class FluenceDatabase : RoomDatabase() {
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                     .also { INSTANCE = it }
             }

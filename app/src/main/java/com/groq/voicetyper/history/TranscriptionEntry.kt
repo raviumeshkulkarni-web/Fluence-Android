@@ -7,7 +7,14 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "transcription_history",
-    indices = [Index(value = ["syncId"], unique = true)]
+    indices = [
+        Index(value = ["syncId"], unique = true),
+        // Windows parity (idx_history_timestamp_ms): every live-history read
+        // is WHERE deletedAt IS NULL ORDER BY timestamp — without this the
+        // query is a full SCAN + sort on every emission, growing with the
+        // now-unbounded table.
+        Index(value = ["deletedAt", "timestamp"])
+    ]
 )
 data class TranscriptionEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

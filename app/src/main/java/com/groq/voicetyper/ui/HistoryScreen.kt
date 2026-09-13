@@ -543,8 +543,9 @@ fun HistoryScreen(
                         }
 
                         // All rows render flat (no per-group paging — Windows
-                        // parity; the set stays small enough that no paging
-                        // is needed).
+                        // parity; LazyColumn virtualizes off-screen rows and
+                        // the timestamp index serves the source query, so the
+                        // now-unbounded table stays cheap).
                     }
                     item(key = "bottom_spacer") {
                         Spacer(modifier = Modifier.height(FluenceSpacing.Md))
