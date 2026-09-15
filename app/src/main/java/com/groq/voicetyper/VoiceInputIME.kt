@@ -34,6 +34,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
+import com.groq.voicetyper.ime.EditorInfoHelper
+import com.groq.voicetyper.ime.ImeInputConnectionHelper
+import com.groq.voicetyper.ime.KeyboardPanelMode
 import com.groq.voicetyper.offline.*
 
 class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
@@ -80,6 +83,23 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     private var recordingState by mutableStateOf(RecordingState.IDLE)
     private var isAgentMode by mutableStateOf(false)
     private var errorMessage by mutableStateOf<String?>(null)
+
+    // Keyboard panel and privacy gating state
+    private var currentPanelMode by mutableStateOf(KeyboardPanelMode.MAIN)
+    private var isVoiceGated by mutableStateOf(false)
+    private var activeCardBounds: android.graphics.Rect? = null
+    private val inputConnectionHelper = ImeInputConnectionHelper { currentInputConnection }
+
+    private fun updateCardBounds(rect: android.graphics.Rect) {
+        if (activeCardBounds != rect) {
+            activeCardBounds = rect
+            if (::composeView.isInitialized) {
+                composeView.post {
+                    composeView.requestLayout()
+                }
+            }
+        }
+    }
 
     // Backspace Swipe-to-Delete state
     private var initialCursorPos = -1
@@ -235,11 +255,48 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 recordingState = recordingState,
                 isAgentMode = isAgentMode,
                 isTargetExcluded = isTargetExcluded,
+                isVoiceGated = isVoiceGated,
+                editorInfo = currentInputEditorInfo,
+                panelMode = currentPanelMode,
+                onPanelModeChange = { mode ->
+                    currentPanelMode = mode
+                    composeView.post { composeView.requestLayout() }
+                },
+                onCommitPunctuation = { sym ->
+                    if (isCurrentTargetAllowed()) {
+                        inputConnectionHelper.commitPunctuation(sym)
+                    }
+                },
+                onCommitText = { text ->
+                    if (isCurrentTargetAllowed()) {
+                        inputConnectionHelper.commitTextSafely(text)
+                    }
+                },
+                onPerformAction = {
+                    if (isCurrentTargetAllowed()) {
+                        inputConnectionHelper.performAction(currentInputEditorInfo)
+                    }
+                },
+                onHideKeyboard = {
+                    requestHideSelf(0)
+                },
+                onMoveCursor = { direction ->
+                    if (isCurrentTargetAllowed()) {
+                        inputConnectionHelper.moveCursor(direction)
+                    }
+                },
+                onBoundsChanged = { rect ->
+                    updateCardBounds(rect)
+                },
                 errorMessage = errorMessage,
                 onCancelRecording = {
                     TranscriptionSessionManager.cancelImeRecording(this@VoiceInputIME)
                 },
                 onStartRecording = { agentMode ->
+                    if (isVoiceGated) {
+                        Log.d(TAG, "Voice recording blocked: field is gated for privacy/safety")
+                        return@IMEScreen
+                    }
                     if (isCurrentTargetAllowed()) {
                         val isOffline = OfflinePreferences.isOfflineModeEnabled(this@VoiceInputIME)
                         val targetPackage = currentTargetPackage
@@ -250,22 +307,22 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                             targetPackage = targetPackage,
                             listener = object : SessionListener {
                                 override fun onTranscription(text: String) {
-                                    if (!isCurrentTargetAllowed()) return
+                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
                                     val connection = currentInputConnection ?: return
-                                    if (!isCurrentTargetAllowed()) return
+                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
                                     connection.commitText("$text ", 1)
-                                    if (!isCurrentTargetAllowed()) return
+                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
                                     AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
                                 }
 
                                 override fun onCommand(command: CommandResult, contextText: String) {
-                                    if (isCurrentTargetAllowed()) {
+                                    if (isCurrentTargetAllowed() && !isVoiceGated) {
                                         executeCommandAction(command, contextText)
                                     }
                                 }
 
                                 override fun getContextText(): String {
-                                    if (!isCurrentTargetAllowed()) return ""
+                                    if (!isCurrentTargetAllowed() || isVoiceGated) return ""
                                     return currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
                                 }
 
@@ -310,26 +367,30 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
         // Guard: composeView must be initialized AND laid out (height > 0).
-        // onComputeInsets can be called by the framework before onCreateInputView
-        // completes its first layout pass, in which case height is 0.
         if (!::composeView.isInitialized) return
         val view = composeView
         val windowHeight = view.height
-        if (windowHeight <= 0) return  // Not yet laid out; skip inset computation.
+        if (windowHeight <= 0) return
 
-        val navBarHeight = 0 // Optional: adjust if nav bar padding is needed
-
-        // Touch transparent padding around pill
         val density = resources.displayMetrics.density
-        val pillWidth = (240 * density).toInt()
-        val pillHeight = (64 * density).toInt()
-        
-        val left = (view.width - pillWidth) / 2
-        val right = left + pillWidth
-        val top = windowHeight - pillHeight - (16 * density).toInt()
-        val bottom = windowHeight - navBarHeight
+        val bounds = activeCardBounds
 
-        val rect = android.graphics.Rect(left, top.coerceAtLeast(0), right, bottom.coerceAtLeast(0))
+        val rect = if (bounds != null && bounds.width() > 0 && bounds.height() > 0) {
+            val pad = (4 * density).toInt()
+            android.graphics.Rect(
+                0,
+                (bounds.top - pad).coerceAtLeast(0),
+                view.width,
+                windowHeight
+            )
+        } else {
+            val cardHeight = when (currentPanelMode) {
+                KeyboardPanelMode.MAIN -> (170 * density).toInt()
+                KeyboardPanelMode.PUNCTUATION, KeyboardPanelMode.NUMBERS -> (250 * density).toInt()
+            }
+            val top = (windowHeight - cardHeight).coerceAtLeast(0)
+            android.graphics.Rect(0, top, view.width, windowHeight)
+        }
 
         outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_REGION
         outInsets.touchableRegion.set(rect)
@@ -339,6 +400,13 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         super.onStartInput(info, restarting)
         currentTargetPackage = info?.packageName?.toString()
         isTargetExcluded = PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
+        val isSafe = EditorInfoHelper.isFieldSafeForVoice(info)
+        isVoiceGated = !isSafe || isTargetExcluded
+        // Fail-closed: focus moved to a sensitive field mid-recording (same package,
+        // view not finished) — cancel the in-flight voice session so nothing commits there.
+        if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
+            TranscriptionSessionManager.cancelImeRecording(this)
+        }
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -349,8 +417,24 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         apiKey = SecurityUtils.getProviderApiKey(this, "stt", SecurityUtils.getSttPreset(this))
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
 
+        val isSafe = EditorInfoHelper.isFieldSafeForVoice(info)
+        isVoiceGated = !isSafe || isTargetExcluded
+
+        // Fail-closed: same guard as onStartInput for the view lifecycle path.
+        if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
+            TranscriptionSessionManager.cancelImeRecording(this)
+        }
+
+        if (!restarting) {
+            currentPanelMode = if (EditorInfoHelper.isNumericField(info)) {
+                KeyboardPanelMode.NUMBERS
+            } else {
+                KeyboardPanelMode.MAIN
+            }
+        }
+
         AutoLearnSessionManager.onStartInput(info, this)
-        if (!isTargetExcluded) {
+        if (!isTargetExcluded && isSafe) {
             TranscriptionSessionManager.preWarmOfflinePipeline(this)
         }
 
@@ -382,6 +466,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         super.onFinishInputView(finishingInput)
         AutoLearnSessionManager.endSession()
         TranscriptionSessionManager.cancelPreWarm()
+
+        currentPanelMode = KeyboardPanelMode.MAIN
+        activeCardBounds = null
+        isVoiceGated = true
 
         privacyLifecycleHandler.removeCallbacks(pendingImeFinishCancellationRunnable)
         pendingImeFinishCancellation = false
@@ -435,7 +523,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     private fun executeCommandAction(result: CommandResult, contextText: String) {
-        if (!isCurrentTargetAllowed()) return
+        if (!isCurrentTargetAllowed() || isVoiceGated) return
         val conn = currentInputConnection ?: return
         Log.d(TAG, "Executing IME command action: ${result.action}")
         when (result.action) {

@@ -73,6 +73,11 @@ class AudioRecorder(private val context: Context) {
                 safeRelease(recorder)
                 cleanupFile()
                 return false
+            } catch (e: Exception) {
+                Log.e(TAG, "Recording failed with unexpected error", e)
+                safeRelease(recorder)
+                cleanupFile()
+                return false
             }
         }
 
