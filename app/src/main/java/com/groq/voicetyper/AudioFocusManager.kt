@@ -19,7 +19,9 @@ import kotlinx.coroutines.launch
  *
  * Contract:
  *  - [TranscriptionSessionManager.recordingState] == RECORDING → request
- *    AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK (other apps' media is ducked).
+ *    focus for the current [AudioFocusMode]: DUCK →
+ *    AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK (other apps' media is ducked),
+ *    PAUSE → AUDIOFOCUS_GAIN_TRANSIENT (other apps are asked to pause).
  *  - Anything else (TRANSCRIBING / IDLE / ERROR) → abandon focus immediately,
  *    so focus is never held during transcription or after the session ends.
  *
@@ -28,7 +30,7 @@ import kotlinx.coroutines.launch
  *  - Failure-tolerant: request/abandon failures and exceptions are logged only;
  *    recording/transcription is never blocked, altered, or thrown into.
  *  - Never re-requests after focus loss; abandons cleanly instead.
- *  - When the preference is OFF no AudioManager interaction happens at all.
+ *  - When the mode is OFF no AudioManager interaction happens at all.
  *  - Process death relies on Android's normal audio-focus cleanup.
  *
  * Attached once from [FluenceApplication.onCreate] (single process-level
@@ -38,8 +40,11 @@ object AudioFocusManager {
 
     private const val TAG = "AudioFocusManager"
 
-    /** Duck-only V1 focus gain. Exposed for unit-test verification. */
+    /** Duck V1 focus gain. Exposed for unit-test verification. */
     internal const val DUCKING_FOCUS_GAIN = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+
+    /** Pause V2 focus gain: transient hint asking holders to pause. */
+    internal const val PAUSE_FOCUS_GAIN = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
 
     // Lives for the entire app process lifetime; never cancelled. Mirror of the
     // documented TranscriptionSessionManager.scope pattern.
@@ -49,6 +54,7 @@ object AudioFocusManager {
     private var appContext: Context? = null
     private var audioManager: AudioManager? = null
     private var focusRequest: AudioFocusRequest? = null
+    private var focusRequestGain: Int = DUCKING_FOCUS_GAIN
     private var collectJob: Job? = null
     private var attached = false
     private var focusHeld = false
@@ -108,28 +114,33 @@ object AudioFocusManager {
      */
     internal fun reconcile(state: RecordingState) {
         val ctx = appContext ?: return
-        val enabled = try {
-            AudioFocusPreferences.isDuckingEnabled(ctx)
+        val mode = try {
+            AudioFocusPreferences.getMode(ctx)
         } catch (e: Exception) {
             Log.w(TAG, "Audio focus preference read failed; treating as disabled", e)
-            false
+            AudioFocusMode.OFF
         }
-        if (!enabled) {
+        if (mode == AudioFocusMode.OFF) {
             release()
             return
         }
+        val desiredGain = if (mode == AudioFocusMode.PAUSE) PAUSE_FOCUS_GAIN else DUCKING_FOCUS_GAIN
         if (state == RecordingState.RECORDING) {
-            acquire()
+            acquire(desiredGain)
         } else {
             release()
         }
     }
 
-    private fun acquire() {
+    private fun acquire(desiredGain: Int) {
         synchronized(lock) {
-            if (focusHeld) return
+            if (focusHeld) {
+                // Mode switched mid-recording: drop the old gain before acquiring the new one.
+                if (focusRequestGain == desiredGain) return
+                releaseLocked()
+            }
             val manager = audioManager ?: return
-            val request = ensureFocusRequest() ?: return
+            val request = ensureFocusRequest(desiredGain) ?: return
             try {
                 val result = manager.requestAudioFocus(request)
                 if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
@@ -144,18 +155,21 @@ object AudioFocusManager {
         }
     }
 
-    private fun ensureFocusRequest(): AudioFocusRequest? {
-        focusRequest?.let { return it }
+    private fun ensureFocusRequest(desiredGain: Int): AudioFocusRequest? {
+        focusRequest?.let {
+            if (focusRequestGain == desiredGain) return it
+        }
         try {
             val attributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
-            val request = AudioFocusRequest.Builder(DUCKING_FOCUS_GAIN)
+            val request = AudioFocusRequest.Builder(desiredGain)
                 .setAudioAttributes(attributes)
                 .setOnAudioFocusChangeListener(focusChangeListener, Handler(Looper.getMainLooper()))
                 .build()
             focusRequest = request
+            focusRequestGain = desiredGain
             return request
         } catch (e: Exception) {
             Log.w(TAG, "Could not build AudioFocusRequest; recording continues", e)
@@ -165,20 +179,24 @@ object AudioFocusManager {
 
     private fun release() {
         synchronized(lock) {
-            if (!focusHeld) return
-            val manager = audioManager
-            val request = focusRequest
-            if (manager == null || request == null) {
-                focusHeld = false
-                return
-            }
-            try {
-                manager.abandonAudioFocusRequest(request)
-            } catch (e: Exception) {
-                Log.w(TAG, "Audio focus abandon threw; recording continues", e)
-            } finally {
-                focusHeld = false
-            }
+            releaseLocked()
+        }
+    }
+
+    private fun releaseLocked() {
+        if (!focusHeld) return
+        val manager = audioManager
+        val request = focusRequest
+        if (manager == null || request == null) {
+            focusHeld = false
+            return
+        }
+        try {
+            manager.abandonAudioFocusRequest(request)
+        } catch (e: Exception) {
+            Log.w(TAG, "Audio focus abandon threw; recording continues", e)
+        } finally {
+            focusHeld = false
         }
     }
 
@@ -190,6 +208,7 @@ object AudioFocusManager {
             attached = false
             focusHeld = false
             focusRequest = null
+            focusRequestGain = DUCKING_FOCUS_GAIN
             appContext = null
             audioManager = null
         }

@@ -61,7 +61,7 @@ class AudioFocusManagerTest {
         kotlinx.coroutines.Dispatchers.setMain(kotlinx.coroutines.Dispatchers.Unconfined)
 
         mockkObject(AudioFocusPreferences)
-        every { AudioFocusPreferences.isDuckingEnabled(any()) } returns true
+        every { AudioFocusPreferences.getMode(any()) } returns AudioFocusMode.DUCK
 
         audioManager = mockk(relaxed = true)
         every { audioManager.requestAudioFocus(any()) } returns AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -108,7 +108,7 @@ class AudioFocusManagerTest {
     // 1. Preference OFF + RECORDING -> no AudioManager interaction at all.
     @Test
     fun prefOff_recording_neverTouchesAudioManager() {
-        every { AudioFocusPreferences.isDuckingEnabled(any()) } returns false
+        every { AudioFocusPreferences.getMode(any()) } returns AudioFocusMode.OFF
 
         AudioFocusManager.reconcile(RecordingState.RECORDING)
 
@@ -127,6 +127,45 @@ class AudioFocusManagerTest {
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
             AudioFocusManager.DUCKING_FOCUS_GAIN
         )
+    }
+
+    // 2b. PAUSE mode + RECORDING -> requestAudioFocus exactly once, transient gain.
+    @Test
+    fun pauseMode_recording_requestsFocusOnce() {
+        every { AudioFocusPreferences.getMode(any()) } returns AudioFocusMode.PAUSE
+
+        AudioFocusManager.reconcile(RecordingState.RECORDING)
+
+        verify(exactly = 1) { audioManager.requestAudioFocus(focusRequest) }
+        verify(exactly = 1) { anyConstructed<AudioFocusRequest.Builder>().build() }
+        assertEquals(
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+            AudioFocusManager.PAUSE_FOCUS_GAIN
+        )
+    }
+
+    // 2c. PAUSE mode RECORDING -> IDLE abandons focus (music resumes).
+    @Test
+    fun pauseMode_recordingToIdle_abandonsFocus() {
+        every { AudioFocusPreferences.getMode(any()) } returns AudioFocusMode.PAUSE
+
+        AudioFocusManager.reconcile(RecordingState.RECORDING)
+        AudioFocusManager.reconcile(RecordingState.IDLE)
+
+        verify(exactly = 1) { audioManager.requestAudioFocus(any()) }
+        verify(exactly = 1) { audioManager.abandonAudioFocusRequest(focusRequest) }
+    }
+
+    // 2d. DUCK -> PAUSE mid-recording rebuilds the request (no stale gain).
+    @Test
+    fun modeSwitchMidRecording_rebuildsRequest() {
+        AudioFocusManager.reconcile(RecordingState.RECORDING)
+        every { AudioFocusPreferences.getMode(any()) } returns AudioFocusMode.PAUSE
+        AudioFocusManager.reconcile(RecordingState.RECORDING)
+
+        verify(exactly = 1) { audioManager.abandonAudioFocusRequest(focusRequest) }
+        verify(exactly = 2) { anyConstructed<AudioFocusRequest.Builder>().build() }
+        verify(exactly = 2) { audioManager.requestAudioFocus(any()) }
     }
 
     // 3. RECORDING -> TRANSCRIBING abandons focus immediately.

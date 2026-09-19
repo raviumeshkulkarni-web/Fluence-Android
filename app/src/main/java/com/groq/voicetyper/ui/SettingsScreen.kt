@@ -1,6 +1,17 @@
 package com.groq.voicetyper.ui
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +20,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.rotate
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -27,10 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.groq.voicetyper.AudioFocusMode
 import com.groq.voicetyper.AudioFocusPreferences
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SecurityUtils
@@ -125,7 +136,7 @@ fun SettingsScreen(
     val llmModel = remember { mutableStateOf("llama-3.3-70b-versatile") }
     val offlineEnabled = remember { mutableStateOf(false) }
     val modelReady = remember { mutableStateOf(false) }
-    val duckingEnabled = remember { mutableStateOf(false) }
+    val audioFocusMode = remember { mutableStateOf(AudioFocusMode.OFF) }
     val excludedAppCount = remember { mutableStateOf(0) }
     val prefs = remember {
         context.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
@@ -140,7 +151,7 @@ fun SettingsScreen(
             llmModel.value = SecurityUtils.getLlmModel(context, llmPreset.value)
             offlineEnabled.value = OfflinePreferences.isOfflineModeEnabled(context)
             modelReady.value = offlineModelReady(context)
-            duckingEnabled.value = AudioFocusPreferences.isDuckingEnabled(context)
+            audioFocusMode.value = AudioFocusPreferences.getMode(context)
             excludedAppCount.value = PrivacyPreferences.getExcludedPackages(context).size
         }
     }
@@ -248,7 +259,15 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Audio Focus Ducking
+            // Audio Focus — separate collapsed card; tap the header to reveal the
+            // Off / Duck / Pause selector inside. Same card + FluenceSegmentedControl
+            // pattern as Appearance, same trailing arrow (size/tint/family) as every
+            // SettingsRow — rotation to 90° signals expanded, same structural expand
+            // motion as Home onboarding. Collapsed by default so the hub stays
+            // uncluttered; the summary always shows the current mode.
+            // Touch effect mirrors SettingsRow: shared press source drives both
+            // the card press-scale and the header ripple.
+            val audioPressSource = remember { MutableInteractionSource() }
             Surface(
                 color = colors.panel,
                 shape = FluenceShapes.Medium,
@@ -256,54 +275,113 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
+                    .pressScale(audioPressSource)
                     .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             ) {
-                Row(
+                var audioCardExpanded by rememberSaveable { mutableStateOf(false) }
+                val reducedMotion = LocalMotionPreferences.current.reducedMotion
+                val audioChevronAngle by animateFloatAsState(
+                    targetValue = if (audioCardExpanded) 90f else 0f,
+                    animationSpec = if (reducedMotion) snap() else tween(
+                        durationMillis = FluenceMotion.durationImmediate
+                    ),
+                    label = "audio_focus_chevron"
+                )
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.VolumeDown,
-                        contentDescription = null,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(22.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Reduce media volume while dictating",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleMedium
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = audioPressSource,
+                                indication = LocalIndication.current,
+                                role = Role.Button,
+                                onClickLabel = if (audioCardExpanded) "Collapse" else "Expand",
+                                onClick = { audioCardExpanded = !audioCardExpanded }
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeDown,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                        Text(
-                            text = "Duck other apps' audio while recording",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
+
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Media playback while dictating",
+                                color = colors.textPrimary,
+                                style = FluenceTypography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                            Text(
+                                text = when (audioFocusMode.value) {
+                                    AudioFocusMode.DUCK -> "Duck other apps' audio while recording"
+                                    AudioFocusMode.PAUSE -> "Pause other apps' audio while recording"
+                                    else -> "Play through while dictating"
+                                },
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(audioChevronAngle)
                         )
                     }
 
-                    Switch(
-                        checked = duckingEnabled.value,
-                        onCheckedChange = { checked ->
-                            duckingEnabled.value = checked
-                            AudioFocusPreferences.setDuckingEnabled(context, checked)
-                        },
-                        modifier = Modifier.semantics {
-                            role = Role.Switch
-                            stateDescription = if (duckingEnabled.value) "On" else "Off"
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            uncheckedThumbColor = colors.textPrimary,
-                            uncheckedTrackColor = colors.panel
-                        )
-                    )
+                    AnimatedVisibility(
+                        visible = audioCardExpanded,
+                        enter = if (reducedMotion) EnterTransition.None
+                        else fadeIn(tween(FluenceMotion.durationStructural)) +
+                            expandVertically(tween(FluenceMotion.durationStructural)),
+                        exit = if (reducedMotion) ExitTransition.None
+                        else fadeOut(tween(FluenceMotion.durationStructural)) +
+                            shrinkVertically(tween(FluenceMotion.durationStructural)),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+                            val focusOptions = remember {
+                                listOf(
+                                    SegmentChoice(label = "Off", accessibilityLabel = "Play through while dictating"),
+                                    SegmentChoice(label = "Duck", accessibilityLabel = "Duck other apps audio while recording"),
+                                    SegmentChoice(label = "Pause", accessibilityLabel = "Pause other apps audio while recording"),
+                                )
+                            }
+                            val selectedFocusIndex = when (audioFocusMode.value) {
+                                AudioFocusMode.DUCK -> 1
+                                AudioFocusMode.PAUSE -> 2
+                                else -> 0
+                            }
+                            FluenceSegmentedControl(
+                                options = focusOptions,
+                                selectedIndex = selectedFocusIndex,
+                                onSelect = { index ->
+                                    val mode = when (index) {
+                                        1 -> AudioFocusMode.DUCK
+                                        2 -> AudioFocusMode.PAUSE
+                                        else -> AudioFocusMode.OFF
+                                    }
+                                    audioFocusMode.value = mode
+                                    AudioFocusPreferences.setMode(context, mode)
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -313,6 +391,9 @@ fun SettingsScreen(
             // state, or pin light / dark. Writes the same `theme_mode` pref
             // MainActivity observes, so the switch is instant, no restart.
             // Unknown/legacy values fall back to dark (see getThemeMode).
+            // Collapsed card mirroring the audio card above: same trailing arrow,
+            // same motion, same SettingsRow touch effect.
+            val appearancePressSource = remember { MutableInteractionSource() }
             Surface(
                 color = colors.panel,
                 shape = FluenceShapes.Medium,
@@ -320,6 +401,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
+                    .pressScale(appearancePressSource)
                     .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             ) {
                 val effectiveDark = resolveDarkTheme(themeMode.value)
@@ -328,13 +410,30 @@ fun SettingsScreen(
                     ThemeModeLight -> "Light surfaces, deepened teal accents"
                     else -> "Signature dark surfaces"
                 }
+                var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
+                val appearanceReducedMotion = LocalMotionPreferences.current.reducedMotion
+                val appearanceChevronAngle by animateFloatAsState(
+                    targetValue = if (appearanceExpanded) 90f else 0f,
+                    animationSpec = if (appearanceReducedMotion) snap() else tween(
+                        durationMillis = FluenceMotion.durationImmediate
+                    ),
+                    label = "appearance_chevron"
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = appearancePressSource,
+                                indication = LocalIndication.current,
+                                role = Role.Button,
+                                onClickLabel = if (appearanceExpanded) "Collapse" else "Expand",
+                                onClick = { appearanceExpanded = !appearanceExpanded }
+                            ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -359,35 +458,58 @@ fun SettingsScreen(
                                 style = FluenceTypography.bodySmall
                             )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
 
-                    val themeOptions = remember {
-                        listOf(
-                            SegmentChoice(label = "System", accessibilityLabel = "Follow system day night theme"),
-                            SegmentChoice(label = "Light", accessibilityLabel = "Light theme"),
-                            SegmentChoice(label = "Dark", accessibilityLabel = "Dark theme"),
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(appearanceChevronAngle)
                         )
                     }
-                    val selectedThemeIndex = when (themeMode.value) {
-                        ThemeModeSystem -> 0
-                        ThemeModeLight -> 1
-                        else -> 2
-                    }
-                    FluenceSegmentedControl(
-                        options = themeOptions,
-                        selectedIndex = selectedThemeIndex,
-                        onSelect = { index ->
-                            val mode = when (index) {
-                                0 -> ThemeModeSystem
-                                1 -> ThemeModeLight
-                                else -> ThemeModeDark
+
+                    AnimatedVisibility(
+                        visible = appearanceExpanded,
+                        enter = if (appearanceReducedMotion) EnterTransition.None
+                        else fadeIn(tween(FluenceMotion.durationStructural)) +
+                            expandVertically(tween(FluenceMotion.durationStructural)),
+                        exit = if (appearanceReducedMotion) ExitTransition.None
+                        else fadeOut(tween(FluenceMotion.durationStructural)) +
+                            shrinkVertically(tween(FluenceMotion.durationStructural)),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+                            val themeOptions = remember {
+                                listOf(
+                                    SegmentChoice(label = "System", accessibilityLabel = "Follow system day night theme"),
+                                    SegmentChoice(label = "Light", accessibilityLabel = "Light theme"),
+                                    SegmentChoice(label = "Dark", accessibilityLabel = "Dark theme"),
+                                )
                             }
-                            themeMode.value = mode
-                            setThemeMode(prefs, mode)
+                            val selectedThemeIndex = when (themeMode.value) {
+                                ThemeModeSystem -> 0
+                                ThemeModeLight -> 1
+                                else -> 2
+                            }
+                            FluenceSegmentedControl(
+                                options = themeOptions,
+                                selectedIndex = selectedThemeIndex,
+                                onSelect = { index ->
+                                    val mode = when (index) {
+                                        0 -> ThemeModeSystem
+                                        1 -> ThemeModeLight
+                                        else -> ThemeModeDark
+                                    }
+                                    themeMode.value = mode
+                                    setThemeMode(prefs, mode)
+                                }
+                            )
                         }
-                    )
+                    }
                 }
             }
 
