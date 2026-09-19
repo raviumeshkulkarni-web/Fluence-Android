@@ -6,7 +6,9 @@ import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,8 +38,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,46 +49,53 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
-import com.groq.voicetyper.PrivacyPreferences
+import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.formatting.AppAwareFormatter
 import com.groq.voicetyper.SettingsTopBar
+import com.groq.voicetyper.formatting.BuiltInApps
+import com.groq.voicetyper.formatting.FormattingCategory
+import com.groq.voicetyper.formatting.FormattingPreferences
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class LaunchableApp(
+private data class PickerApp(
     val packageName: String,
     val label: String,
     val icon: Drawable
 )
 
+// One style bucket's app picker. Single-select by construction: each app
+// holds at most one override, so tapping an app here moves it into this
+// bucket (clearing any other bucket), and tapping it again sends it back
+// to Auto. Moves are announced with a lightweight confirmation and are
+// trivially reversible, so no blocking dialog is ever shown.
 @Composable
-fun PrivacyExclusionsScreen(
+fun BucketPickerScreen(
+    bucket: FormattingCategory,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
-    var apps by remember { mutableStateOf<List<LaunchableApp>>(emptyList()) }
+    var apps by remember { mutableStateOf<List<PickerApp>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
-    var excludedPackages by remember {
-        mutableStateOf(PrivacyPreferences.getExcludedPackages(context))
+    var overrides by remember {
+        mutableStateOf(FormattingPreferences.getOverrides(context))
     }
 
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) { loadLaunchableApps(context) }
+        apps = withContext(Dispatchers.IO) { loadPickerApps(context) }
         isLoading = false
     }
 
@@ -116,16 +122,15 @@ fun PrivacyExclusionsScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             SettingsTopBar(
-                title = "Privacy & App Exclusions",
+                title = "${FormattingCategory.label(bucket)} apps",
                 onBack = onNavigateBack,
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
             Text(
-                text = "Excluded apps keep Fluence's bubble, dictation, context capture, and Agent actions unavailable.",
+                text = "Tap an app to move it here. Each app lives in one bucket.",
                 color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
@@ -136,48 +141,43 @@ fun PrivacyExclusionsScreen(
                     )
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-
-            // User-approved expectation note: bank security warnings about
-            // accessibility-enabled apps are misattributed to Fluence.
+            // Live example computed by the real formatter, shown where the
+            // decision happens. Set in its own quiet block with bullets so it
+            // reads as an example, not as settings text. No quotes, so
+            // punctuation stays readable.
+            val sampleIn = "Hello world. hello again."
+            val sampleOut = remember(bucket) { AppAwareFormatter.format(sampleIn, bucket) }
+            FluenceSectionHeader(label = "EXAMPLE")
             Surface(
                 color = colors.panel,
-                shape = FluenceShapes.Medium,
+                shape = FluenceShapes.Small,
                 border = BorderStroke(1.dp, colors.outlineSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
             ) {
-                Row(
-                    modifier = Modifier.padding(FluenceSpacing.Md),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(18.dp)
+                Column(
+                    modifier = Modifier.padding(
+                        horizontal = FluenceSpacing.Md,
+                        vertical = FluenceSpacing.Sm
                     )
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                    Column {
-                        Text(
-                            text = "A note on banking apps",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                        Text(
-                            text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence. It appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
-                    }
+                ) {
+                    Text(
+                        text = "•  Mic heard: $sampleIn",
+                        color = colors.textSecondary,
+                        style = FluenceTypography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "•  ${FormattingCategory.label(bucket)} makes: $sampleOut",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.bodySmall
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
-            // Home-consistent Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -250,7 +250,7 @@ fun PrivacyExclusionsScreen(
                                 "No apps match your search"
                             },
                             description = if (apps.isEmpty()) {
-                                "No apps installed that can be excluded."
+                                "No apps installed that can be placed."
                             } else {
                                 "Try a different word or app name."
                             }
@@ -258,20 +258,42 @@ fun PrivacyExclusionsScreen(
                     }
                 }
                 else -> {
+                    // Selected apps pin to an INCLUDED section on top so the
+                    // user always sees what is in this bucket without
+                    // scrolling. Everything else follows under ALL APPS.
+                    val (included, rest) = filteredApps.partition { app ->
+                        overrides[app.packageName] == bucket
+                    }
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(filteredApps, key = { it.packageName }) { app ->
-                            val isExcluded = excludedPackages.contains(app.packageName)
-                            AppExclusionRow(
-                                app = app,
-                                isExcluded = isExcluded,
-                                onCheckedChange = { excluded ->
-                                    PrivacyPreferences.setPackageExcluded(context, app.packageName, excluded)
-                                    excludedPackages = excludedPackages.toMutableSet().apply {
-                                        if (excluded) add(app.packageName) else remove(app.packageName)
-                                    }
-                                }
-                            )
-                            HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                        if (included.isNotEmpty()) {
+                            item(key = "included-header") {
+                                FluenceSectionHeader(label = "INCLUDED")
+                            }
+                            items(included, key = { "in-${it.packageName}" }) { app ->
+                                BucketPickerItem(
+                                    app = app,
+                                    bucket = bucket,
+                                    overrides = overrides,
+                                    onMove = { label -> FeedbackBus.show(label) },
+                                    onOverridesChange = { overrides = it }
+                                )
+                                HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                            }
+                        }
+                        if (rest.isNotEmpty()) {
+                            item(key = "all-header") {
+                                FluenceSectionHeader(label = "ALL APPS")
+                            }
+                            items(rest, key = { "all-${it.packageName}" }) { app ->
+                                BucketPickerItem(
+                                    app = app,
+                                    bucket = bucket,
+                                    overrides = overrides,
+                                    onMove = { label -> FeedbackBus.show(label) },
+                                    onOverridesChange = { overrides = it }
+                                )
+                                HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                            }
                         }
                     }
                 }
@@ -281,20 +303,49 @@ fun PrivacyExclusionsScreen(
 }
 
 @Composable
-private fun AppExclusionRow(
-    app: LaunchableApp,
-    isExcluded: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+private fun BucketPickerItem(
+    app: PickerApp,
+    bucket: FormattingCategory,
+    overrides: Map<String, FormattingCategory>,
+    onMove: (String) -> Unit,
+    onOverridesChange: (Map<String, FormattingCategory>) -> Unit
 ) {
     val colors = PrecisionTheme.colors
+    val context = LocalContext.current
     val iconBitmap = remember(app.packageName) {
         app.icon.toBitmap(48, 48).asImageBitmap()
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val override = overrides[app.packageName]
+    val checked = override == bucket
+    val badge = when (override) {
+        null -> BuiltInApps.PACKAGE_CATEGORY[app.packageName]?.let { "${FormattingCategory.label(it)} · Auto" } ?: "Auto"
+        else -> FormattingCategory.label(override)
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp),
+            .pressScale(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClickLabel = if (checked) "Remove ${app.label}" else "Move ${app.label} here",
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClick = {
+                    if (checked) {
+                        FormattingPreferences.setOverride(context, app.packageName, null)
+                        onOverridesChange(overrides.toMutableMap().apply { remove(app.packageName) })
+                        onMove("${app.label} back to Auto")
+                    } else {
+                        FormattingPreferences.setOverride(context, app.packageName, bucket)
+                        onOverridesChange(overrides.toMutableMap().apply { put(app.packageName, bucket) })
+                        onMove("${app.label} moved to ${FormattingCategory.label(bucket)}")
+                    }
+                }
+            )
+            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp)
+            .defaultMinSize(minHeight = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
@@ -309,28 +360,22 @@ private fun AppExclusionRow(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label, color = colors.textPrimary, style = FluenceTypography.titleMedium)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(badge, color = colors.textSecondary, style = FluenceTypography.bodySmall)
         }
 
-        // Monochrome Switch Styling matching app design system
-        Switch(
-            checked = isExcluded,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                uncheckedThumbColor = colors.textPrimary,
-                uncheckedTrackColor = colors.panel
-            ),
-            modifier = Modifier.semantics {
-                role = Role.Switch
-                contentDescription = "Exclude ${app.label}"
-                stateDescription = if (isExcluded) "Excluded" else "Not excluded"
-            }
-        )
+        if (checked) {
+            Icon(
+                imageVector = FluenceIcons.Check,
+                contentDescription = null,
+                tint = colors.textPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
-private fun loadLaunchableApps(context: Context): List<LaunchableApp> {
+private fun loadPickerApps(context: Context): List<PickerApp> {
     val packageManager = context.packageManager
     val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
         addCategory(Intent.CATEGORY_LAUNCHER)
@@ -342,7 +387,7 @@ private fun loadLaunchableApps(context: Context): List<LaunchableApp> {
         .filter { it.packageName != context.packageName }
         .distinctBy(ApplicationInfo::packageName)
         .map { applicationInfo ->
-            LaunchableApp(
+            PickerApp(
                 packageName = applicationInfo.packageName,
                 label = applicationInfo.loadLabel(packageManager).toString(),
                 icon = applicationInfo.loadIcon(packageManager)

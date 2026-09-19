@@ -4,6 +4,7 @@ import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -62,6 +63,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
     @Volatile
     private var currentTargetPackage: String? = null
+
+    /** Masked input-type variation for app-aware formatting. Null when unknown. */
+    @Volatile
+    private var currentInputVariation: Int? = null
 
     private val privacyLifecycleHandler = Handler(Looper.getMainLooper())
     private var pendingImeFinishCancellation = false
@@ -305,6 +310,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                             isOffline = isOffline,
                             agentMode = agentMode,
                             targetPackage = targetPackage,
+                            inputTypeVariation = currentInputVariation,
                             listener = object : SessionListener {
                                 override fun onTranscription(text: String) {
                                     if (!isCurrentTargetAllowed() || isVoiceGated) return
@@ -399,6 +405,9 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
         currentTargetPackage = info?.packageName?.toString()
+        currentInputVariation = info?.inputType
+            ?.takeIf { it != InputType.TYPE_NULL }
+            ?.let { it and InputType.TYPE_MASK_VARIATION }
         isTargetExcluded = PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
         val isSafe = EditorInfoHelper.isFieldSafeForVoice(info)
         isVoiceGated = !isSafe || isTargetExcluded
@@ -413,6 +422,9 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         super.onStartInputView(info, restarting)
         Log.d(TAG, "onStartInputView: Starting input view, restarting=$restarting, inputType=${info?.inputType}")
         currentTargetPackage = info?.packageName?.toString()
+        currentInputVariation = info?.inputType
+            ?.takeIf { it != InputType.TYPE_NULL }
+            ?.let { it and InputType.TYPE_MASK_VARIATION }
         isTargetExcluded = PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
         apiKey = SecurityUtils.getProviderApiKey(this, "stt", SecurityUtils.getSttPreset(this))
         isOfflineMode = OfflinePreferences.isOfflineModeEnabled(this)
@@ -481,6 +493,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         }
 
         currentTargetPackage = null
+        currentInputVariation = null
         isTargetExcluded = true
 
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)

@@ -41,6 +41,8 @@ import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
 import com.groq.voicetyper.ui.BubbleSettingsScreen
+import com.groq.voicetyper.ui.BucketPickerScreen
+import com.groq.voicetyper.ui.FormattingScreen
 import com.groq.voicetyper.ui.HistoryScreen
 import com.groq.voicetyper.ui.HomeScreen
 import com.groq.voicetyper.ui.OfflineConfigScreen
@@ -140,7 +142,7 @@ fun FluenceNavHost(
                 backStack.add(Screen.Home)
                 backStack.add(Screen.History)
             }
-            Screen.Snippets, Screen.CustomDictionary, Screen.SyncConfig, Screen.SettingsHub -> {
+            Screen.Snippets, Screen.CustomDictionary, Screen.SyncConfig, Screen.SettingsHub, Screen.Formatting -> {
                 if (backStack.lastOrNull() != screen) {
                     backStack.clear()
                     backStack.add(Screen.Home)
@@ -256,6 +258,10 @@ fun FluenceNavHost(
                 Screen.PrivacyExclusions -> PrivacyExclusionsScreen(
                     onNavigateBack = { navigateBack() }
                 )
+                Screen.Formatting -> FormattingScreen(
+                    onNavigateBack = { navigateBack() },
+                    onNavigateTo = { navigateTo(it) }
+                )
                 Screen.BubbleSettings -> BubbleSettingsScreen(
                     onNavigateBack = { navigateBack() }
                 )
@@ -279,6 +285,10 @@ fun FluenceNavHost(
                 is Screen.TranscriptionDetail -> TranscriptionDetailSheet(
                     entryId = screen.entryId,
                     onDismiss = { navigateBack() }
+                )
+                is Screen.BucketPicker -> BucketPickerScreen(
+                    bucket = com.groq.voicetyper.formatting.FormattingCategory.fromName(screen.bucket),
+                    onNavigateBack = { navigateBack() }
                 )
             }
             FluenceFeedbackHost(

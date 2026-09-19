@@ -250,4 +250,16 @@ object FluenceIcons {
             "M10 22h4",
         ),
     )
+    // Lucide "case-sensitive": drawer glyph for Text Formatting. Arc flags
+    // space-delimited and the circle converted to two half-arcs per the
+    // rules above; geometry otherwise verbatim.
+    val CaseSensitive: ImageVector = lucideIcon(
+        "CaseSensitive",
+        listOf(
+            "m2 16 4.039 -9.69 a0.5 0.5 0 0 1 0.923 0 L11 16",
+            "M22 9v7",
+            "M3.304 13h6.392",
+            "M15 12.5 a3.5 3.5 0 1 0 7 0 a3.5 3.5 0 1 0 -7 0",
+        ),
+    )
 }

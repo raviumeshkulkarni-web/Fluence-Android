@@ -489,7 +489,7 @@ fun BubbleSettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Idle Opacity",
+                        text = "Idle opacity",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodyMedium
                     )

@@ -112,6 +112,83 @@ object TranscriptionSessionManager {
     @Volatile
     private var sessionGeneration = 0L
 
+    /**
+     * Slice V1 (rules-only app-aware formatting): package hint captured at
+     * session start for the formatting gate. Written unconditionally on every
+     * start (including null) so a stale package can never leak across sessions.
+     * Privacy exclusion checks stay first and untouched in startRecordingInternal.
+     */
+    @Volatile
+    private var activeTargetPackage: String? = null
+
+    /**
+     * Masked input-type variation (InputType TYPE_MASK_VARIATION) captured
+     * from the IME's EditorInfo at session start. Null on the bubble path
+     * (no EditorInfo). The resolver then relies on package defaults.
+     * Written unconditionally on every start so stale values never leak.
+     */
+    @Volatile
+    private var activeInputVariation: Int? = null
+
+    /**
+     * Slice V1 formatting gate. Identity when the master switch is OFF (the
+     * default), so behavior is unchanged unless the user opts in. Agent Mode
+     * is orthogonal: command text must reach the command pipeline verbatim,
+     * so agent sessions skip formatting entirely.
+     */
+    private fun applyAppAwareFormatting(context: Context, text: String): String {
+        if (_isAgentMode.value) return text
+        return try {
+            com.groq.voicetyper.formatting.AppAwareFormatter.maybeFormat(
+                context,
+                activeTargetPackage,
+                text,
+                activeInputVariation
+            )
+        } catch (_: Exception) {
+            text
+        }
+    }
+
+    /**
+     * Slice V2 (optional online-only AI cleanup): dictionary -> cleanup ->
+     * V1 rules. Identity when cleanup is OFF (default), when Agent Mode is on
+     * (command text stays verbatim), or when [isOfflineActive] (offline stays
+     * truly offline). Never throws; any failure returns the input for V1.
+     */
+    private suspend fun applyCleanupThenFormat(
+        context: Context,
+        dictedText: String,
+        isOfflineActive: Boolean
+    ): String {
+        if (_isAgentMode.value) return applyAppAwareFormatting(context, dictedText)
+        return try {
+            val style = try {
+                val resolved = com.groq.voicetyper.formatting.CategoryResolver.resolve(
+                    variation = activeInputVariation,
+                    packageName = activeTargetPackage,
+                    overrides = com.groq.voicetyper.formatting.FormattingPreferences.getOverrides(context)
+                )
+                com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(resolved.name)
+            } catch (_: Exception) {
+                com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(null)
+            }
+            val cleaned = com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanup(
+                context,
+                dictedText,
+                style,
+                isOfflineActive = isOfflineActive
+            )
+            applyAppAwareFormatting(context, cleaned)
+        } catch (_: Exception) {
+            try {
+                applyAppAwareFormatting(context, dictedText)
+            } catch (_: Exception) {
+                dictedText
+            }
+        }
+    }
+
     private fun isEngineModelReady(context: Context, engineType: OfflineEngineType): Boolean {
         return when (engineType) {
             OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
@@ -185,9 +262,10 @@ object TranscriptionSessionManager {
         isOffline: Boolean,
         agentMode: Boolean,
         listener: SessionListener,
-        targetPackage: String? = null
+        targetPackage: String? = null,
+        inputTypeVariation: Int? = null
     ) {
-        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.BUBBLE, targetPackage)
+        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.BUBBLE, targetPackage, inputTypeVariation)
     }
 
     internal fun startImeRecording(
@@ -195,9 +273,10 @@ object TranscriptionSessionManager {
         isOffline: Boolean,
         agentMode: Boolean,
         listener: SessionListener,
-        targetPackage: String? = null
+        targetPackage: String? = null,
+        inputTypeVariation: Int? = null
     ) {
-        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.IME, targetPackage)
+        startRecordingInternal(context, isOffline, agentMode, listener, SessionOwner.IME, targetPackage, inputTypeVariation)
     }
 
     private fun startRecordingInternal(
@@ -206,8 +285,11 @@ object TranscriptionSessionManager {
         agentMode: Boolean,
         listener: SessionListener,
         owner: SessionOwner,
-        targetPackage: String?
+        targetPackage: String?,
+        inputTypeVariation: Int? = null
     ) {
+        activeTargetPackage = targetPackage
+        activeInputVariation = inputTypeVariation
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
             listener.onError("Dictation is unavailable in this app")
             return
@@ -483,7 +565,10 @@ object TranscriptionSessionManager {
                         is com.groq.voicetyper.streaming.StreamingTranscriptEvent.Final -> {
                             val rawText = event.finalText.trim()
                             if (rawText.isNotEmpty()) {
-                                val processedText = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                                val dicted = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                                // Moonshine offline streaming lands here too: gate on
+                                // the session's engine so offline stays truly offline.
+                                val processedText = applyCleanupThenFormat(context, dicted, isOfflineActive = isOfflineEngine)
                                 val durationMs = if (recordingStartTimestampMs > 0L) {
                                     (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
                                 } else 0L
@@ -642,7 +727,9 @@ object TranscriptionSessionManager {
                     }
                     val rawTranscription = offlineTextAccumulator.toString().trim()
                     if (rawTranscription.isNotEmpty()) {
-                        val finalTranscription = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
+                        val dictedOffline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
+                        // Offline stays offline: cleanup skips (identity), V1 rules still apply.
+                        val finalTranscription = applyCleanupThenFormat(context, dictedOffline, isOfflineActive = true)
                         val lang = getEffectiveLanguage(context)
                         val engineModelName = getModelName(activeEngineType ?: OfflineEngineType.SENSEVOICE)
                         scope.launch(Dispatchers.IO) {
@@ -765,7 +852,8 @@ object TranscriptionSessionManager {
             result.fold(
                 onSuccess = { rawText ->
                     if (rawText.isNotBlank()) {
-                        val text = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                        val dictedOnline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                        val text = applyCleanupThenFormat(context, dictedOnline, isOfflineActive = false)
                         deliverTranscript(context, text, sttPreset, sttModel, languageCode, durationMs)
                     } else {
                         if (sessionGeneration == generation) {

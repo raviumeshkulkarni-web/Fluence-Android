@@ -13,12 +13,14 @@ sealed interface Screen {
     data object OfflineConfig : Screen
     data object Permissions : Screen
     data object PrivacyExclusions : Screen
+    data object Formatting : Screen
     data object BubbleSettings : Screen
     data object CustomDictionary : Screen
     data object Snippets : Screen
     data object SyncConfig : Screen
     data object About : Screen
     data class TranscriptionDetail(val entryId: Long) : Screen
+    data class BucketPicker(val bucket: String) : Screen
 }
 
 // Screen isn't itself Saveable, so the navigation back stack is persisted
@@ -34,17 +36,25 @@ private fun encodeScreen(screen: Screen): String = when (screen) {
     Screen.OfflineConfig -> "offline_config"
     Screen.Permissions -> "permissions"
     Screen.PrivacyExclusions -> "privacy_exclusions"
+    Screen.Formatting -> "formatting"
     Screen.BubbleSettings -> "bubble_settings"
     Screen.CustomDictionary -> "dictionary"
     Screen.Snippets -> "snippets"
     Screen.SyncConfig -> "sync"
     Screen.About -> "about"
     is Screen.TranscriptionDetail -> "detail:${screen.entryId}"
+    is Screen.BucketPicker -> "bucket:${screen.bucket}"
 }
 
 private fun decodeScreen(code: String): Screen? = when {
     code.startsWith("detail:") ->
         code.removePrefix("detail:").toLongOrNull()?.let { Screen.TranscriptionDetail(it) }
+    code.startsWith("bucket:") ->
+        code.removePrefix("bucket:").let { raw ->
+            val category = com.groq.voicetyper.formatting.FormattingCategory.fromName(raw)
+            if (category == com.groq.voicetyper.formatting.FormattingCategory.NEUTRAL) null
+            else Screen.BucketPicker(category.name)
+        }
     else -> when (code) {
         "home" -> Screen.Home
         "history" -> Screen.History
@@ -54,6 +64,7 @@ private fun decodeScreen(code: String): Screen? = when {
         "offline_config" -> Screen.OfflineConfig
         "permissions" -> Screen.Permissions
         "privacy_exclusions" -> Screen.PrivacyExclusions
+        "formatting" -> Screen.Formatting
         "bubble_settings" -> Screen.BubbleSettings
         "dictionary" -> Screen.CustomDictionary
         "snippets" -> Screen.Snippets

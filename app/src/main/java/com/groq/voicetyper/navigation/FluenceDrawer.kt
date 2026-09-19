@@ -28,13 +28,14 @@ private data class DrawerEntry(
 )
 
 // Windows destination order and terminology: Dashboard, History,
-// Dictionary, Snippets, Sync. (General/Providers/About live in the Android
-// Settings hub — deliberate mobile IA, not a drawer gap.)
+// Dictionary, Snippets, Text Formatting. (General/Providers/About live in
+// the Android Settings hub — deliberate mobile IA, not a drawer gap.)
 private val topEntries = listOf(
     DrawerEntry(Screen.Home, "Dashboard", FluenceIcons.LayoutDashboard),
     DrawerEntry(Screen.History, "History", FluenceIcons.History),
     DrawerEntry(Screen.CustomDictionary, "Dictionary", FluenceIcons.BookOpen),
     DrawerEntry(Screen.Snippets, "Snippets", FluenceIcons.Braces),
+    DrawerEntry(Screen.Formatting, "Text Formatting", FluenceIcons.CaseSensitive),
 )
 
 private val bottomEntries = listOf(
@@ -75,7 +76,7 @@ fun FluenceDrawer(
 
         Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
 
-        // Top section: Dashboard, History, Dictionary, Snippets
+        // Top section: Dashboard, History, Dictionary, Snippets, Text Formatting
         Column(
             modifier = Modifier
                 .weight(1f)
