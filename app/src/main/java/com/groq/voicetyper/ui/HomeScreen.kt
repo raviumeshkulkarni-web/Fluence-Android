@@ -20,11 +20,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +47,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -50,7 +55,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.history.HistoryRepository
+import com.groq.voicetyper.offline.ModelAssetManager
+import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
+import com.groq.voicetyper.offline.v2.MoonshineV2ModelManager
+import com.groq.voicetyper.offline.v2.MoonshineV2ModelType
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.stats.DayCounters
 import com.groq.voicetyper.theme.*
@@ -132,6 +141,20 @@ fun HomeScreen(
     var hasTranscriptions by remember { mutableStateOf(false) }
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
     val lifecycleOwner = LocalLifecycleOwner.current
+    // One-tap theme toggle (top-right). Same `theme_mode` pref MainActivity
+    // and Settings observe. Tapping writes explicit light/dark and the whole
+    // app follows with no restart.
+    val themePrefs = remember {
+        context.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
+    }
+    var themeMode by remember { mutableStateOf(getThemeMode(themePrefs)) }
+    val effectiveDark = resolveDarkTheme(themeMode)
+    // Online/offline quick switch. The banner below always shows the active
+    // side: provider and model when online, engine when offline. Recording
+    // reads the same prefs at record time, so the switch takes effect now.
+    var isOffline by remember {
+        mutableStateOf(OfflinePreferences.isOfflineModeEnabled(context))
+    }
 
     fun refreshStatus() {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -144,6 +167,8 @@ fun HomeScreen(
         sttProvider = SecurityUtils.getSttPreset(context)
         sttModel = SecurityUtils.getSttModel(context, sttProvider)
         isApiKeySet = sttProvider == "offline" || !SecurityUtils.getProviderApiKey(context, "stt", sttProvider).isNullOrBlank()
+        themeMode = getThemeMode(themePrefs)
+        isOffline = OfflinePreferences.isOfflineModeEnabled(context)
     }
 
     LaunchedEffect(Unit) {
@@ -189,6 +214,10 @@ fun HomeScreen(
 
     var chartRangeName by rememberSaveable { mutableStateOf(ChartRange.D7.name) }
     val chartRange = ChartRange.valueOf(chartRangeName)
+    // Model quick-switcher sheet (local overlay, not a nav destination, so
+    // the back stack is untouched). Selection writes the same `stt_model_*`
+    // pref SttConfig edits; the banner refreshes underneath on dismiss.
+    var showModelSheet by remember { mutableStateOf(false) }
     val activitySeries = remember(unifiedDailyStats, chartRange) {
         buildActivitySeries(unifiedDailyStats, chartRange)
     }
@@ -206,7 +235,13 @@ fun HomeScreen(
         // canvas with the content below.
         HomeHeader(
             onOpenDrawer = onOpenDrawer,
-            showDrawerButton = showDrawerButton
+            showDrawerButton = showDrawerButton,
+            effectiveDark = effectiveDark,
+            onToggleTheme = {
+                val next = if (effectiveDark) ThemeModeLight else ThemeModeDark
+                themeMode = next
+                setThemeMode(themePrefs, next)
+            }
         )
         BoxWithConstraints(
             modifier = Modifier
@@ -248,7 +283,39 @@ fun HomeScreen(
                 isKeyboardActive = isKeyboardActive,
                 sttProvider = sttProvider,
                 sttModel = sttModel,
-                context = context
+                context = context,
+                onOpenKeyboardSettings = {
+                    context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                },
+                onOpenModelSwitcher = { showModelSheet = true }
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            // Online/offline quick switch, right below the status bar. The
+            // banner above always shows the active side. Offline is guarded
+            // the same way as the Offline settings screen: without a
+            // downloaded engine model the switch stays put and explains why.
+            val modeOptions = remember {
+                listOf(
+                    SegmentChoice(label = "Online", accessibilityLabel = "Use online transcription"),
+                    SegmentChoice(label = "Offline", accessibilityLabel = "Use offline transcription")
+                )
+            }
+            FluenceSegmentedControl(
+                options = modeOptions,
+                selectedIndex = if (isOffline) 1 else 0,
+                onSelect = { index ->
+                    if (index == 1) {
+                        if (isOfflineEngineReady(context)) {
+                            OfflinePreferences.setOfflineModeEnabled(context, true)
+                            isOffline = true
+                        } else {
+                            FeedbackBus.show("Download the offline model first.")
+                        }
+                    } else {
+                        OfflinePreferences.setOfflineModeEnabled(context, false)
+                        isOffline = false
+                    }
+                }
             )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
@@ -341,13 +408,43 @@ fun HomeScreen(
             }
         }
         }
+        // Model quick-switcher: local overlay, dismissed before any
+        // navigation so the sheet never lingers over the next screen.
+        if (showModelSheet) {
+            ModelSwitcherSheet(
+                activeProvider = sttProvider,
+                activeModel = sttModel,
+                isOffline = OfflinePreferences.isOfflineModeEnabled(context),
+                offlineLabel = offlineModelLabel(context),
+                onSelectModel = { provider, model ->
+                    SecurityUtils.saveSttPreset(context, provider)
+                    SecurityUtils.saveSttModel(context, provider, model)
+                    sttProvider = provider
+                    sttModel = model
+                },
+                onOpenDetailed = {
+                    showModelSheet = false
+                    onNavigateToSttConfig()
+                },
+                onOpenOfflineConfig = {
+                    showModelSheet = false
+                    onNavigateToOfflineConfig()
+                },
+                onDismiss = {
+                    showModelSheet = false
+                    refreshStatus()
+                }
+            )
+        }
     }
 }
 
 @Composable
 private fun HomeHeader(
     onOpenDrawer: () -> Unit,
-    showDrawerButton: Boolean = true
+    showDrawerButton: Boolean = true,
+    effectiveDark: Boolean,
+    onToggleTheme: () -> Unit
 ) {
     val colors = PrecisionTheme.colors
     Row(
@@ -371,7 +468,23 @@ private fun HomeHeader(
         Spacer(modifier = Modifier.weight(1f))
         FluenceProductLockup(productName = "Transcribe", orbSize = 32.dp, wordmarkSize = 22.sp)
         Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.size(48.dp))
+        // One-tap theme toggle: same 48dp touch target as the hamburger so
+        // the lockup stays centered. Windows parity: the icon shows the
+        // action, not the state. Sun in dark mode, moon in light mode.
+        // Tapping pins explicit light/dark.
+        val toggleInteraction = remember { MutableInteractionSource() }
+        IconButton(
+            onClick = onToggleTheme,
+            modifier = Modifier.size(48.dp).pressScale(toggleInteraction),
+            interactionSource = toggleInteraction
+        ) {
+            Icon(
+                imageVector = if (effectiveDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                contentDescription = if (effectiveDark) "Switch to light mode" else "Switch to dark mode",
+                tint = colors.textSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
@@ -380,51 +493,86 @@ private fun HomeStatusBanner(
     isKeyboardActive: Boolean,
     sttProvider: String,
     sttModel: String,
-    context: Context
+    context: Context,
+    onOpenKeyboardSettings: () -> Unit,
+    onOpenModelSwitcher: () -> Unit
 ) {
     val colors = PrecisionTheme.colors
     val statusColor = if (isKeyboardActive) colors.success else colors.error
     val statusText = if (isKeyboardActive) "Ready" else "Inactive"
-    Row(
+    // Split click targets (was one row opening keyboard settings): the status
+    // group still opens keyboard settings, the model label opens the model
+    // quick-switcher. Tapping the model no longer hijacks into the IME.
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(colors.cardSurface, FluenceShapes.Medium)
             .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
-            .clickable(onClickLabel = "Open keyboard settings") {
-                context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-            .heightIn(min = 48.dp)
-            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Xs)
     ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(statusColor)
-        )
-        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-        Text(statusText, color = colors.textPrimary, style = FluenceTypography.labelLarge)
-        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-        Text("·", color = colors.textTertiary, style = FluenceTypography.bodySmall)
-        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-        Text(
-            text = if (OfflinePreferences.isOfflineModeEnabled(context)) {
-                "${offlineModelLabel(context)} (Offline)"
-            } else {
-                "$sttProvider · $sttModel"
-            },
-            color = colors.textSecondary,
-            style = FluenceTypography.labelMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.clickable(
+                    onClickLabel = "Open keyboard settings",
+                    role = Role.Button,
+                    onClick = onOpenKeyboardSettings
+                ).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                Text(statusText, color = colors.textPrimary, style = FluenceTypography.labelLarge)
+            }
+            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+            Text("·", color = colors.textTertiary, style = FluenceTypography.bodySmall)
+            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+            Text(
+                text = if (OfflinePreferences.isOfflineModeEnabled(context)) {
+                    "${offlineModelLabel(context)} (Offline)"
+                } else {
+                    "$sttProvider · $sttModel"
+                },
+                color = colors.textSecondary,
+                style = FluenceTypography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        onClickLabel = "Switch transcription model",
+                        role = Role.Button,
+                        onClick = onOpenModelSwitcher
+                    )
+                    .padding(vertical = 8.dp)
+            )
+        }
     }
 }
 
 private fun offlineModelLabel(context: Context): String {
     return OfflinePreferences.getEngineType(context).displayName
+}
+
+// Same readiness guard as the Offline settings screen: the quick switch
+// must not enable offline mode without a downloaded engine model.
+private fun isOfflineEngineReady(context: Context): Boolean {
+    return when (OfflinePreferences.getEngineType(context)) {
+        OfflineEngineType.SENSEVOICE -> ModelAssetManager.isModelReadySync(context)
+        OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING ->
+            MoonshineV2ModelManager.isModelReadySync(
+                context, MoonshineV2ModelType.SMALL)
+        OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING ->
+            MoonshineV2ModelManager.isModelReadySync(
+                context, MoonshineV2ModelType.MEDIUM)
+    }
 }
 
 @Composable

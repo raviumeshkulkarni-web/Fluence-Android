@@ -2,6 +2,7 @@ package com.groq.voicetyper.theme
 
 import android.content.SharedPreferences
 import android.provider.Settings
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material.ripple.LocalRippleTheme
@@ -259,25 +260,55 @@ private class FluenceRippleTheme(private val rippleColor: Color, private val lig
         RippleTheme.defaultRippleAlpha(Color.Black, lightTheme = light)
 }
 
-// ── White-mode preference (Windows localStorage `fluence_theme` parity) ────
-// Default dark preserves existing behavior for current installs. Stored in
-// the shared `fluence_prefs` file alongside `chart_metric`.
+// ── Theme preference (Windows localStorage `fluence_theme` parity) ─────────
+// Three options: system (follow the phone day/night state), light, dark.
+// Default dark preserves existing behavior for current installs. Unknown or
+// legacy values always fall back to dark, so adding `system` never migrates
+// anyone. Stored in the shared `fluence_prefs` file alongside `chart_metric`.
 const val FluencePrefsName = "fluence_prefs"
 const val ThemePrefKey = "theme_mode"
 const val ThemeModeDark = "dark"
 const val ThemeModeLight = "light"
+const val ThemeModeSystem = "system"
 
+fun getThemeMode(prefs: SharedPreferences): String =
+    when (prefs.getString(ThemePrefKey, ThemeModeDark)) {
+        ThemeModeLight -> ThemeModeLight
+        ThemeModeSystem -> ThemeModeSystem
+        else -> ThemeModeDark
+    }
+
+fun setThemeMode(prefs: SharedPreferences, mode: String) {
+    val safe = when (mode) {
+        ThemeModeLight, ThemeModeSystem -> mode
+        else -> ThemeModeDark
+    }
+    prefs.edit().putString(ThemePrefKey, safe).apply()
+}
+
+// Legacy boolean shims. MainActivity/Settings now use get/setThemeMode.
+// Kept so older call sites keep compiling with identical behavior.
 fun isWhiteMode(prefs: SharedPreferences): Boolean =
-    prefs.getString(ThemePrefKey, ThemeModeDark) == ThemeModeLight
+    getThemeMode(prefs) == ThemeModeLight
 
 fun setWhiteMode(prefs: SharedPreferences, white: Boolean) {
-    prefs.edit().putString(ThemePrefKey, if (white) ThemeModeLight else ThemeModeDark).apply()
+    setThemeMode(prefs, if (white) ThemeModeLight else ThemeModeDark)
+}
+
+// Effective dark resolution. `system` follows the OS night state
+// (sunrise/sunset auto-switch when the user enables it device-wide).
+@Composable
+fun resolveDarkTheme(themeMode: String): Boolean = when (themeMode) {
+    ThemeModeLight -> false
+    ThemeModeDark -> true
+    else -> isSystemInDarkTheme()
 }
 
 // ── Theme Composable ────────────────────────────────────────────────────────
 // darkTheme defaults true: the app stays exactly as today until a later slice
 // wires the persisted white-mode preference (Windows parity: dark default).
-// The floating bubble and IME never read this — they stay dark in both modes.
+// The overlay never reads this directly. It has its own opt-in follow toggle
+// in FloatingBubblePreferences.
 @Composable
 fun FluenceTranscribeTheme(
     darkTheme: Boolean = true,

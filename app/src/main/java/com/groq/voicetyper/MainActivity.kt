@@ -128,28 +128,30 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            // White mode follows the persisted `theme_mode` pref (Windows
-            // `fluence_theme` parity, dark default). The listener keeps this
-            // in sync when Settings flips it — no restart required.
+            // App theme follows the persisted `theme_mode` pref (Windows
+            // `fluence_theme` parity, dark default). `system` resolves via
+            // the OS night state. The listener keeps this in sync when
+            // Settings (or the Home quick-toggle) flips it, no restart.
             val prefs = remember {
                 applicationContext.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
             }
-            var whiteMode by remember { mutableStateOf(isWhiteMode(prefs)) }
+            var themeMode by remember { mutableStateOf(getThemeMode(prefs)) }
             DisposableEffect(prefs) {
                 val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                    if (key == ThemePrefKey) whiteMode = isWhiteMode(prefs)
+                    if (key == ThemePrefKey) themeMode = getThemeMode(prefs)
                 }
                 prefs.registerOnSharedPreferenceChangeListener(listener)
                 onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
             }
-            // Edge-to-edge system bars follow the theme: dark icons on white.
+            val effectiveDark = resolveDarkTheme(themeMode)
+            // Edge-to-edge system bars follow the effective theme: dark icons on white.
             SideEffect {
                 androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
-                    isAppearanceLightStatusBars = whiteMode
-                    isAppearanceLightNavigationBars = whiteMode
+                    isAppearanceLightStatusBars = !effectiveDark
+                    isAppearanceLightNavigationBars = !effectiveDark
                 }
             }
-            FluenceTranscribeTheme(darkTheme = !whiteMode) {
+            FluenceTranscribeTheme(darkTheme = effectiveDark) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = PrecisionTheme.colors.appBackground

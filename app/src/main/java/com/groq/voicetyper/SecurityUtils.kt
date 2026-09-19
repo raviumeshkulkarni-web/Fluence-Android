@@ -102,6 +102,22 @@ object SecurityUtils {
         getSharedPrefs(context).edit().putString("stt_model_$preset", model.trim()).apply()
     }
 
+    // Favorite STT models per provider: the quick-pick list behind the Home
+    // model bottom sheet. Settings stays the full/detailed editor; both read
+    // and write the same `stt_model_*` selection above, so they never drift.
+    // Empty default = sheet degrades to current-model + fetched list.
+    fun getFavoriteSttModels(context: Context, preset: String): Set<String> {
+        return getSharedPrefs(context)
+            .getStringSet("stt_fav_models_${preset.lowercase()}", emptySet())
+            ?.toSet() ?: emptySet()
+    }
+
+    fun saveFavoriteSttModels(context: Context, preset: String, models: Set<String>) {
+        getSharedPrefs(context).edit()
+            .putStringSet("stt_fav_models_${preset.lowercase()}", models.toSet())
+            .apply()
+    }
+
     fun getLlmPreset(context: Context): String {
         return getSharedPrefs(context).getString("llm_provider_preset", "groq") ?: "groq"
     }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -129,7 +130,7 @@ fun SettingsScreen(
     val prefs = remember {
         context.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
     }
-    val whiteMode = remember { mutableStateOf(isWhiteMode(prefs)) }
+    val themeMode = remember { mutableStateOf(getThemeMode(prefs)) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -308,7 +309,10 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Appearance (white mode)
+            // Appearance, 3-option selector: follow the phone day/night
+            // state, or pin light / dark. Writes the same `theme_mode` pref
+            // MainActivity observes, so the switch is instant, no restart.
+            // Unknown/legacy values fall back to dark (see getThemeMode).
             Surface(
                 color = colors.panel,
                 shape = FluenceShapes.Medium,
@@ -318,51 +322,71 @@ fun SettingsScreen(
                     .padding(horizontal = FluenceSpacing.Base)
                     .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             ) {
-                Row(
+                val effectiveDark = resolveDarkTheme(themeMode.value)
+                val appearanceSummary = when (themeMode.value) {
+                    ThemeModeSystem -> "Follow phone · currently ${if (effectiveDark) "dark" else "light"}"
+                    ThemeModeLight -> "Light surfaces, deepened teal accents"
+                    else -> "Signature dark surfaces"
+                }
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
                 ) {
-                    Icon(
-                        imageVector = if (whiteMode.value) Icons.Default.LightMode else Icons.Default.DarkMode,
-                        contentDescription = null,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(22.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "White mode",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleMedium
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (effectiveDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                        Text(
-                            text = "Light surfaces, deepened teal accents",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
+
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Appearance",
+                                color = colors.textPrimary,
+                                style = FluenceTypography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                            Text(
+                                text = appearanceSummary,
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        }
                     }
 
-                    Switch(
-                        checked = whiteMode.value,
-                        onCheckedChange = { checked ->
-                            whiteMode.value = checked
-                            setWhiteMode(prefs, checked)
-                        },
-                        modifier = Modifier.semantics {
-                            role = Role.Switch
-                            stateDescription = if (whiteMode.value) "On" else "Off"
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            uncheckedThumbColor = colors.textPrimary,
-                            uncheckedTrackColor = colors.panel
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+
+                    val themeOptions = remember {
+                        listOf(
+                            SegmentChoice(label = "System", accessibilityLabel = "Follow system day night theme"),
+                            SegmentChoice(label = "Light", accessibilityLabel = "Light theme"),
+                            SegmentChoice(label = "Dark", accessibilityLabel = "Dark theme"),
                         )
+                    }
+                    val selectedThemeIndex = when (themeMode.value) {
+                        ThemeModeSystem -> 0
+                        ThemeModeLight -> 1
+                        else -> 2
+                    }
+                    FluenceSegmentedControl(
+                        options = themeOptions,
+                        selectedIndex = selectedThemeIndex,
+                        onSelect = { index ->
+                            val mode = when (index) {
+                                0 -> ThemeModeSystem
+                                1 -> ThemeModeLight
+                                else -> ThemeModeDark
+                            }
+                            themeMode.value = mode
+                            setThemeMode(prefs, mode)
+                        }
                     )
                 }
             }

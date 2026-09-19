@@ -391,10 +391,12 @@ private fun monotonePath(points: List<Offset>): Path {
 /**
  * Plot-height bounds for the fill-remaining Home layout. The plot never
  * shrinks below the approved compact size (small screens scroll instead)
- * and never grows past the cap (tablets keep breathing room below).
+ * and never grows past the cap (tablets keep breathing room below). The cap
+ * sits just under the original 360dp so the dashboard, status bar and mode
+ * switch fit without pushing the x-axis labels below the fold on phones.
  */
 val ChartPlotMinHeight = 224.dp
-val ChartPlotMaxHeight = 360.dp
+val ChartPlotMaxHeight = 320.dp
 // The card pads itself top + bottom with Lg; Home must subtract this from
 // the plot budget or the card bottom (x-axis labels) lands below the fold.
 val ActivityChartCardVerticalPadding = FluenceSpacing.Lg * 2

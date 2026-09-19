@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -94,19 +96,34 @@ fun BubbleSettingsScreen(
     var pillThemeName by remember {
         mutableStateOf(FloatingBubblePreferences.getPillTheme(context))
     }
-    val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
     var collapsedStyleName by remember {
         mutableStateOf(FloatingBubblePreferences.getCollapsedStyle(context))
     }
+    // Day/night auto-switch (opt-in). When on, the preview and the overlay
+    // resolve the fixed day/night pair at read time; the manual selections
+    // above are preserved but ignored until follow is turned off.
+    var followSystem by remember {
+        mutableStateOf(FloatingBubblePreferences.isFollowSystem(context))
+    }
+    val systemDark = isSystemInDarkTheme()
+    val effectivePillName =
+        FloatingBubblePreferences.getEffectivePillTheme(context, systemDark).let {
+            if (followSystem) it else pillThemeName
+        }
+    val effectiveCollapsedName =
+        FloatingBubblePreferences.getEffectiveCollapsedStyle(context, systemDark).let {
+            if (followSystem) it else collapsedStyleName
+        }
+    val pillTheme = remember(effectivePillName) { PillTheme.forName(effectivePillName) }
     // Same independence rule as the overlay: collapsed follows its own style,
     // expanded follows the pill theme. Minimal adapts to Light for contrast.
     val isMinimalCollapsed = collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL
     val isClassicCollapsed = collapsedStyleName == FloatingBubblePreferences.COLLAPSED_CLASSIC
-    val collapsedTheme = remember(collapsedStyleName, pillThemeName) {
+    val collapsedTheme = remember(effectiveCollapsedName, effectivePillName) {
         when {
-            isMinimalCollapsed &&
-                pillThemeName == FloatingBubblePreferences.PILL_THEME_LIGHT -> PillTheme.LIGHT
-            isMinimalCollapsed -> PillTheme.MONO
+            effectiveCollapsedName == FloatingBubblePreferences.COLLAPSED_MINIMAL &&
+                effectivePillName == FloatingBubblePreferences.PILL_THEME_LIGHT -> PillTheme.LIGHT
+            effectiveCollapsedName == FloatingBubblePreferences.COLLAPSED_MINIMAL -> PillTheme.MONO
             else -> PillTheme.OBSIDIAN
         }
     }
@@ -133,6 +150,8 @@ fun BubbleSettingsScreen(
                     bubbleOpacity = FloatingBubblePreferences.getOpacity(context)
                 FloatingBubblePreferences.KEY_GLOW_ENABLED ->
                     glowOn = FloatingBubblePreferences.isGlowEnabled(context)
+                FloatingBubblePreferences.KEY_FOLLOW_SYSTEM ->
+                    followSystem = FloatingBubblePreferences.isFollowSystem(context)
                 FloatingBubblePreferences.KEY_BUBBLE_ENABLED ->
                     bubbleEnabled = FloatingBubblePreferences.isBubbleEnabled(context)
             }
@@ -245,7 +264,7 @@ fun BubbleSettingsScreen(
             BubblePreviewCard(
                 pillTheme = pillTheme,
                 collapsedTheme = collapsedTheme,
-                collapsedStyleName = collapsedStyleName,
+                collapsedStyleName = effectiveCollapsedName,
                 bubbleOpacity = bubbleOpacity,
                 glowOn = glowOn,
             )
@@ -258,6 +277,70 @@ fun BubbleSettingsScreen(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
             ) {
+            FluenceSectionHeader(label = "Day / night auto-switch")
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Opt-in overlay auto-switch: Light + Minimal by day, Obsidian +
+            // Classic by night. Manual selections below are preserved but
+            // ignored while this is on (rows dim + lock).
+            Surface(
+                color = colors.panel,
+                shape = FluenceShapes.Medium,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = FluenceSpacing.Base,
+                            vertical = FluenceSpacing.Base
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Follow phone day / night",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = if (followSystem) {
+                                "On · now showing ${if (systemDark) "night (Obsidian + Classic)" else "day (Light + Minimal)"}"
+                            } else {
+                                "Light + Minimal by day, Obsidian + Classic by night"
+                            },
+                            color = colors.textSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = followSystem,
+                        onCheckedChange = { checked ->
+                            followSystem = checked
+                            FloatingBubblePreferences.setFollowSystem(context, checked)
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.Switch
+                            stateDescription = if (followSystem) "On" else "Off"
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             FluenceSectionHeader(label = "Collapsed bubble")
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -266,6 +349,7 @@ fun BubbleSettingsScreen(
                 title = "Original",
                 description = "Signature orb of Fluence",
                 selected = !isMinimalCollapsed && !isClassicCollapsed,
+                enabled = !followSystem,
                 onSelect = {
                     collapsedStyleName = FloatingBubblePreferences.COLLAPSED_ORIGINAL
                     FloatingBubblePreferences.setCollapsedStyle(
@@ -279,6 +363,7 @@ fun BubbleSettingsScreen(
                 title = "Classic",
                 description = "Amethyst glow, equalizer mark",
                 selected = isClassicCollapsed,
+                enabled = !followSystem,
                 onSelect = {
                     collapsedStyleName = FloatingBubblePreferences.COLLAPSED_CLASSIC
                     FloatingBubblePreferences.setCollapsedStyle(
@@ -292,6 +377,7 @@ fun BubbleSettingsScreen(
                 title = "Minimal",
                 description = "Waveform mark, no color",
                 selected = isMinimalCollapsed,
+                enabled = !followSystem,
                 onSelect = {
                     collapsedStyleName = FloatingBubblePreferences.COLLAPSED_MINIMAL
                     FloatingBubblePreferences.setCollapsedStyle(
@@ -311,6 +397,7 @@ fun BubbleSettingsScreen(
                 PillThemeRow(
                     preset = preset,
                     selected = pillThemeName == preset.prefValue,
+                    enabled = !followSystem,
                     onSelect = {
                         pillThemeName = preset.prefValue
                         FloatingBubblePreferences.setPillTheme(context, preset.prefValue)
@@ -467,6 +554,7 @@ private fun PillThemeRow(
     preset: PillTheme,
     selected: Boolean,
     onSelect: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val colors = PrecisionTheme.colors
     Surface(
@@ -482,14 +570,20 @@ private fun PillThemeRow(
                 FluenceShapes.Medium
             )
             .clickable(
+                enabled = enabled,
                 onClickLabel = "Select ${preset.label} theme",
                 role = Role.Button,
                 onClick = onSelect
             )
             .semantics {
                 contentDescription = "${preset.label} pill theme"
-                stateDescription = if (selected) "Selected" else "Not selected"
+                stateDescription = when {
+                    !enabled -> "Locked by day night auto-switch"
+                    selected -> "Selected"
+                    else -> "Not selected"
+                }
             }
+            .alpha(if (enabled) 1f else 0.4f)
     ) {
         Row(
             modifier = Modifier
@@ -555,6 +649,7 @@ private fun CollapsedStyleRow(
     description: String,
     selected: Boolean,
     onSelect: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val colors = PrecisionTheme.colors
     Surface(
@@ -570,14 +665,20 @@ private fun CollapsedStyleRow(
                 FluenceShapes.Medium
             )
             .clickable(
+                enabled = enabled,
                 onClickLabel = "Select $title collapsed style",
                 role = Role.Button,
                 onClick = onSelect
             )
             .semantics {
                 contentDescription = "$title collapsed style"
-                stateDescription = if (selected) "Selected" else "Not selected"
+                stateDescription = when {
+                    !enabled -> "Locked by day night auto-switch"
+                    selected -> "Selected"
+                    else -> "Not selected"
+                }
             }
+            .alpha(if (enabled) 1f else 0.4f)
     ) {
         Row(
             modifier = Modifier

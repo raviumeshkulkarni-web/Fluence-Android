@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -247,6 +248,7 @@ fun FloatingBubbleUI(
     var pillThemeName by remember { mutableStateOf(FloatingBubblePreferences.getPillTheme(context)) }
     var glowEnabled by remember { mutableStateOf(FloatingBubblePreferences.isGlowEnabled(context)) }
     var collapsedStyleName by remember { mutableStateOf(FloatingBubblePreferences.getCollapsedStyle(context)) }
+    var followSystem by remember { mutableStateOf(FloatingBubblePreferences.isFollowSystem(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -258,6 +260,8 @@ fun FloatingBubbleUI(
                 glowEnabled = FloatingBubblePreferences.isGlowEnabled(context)
             } else if (key == FloatingBubblePreferences.KEY_COLLAPSED_STYLE) {
                 collapsedStyleName = FloatingBubblePreferences.getCollapsedStyle(context)
+            } else if (key == FloatingBubblePreferences.KEY_FOLLOW_SYSTEM) {
+                followSystem = FloatingBubblePreferences.isFollowSystem(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -273,12 +277,24 @@ fun FloatingBubbleUI(
     // pillTheme, the collapsed bubble follows collapsedStyle only. Minimal
     // adapts to Light for contrast (white shell needs the dark mic variant);
     // otherwise it stays neutral mono regardless of the expanded theme.
-    val pillTheme = remember(pillThemeName) { PillTheme.forName(pillThemeName) }
-    val collapsedTheme = remember(collapsedStyleName, pillThemeName) {
+    // Day/night auto-switch (opt-in): when followSystem is on, the manual
+    // prefs above are bypassed at read time for the fixed day/night pair.
+    // The stored manual selections are never overwritten.
+    val systemDark = isSystemInDarkTheme()
+    val effectivePillName = remember(pillThemeName, followSystem, systemDark) {
+        if (followSystem) FloatingBubblePreferences.getEffectivePillTheme(context, systemDark)
+        else pillThemeName
+    }
+    val effectiveCollapsedName = remember(collapsedStyleName, followSystem, systemDark) {
+        if (followSystem) FloatingBubblePreferences.getEffectiveCollapsedStyle(context, systemDark)
+        else collapsedStyleName
+    }
+    val pillTheme = remember(effectivePillName) { PillTheme.forName(effectivePillName) }
+    val collapsedTheme = remember(effectiveCollapsedName, effectivePillName) {
         when {
-            collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL &&
-                pillThemeName == FloatingBubblePreferences.PILL_THEME_LIGHT -> PillTheme.LIGHT
-            collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL -> PillTheme.MONO
+            effectiveCollapsedName == FloatingBubblePreferences.COLLAPSED_MINIMAL &&
+                effectivePillName == FloatingBubblePreferences.PILL_THEME_LIGHT -> PillTheme.LIGHT
+            effectiveCollapsedName == FloatingBubblePreferences.COLLAPSED_MINIMAL -> PillTheme.MONO
             else -> PillTheme.OBSIDIAN
         }
     }
@@ -435,7 +451,7 @@ fun FloatingBubbleUI(
                 if (!targetExpanded) {
                     // Minimal is fully static — no beat, no bloom, no wipe.
                     // Classic and Original play the confirmation beat below.
-                    val beatT = if (collapsedStyleName == FloatingBubblePreferences.COLLAPSED_MINIMAL) {
+                    val beatT = if (effectiveCollapsedName == FloatingBubblePreferences.COLLAPSED_MINIMAL) {
                         1f
                     } else {
                         confirmT.value
@@ -459,7 +475,7 @@ fun FloatingBubbleUI(
                         // post-collapse full-glow hold — never dimmed, never
                         // reduced-motion. Minimal rests above at beat 1.
                         val collapsedLive = !isExpanded && !dimmed
-                        when (collapsedStyleName) {
+                        when (effectiveCollapsedName) {
                             FloatingBubblePreferences.COLLAPSED_MINIMAL ->
                                 MinimalCollapsedIcon(theme = collapsedTheme, drawIn = beatT)
                             FloatingBubblePreferences.COLLAPSED_CLASSIC ->

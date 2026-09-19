@@ -45,6 +45,40 @@ object FloatingBubblePreferences {
             .apply()
     }
 
+    // Day/night auto-switch (opt-in, default OFF = today's manual behavior).
+    // When on, the overlay ignores the manual pill/collapsed selections above
+    // and resolves to a fixed pair instead: light styles by day, dark styles
+    // by night, so users never reconfigure twice a day. Manual prefs are
+    // never overwritten; the switch resolves at read time only, and turning
+    // follow off restores the exact manual look.
+    // Day   = Light pill   + Minimal bubble (legible in bright light).
+    // Night = Obsidian pill + Classic bubble (no glare).
+    // Pair constants live below, next to the pill/collapsed constants they
+    // alias (Kotlin const ordering): see DAY_PILL_THEME etc.
+    const val KEY_FOLLOW_SYSTEM = "floating_bubble_follow_system"
+
+    fun isFollowSystem(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_FOLLOW_SYSTEM, false)
+    }
+
+    fun setFollowSystem(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_FOLLOW_SYSTEM, enabled)
+            .apply()
+    }
+
+    fun getEffectivePillTheme(context: Context, systemDark: Boolean): String {
+        if (!isFollowSystem(context)) return getPillTheme(context)
+        return if (systemDark) NIGHT_PILL_THEME else DAY_PILL_THEME
+    }
+
+    fun getEffectiveCollapsedStyle(context: Context, systemDark: Boolean): String {
+        if (!isFollowSystem(context)) return getCollapsedStyle(context)
+        return if (systemDark) NIGHT_COLLAPSED_STYLE else DAY_COLLAPSED_STYLE
+    }
+
     const val KEY_OPACITY = "floating_bubble_opacity"
     const val DEFAULT_OPACITY = 0.35f
     const val MIN_OPACITY = 0.10f
@@ -56,6 +90,13 @@ object FloatingBubblePreferences {
     const val PILL_THEME_MONO = "mono"
     const val PILL_THEME_HIGH_CONTRAST = "high_contrast"
     const val PILL_THEME_LIGHT = "light"
+
+    // Day/night pair aliases (declared here: Kotlin const initializers cannot
+    // forward-reference consts declared later in the object).
+    const val DAY_PILL_THEME = PILL_THEME_LIGHT
+    const val DAY_COLLAPSED_STYLE = COLLAPSED_MINIMAL
+    const val NIGHT_PILL_THEME = PILL_THEME_OBSIDIAN
+    const val NIGHT_COLLAPSED_STYLE = COLLAPSED_CLASSIC
 
     // Outer glow halo around the pill (collapsed orb included). Default on
     // preserves today's look; the dimmed idle branch never had a halo.
