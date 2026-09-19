@@ -28,8 +28,8 @@ android {
         applicationId = "com.groq.voicetyper"
         minSdk = 26
         targetSdk = 34
-        versionCode = 52
-        versionName = "1.21.0"
+        versionCode = 53
+        versionName = "1.22.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
