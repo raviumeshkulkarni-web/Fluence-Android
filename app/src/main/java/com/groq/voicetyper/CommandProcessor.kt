@@ -24,24 +24,12 @@ object CommandProcessor {
         .retryOnConnectionFailure(true)
         .build()
 
-    suspend fun processCommand(
-        apiKey: String,
-        commandText: String,
-        contextText: String,
-        modelName: String = MODEL_LLAMA
-    ): Result<CommandResult> {
-        return processCommand("https://api.groq.com/openai", modelName, apiKey, commandText, contextText)
-    }
-
-    suspend fun processCommand(
-        baseUrl: String,
-        modelName: String,
-        apiKey: String,
-        commandText: String,
-        contextText: String
-    ): Result<CommandResult> = withContext(Dispatchers.IO) {
-        try {
-            val systemPrompt = """
+    /**
+     * Fixed built-in agent prompt. Unchanged since the original agent mode:
+     * strict JSON action contract over the text box. Custom agents reuse this
+     * contract and only append a hint via [buildAgentSystemPrompt].
+     */
+    internal val BUILT_IN_SYSTEM_PROMPT = """
                 You are the AI Command Processor for Fluence, a voice-typing keyboard app.
                 The user is editing a text box. You are given:
                 - "text_context": The text currently present in the text box before the cursor.
@@ -62,6 +50,37 @@ object CommandProcessor {
                 3. If the user wants to generate new content from scratch (e.g., "draft an email to Bob", "explain photosynthesis", "write a thank-you note"), generate the text and set action="INSERT_TEXT" with the generated content in "insertion_text".
                 4. Respond ONLY with valid JSON. Do not include any explanations or conversational filler outside the JSON.
             """.trimIndent()
+
+    /**
+     * Custom agent prompt: the fixed built-in contract plus the user hint as
+     * hint-only. The JSON schema, action allowlist, and no-filler rule stay
+     * mandatory for every agent. Pure helper.
+     */
+    fun buildAgentSystemPrompt(userHint: String): String {
+        val clean = userHint.trim().take(com.groq.voicetyper.agent.AgentPreferences.MAX_AGENT_HINT_LENGTH)
+        if (clean.isEmpty()) return BUILT_IN_SYSTEM_PROMPT
+        return BUILT_IN_SYSTEM_PROMPT +
+            "\nCustom agent style hint (hint only, the JSON schema and action rules above still apply): " + clean
+    }
+
+    suspend fun processCommand(
+        apiKey: String,
+        commandText: String,
+        contextText: String,
+        modelName: String = MODEL_LLAMA
+    ): Result<CommandResult> {
+        return processCommand("https://api.groq.com/openai", modelName, apiKey, commandText, contextText)
+    }
+
+    suspend fun processCommand(
+        baseUrl: String,
+        modelName: String,
+        apiKey: String,
+        commandText: String,
+        contextText: String,
+        systemPrompt: String = BUILT_IN_SYSTEM_PROMPT
+    ): Result<CommandResult> = withContext(Dispatchers.IO) {
+        try {
 
             val userContent = JSONObject().apply {
                 put("text_context", contextText)

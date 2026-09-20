@@ -24,6 +24,7 @@ import io.mockk.mockk
 import io.mockk.mockkConstructor
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import io.mockk.verify
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -100,8 +102,9 @@ class StreamingSessionManagerTest {
             TranscriptionSessionManager.cancelRecording(context)
             TranscriptionSessionManager.cancelImeRecording(context)
         }
+        resetCachedAudioRecorder()
         Dispatchers.resetMain()
-        clearAllMocks()
+        unmockkAll()
     }
 
     private fun stubStreamingConfig(streamingEnabled: Boolean, preset: String, sttKey: String?) {
@@ -478,4 +481,48 @@ class StreamingSessionManagerTest {
         verify(exactly = 0) { listener.onTranscription(any()) }
     }
 
+    @Test
+    fun agentMode_cancelsAndResetsAgentState() {
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().cancelRecording() } returns Unit
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener, targetPackage = context.packageName)
+        assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
+        assertTrue(TranscriptionSessionManager.isAgentMode.value)
+
+        TranscriptionSessionManager.cancelRecording(context)
+        assertEquals(RecordingState.IDLE, TranscriptionSessionManager.recordingState.value)
+        assertFalse(TranscriptionSessionManager.isAgentMode.value)
+        assertNull(TranscriptionSessionManager.activeAgentId)
+    }
+
+    @Test
+    fun agentMode_missingApiKey_clearsAgentModeAndActiveAgentId() {
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        // LLM key missing while STT key is present
+        every { SecurityUtils.getProviderApiKey(any(), eq("stt"), eq("groq")) } returns "stt-key"
+        every { SecurityUtils.getProviderApiKey(any(), eq("llm"), eq("groq")) } returns null
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        val tempFile = java.io.File.createTempFile("batch-test", ".wav")
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns tempFile
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } returns Result.success("test command")
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = true, listener, targetPackage = context.packageName)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.ERROR)
+
+        assertFalse(TranscriptionSessionManager.isAgentMode.value)
+        assertNull(TranscriptionSessionManager.activeAgentId)
+        verify { listener.onError(match { it.contains("API Key is missing for Agent provider") || it.contains("API key") }) }
+    }
 }

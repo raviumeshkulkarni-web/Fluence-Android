@@ -53,6 +53,15 @@ object TranscriptionSessionManager {
     private val _isAgentMode = MutableStateFlow(false)
     val isAgentMode: StateFlow<Boolean> = _isAgentMode.asStateFlow()
 
+    /**
+     * Active custom agent id for the running session, set by the agent
+     * dropdown. Null means the default agent from settings, which itself
+     * falls back to built-in. Read at deliver time so mid-recording
+     * switches apply.
+     */
+    @Volatile
+    var activeAgentId: String? = null
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -359,6 +368,13 @@ object TranscriptionSessionManager {
         currentListener = listener
         _errorMessage.value = null
         _isAgentMode.value = agentMode
+        // Session starts on the settings default; the dropdown may override
+        // it before delivery. Fail safe stays built-in on any error.
+        activeAgentId = try {
+            com.groq.voicetyper.agent.AgentPreferences.getDefaultAgentId(context)
+        } catch (_: Exception) {
+            null
+        }
         recordingStartTimestampMs = System.currentTimeMillis()
 
         val engineType = OfflinePreferences.getEngineType(context)
@@ -841,6 +857,7 @@ object TranscriptionSessionManager {
         amplitudeCollectJob = null
 
         _isAgentMode.value = false
+        activeAgentId = null
         _partialText.value = ""
         if (activeStreaming) {
             endStreamingSession(context, generation)
@@ -878,6 +895,8 @@ object TranscriptionSessionManager {
         val sttPreset = SecurityUtils.getSttPreset(context)
         val sttKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
         if (sttKey.isNullOrBlank()) {
+            _isAgentMode.value = false
+            activeAgentId = null
             showError("API Key is missing for STT provider: ${sttPreset.uppercase()}")
             file.delete()
             return
@@ -886,6 +905,8 @@ object TranscriptionSessionManager {
         val llmPreset = SecurityUtils.getLlmPreset(context)
         val llmKey = SecurityUtils.getProviderApiKey(context, "llm", llmPreset)
         if (_isAgentMode.value && llmKey.isNullOrBlank()) {
+            _isAgentMode.value = false
+            activeAgentId = null
             showError("API Key is missing for Agent provider: ${llmPreset.uppercase()}")
             file.delete()
             return
@@ -959,13 +980,34 @@ object TranscriptionSessionManager {
             val llmPreset = SecurityUtils.getLlmPreset(context)
             val llmKey = SecurityUtils.getProviderApiKey(context, "llm", llmPreset)
             if (llmKey.isNullOrBlank()) {
+                if (sessionGeneration == generation) {
+                    _isAgentMode.value = false
+                    activeAgentId = null
+                }
                 showError("API Key is missing for Agent provider: ${llmPreset.uppercase()}")
                 return
             }
             val llmBaseUrl = SecurityUtils.getLlmBaseUrl(context, llmPreset)
             val llmModel = SecurityUtils.getLlmModel(context, llmPreset)
 
-            val cmdResult = CommandProcessor.processCommand(llmBaseUrl, llmModel, llmKey, text, contextText)
+            // Active custom agent resolves here at deliver time, so a switch
+            // made mid-recording still applies. Anything unset or unknown
+            // falls back to the built-in prompt, preserving current behavior.
+            val agentPrompt = try {
+                val agent = com.groq.voicetyper.agent.AgentPreferences.resolveActiveAgent(
+                    context,
+                    activeAgentId
+                )
+                if (agent.isBuiltIn || agent.hint.isNullOrBlank()) {
+                    CommandProcessor.BUILT_IN_SYSTEM_PROMPT
+                } else {
+                    CommandProcessor.buildAgentSystemPrompt(agent.hint)
+                }
+            } catch (_: Exception) {
+                CommandProcessor.BUILT_IN_SYSTEM_PROMPT
+            }
+
+            val cmdResult = CommandProcessor.processCommand(llmBaseUrl, llmModel, llmKey, text, contextText, agentPrompt)
             cmdResult.fold(
                 onSuccess = { commandResult ->
                     withContext(Dispatchers.Main) {
@@ -993,6 +1035,7 @@ object TranscriptionSessionManager {
         }
         if (sessionGeneration == generation) {
             _isAgentMode.value = false
+            activeAgentId = null
         }
     }
 
@@ -1001,6 +1044,7 @@ object TranscriptionSessionManager {
         _recordingState.value = RecordingState.IDLE
         currentListener = null
         _isAgentMode.value = false
+        activeAgentId = null
     }
 
     private fun getEffectiveLanguage(context: Context): String {

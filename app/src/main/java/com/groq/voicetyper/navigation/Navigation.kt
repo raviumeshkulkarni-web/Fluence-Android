@@ -40,6 +40,7 @@ import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
+import com.groq.voicetyper.ui.AgentsScreen
 import com.groq.voicetyper.ui.AiCleanupStylesScreen
 import com.groq.voicetyper.ui.AiStylePickerScreen
 import com.groq.voicetyper.ui.BubbleSettingsScreen
@@ -144,7 +145,7 @@ fun FluenceNavHost(
                 backStack.add(Screen.Home)
                 backStack.add(Screen.History)
             }
-            Screen.Snippets, Screen.CustomDictionary, Screen.SyncConfig, Screen.SettingsHub, Screen.Formatting -> {
+            Screen.Snippets, Screen.CustomDictionary, Screen.SyncConfig, Screen.SettingsHub, Screen.Formatting, Screen.Agents -> {
                 if (backStack.lastOrNull() != screen) {
                     backStack.clear()
                     backStack.add(Screen.Home)
@@ -298,6 +299,9 @@ fun FluenceNavHost(
                 )
                 is Screen.AiStylePicker -> AiStylePickerScreen(
                     styleId = screen.styleId,
+                    onNavigateBack = { navigateBack() }
+                )
+                Screen.Agents -> AgentsScreen(
                     onNavigateBack = { navigateBack() }
                 )
             }

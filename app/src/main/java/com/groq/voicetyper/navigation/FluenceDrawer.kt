@@ -36,6 +36,7 @@ private val topEntries = listOf(
     DrawerEntry(Screen.CustomDictionary, "Dictionary", FluenceIcons.BookOpen),
     DrawerEntry(Screen.Snippets, "Snippets", FluenceIcons.Braces),
     DrawerEntry(Screen.Formatting, "Text Formatting", FluenceIcons.CaseSensitive),
+    DrawerEntry(Screen.Agents, "Agents", FluenceIcons.Zap),
 )
 
 private val bottomEntries = listOf(

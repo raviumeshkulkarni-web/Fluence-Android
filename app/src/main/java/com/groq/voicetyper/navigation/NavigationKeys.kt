@@ -23,6 +23,7 @@ sealed interface Screen {
     data class BucketPicker(val bucket: String) : Screen
     data object AiCleanupStyles : Screen
     data class AiStylePicker(val styleId: String) : Screen
+    data object Agents : Screen
 }
 
 // Screen isn't itself Saveable, so the navigation back stack is persisted
@@ -48,6 +49,7 @@ private fun encodeScreen(screen: Screen): String = when (screen) {
     is Screen.BucketPicker -> "bucket:${screen.bucket}"
     Screen.AiCleanupStyles -> "ai_styles"
     is Screen.AiStylePicker -> "ai_style:${screen.styleId}"
+    Screen.Agents -> "agents"
 }
 
 private fun decodeScreen(code: String): Screen? = when {
@@ -72,6 +74,7 @@ private fun decodeScreen(code: String): Screen? = when {
         "permissions" -> Screen.Permissions
         "privacy_exclusions" -> Screen.PrivacyExclusions
         "formatting" -> Screen.Formatting
+        "agents" -> Screen.Agents
         "ai_styles" -> Screen.AiCleanupStyles
         "bubble_settings" -> Screen.BubbleSettings
         "dictionary" -> Screen.CustomDictionary

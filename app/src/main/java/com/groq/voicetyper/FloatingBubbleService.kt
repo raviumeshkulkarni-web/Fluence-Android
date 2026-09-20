@@ -34,7 +34,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import com.groq.voicetyper.agent.AgentPreferences
 import kotlin.math.roundToInt
 
 class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
@@ -69,6 +71,12 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     private var paddingPx = 0
     private var collapsedSizePx = 0
 
+    // One-turn agent dropdown: its own overlay window, fully independent of
+    // the pill. The pill layout, animations, and gestures are never touched.
+    private var agentDropdownView: ComposeView? = null
+    private var dropdownHeightJob: kotlinx.coroutines.Job? = null
+    private val dropdownCollapseSignal = androidx.compose.runtime.mutableStateOf(0)
+
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performAttach()
@@ -93,6 +101,22 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
             BubbleController.recordingState.collect { state ->
                 updateScreenOnFlag(state == RecordingState.RECORDING)
             }
+        }
+
+        // One-turn agent picker: visible only while the agent pill is expanded
+        // and recording with at least one custom agent present. Untouched by
+        // default, the settings default applies.
+        scope.launch {
+            combine(
+                BubbleController.isBubbleExpanded,
+                TranscriptionSessionManager.isAgentMode,
+                BubbleController.recordingState
+            ) { expanded, agentMode, state -> Triple(expanded, agentMode, state) }
+                .collect { (expanded, agentMode, state) ->
+                    updateAgentDropdown(
+                        expanded && agentMode && state == RecordingState.RECORDING
+                    )
+                }
         }
     }
 
@@ -347,7 +371,227 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         windowManager.updateViewLayout(view, lp2)
     }
 
+    /**
+     * Shows or hides the one-turn agent dropdown. The card is positioned from
+     * the pill frame: below the pill when the pill sits in the top half,
+     * above it otherwise, x clamped to the screen. Corners resolve by the
+     * same rule, no per-corner code. Pill views are never touched.
+     */
+    private fun updateAgentDropdown(shouldShow: Boolean) {
+        if (!shouldShow) {
+            hideAgentDropdown()
+            return
+        }
+        val customs = try {
+            AgentPreferences.loadCustomAgents(this)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (customs.isEmpty()) {
+            hideAgentDropdown()
+            return
+        }
+        if (agentDropdownView?.isAttachedToWindow == true) return
+        if (!Settings.canDrawOverlays(this)) return
+
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        val screenW = metrics.widthPixels.toFloat()
+        val screenH = metrics.heightPixels.toFloat()
+        // True expanded pill frame: 240x64dp content inside the 16dp
+        // padded visual window, matching FloatingBubbleUI exactly.
+        val pillW = 240f * density
+        val pillH = 64f * density
+        val pillLeft = if (isAnchoredRight) {
+            screenW - layoutParams.x.toFloat() - paddingPx.toFloat() - pillW
+        } else {
+            layoutParams.x.toFloat() + paddingPx.toFloat()
+        }
+        val pillTop = layoutParams.y.toFloat() + paddingPx.toFloat()
+        val below = pillTop + pillH / 2f < screenH / 2f
+
+        // Strip matches the expanded pill width so it reads as part of it,
+        // parked flush to the pill edge with a small gap. The card hangs off
+        // the strip on the far side, never overlapping the pill. Pill in the
+        // top half opens downward, lower half upward.
+        val stripW = 240f * density
+        val gap = 6f * density
+        val cardAnimated = try {
+            android.provider.Settings.Global.getFloat(
+                contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) != 0f
+        } catch (_: Exception) {
+            true
+        }
+        // Clamp flush to the screen edges, not to the padding inset: the
+        // pill itself rests at the raw edge (0 or screenW - stripW) under
+        // FLAG_LAYOUT_NO_LIMITS, so reserving padding here shifted the strip
+        // 16dp past the pill on the outer side. Live window frames confirmed
+        // the 45px offset on a 450dpi screen.
+        val minX = 0f
+        val maxX = (screenW - stripW).coerceAtLeast(minX)
+        val rawX = if (isAnchoredRight) pillLeft + pillW - stripW else pillLeft
+        val winX = rawX.coerceIn(minX, maxX).roundToInt()
+        // Gravity pins the window edge flush to the pill edge: top edge below
+        // the pill when opening downward, bottom edge above the pill when
+        // opening upward. Height changes then grow away from the pill.
+        val winGravity: Int
+        val winY: Int
+        if (below) {
+            winGravity = Gravity.TOP or Gravity.START
+            winY = (pillTop + pillH + gap).roundToInt()
+        } else {
+            winGravity = Gravity.BOTTOM or Gravity.START
+            winY = (screenH - (pillTop - gap)).roundToInt()
+        }
+
+        val defaultId = try {
+            AgentPreferences.getDefaultAgentId(this)
+        } catch (_: Exception) {
+            AgentPreferences.ID_BUILT_IN
+        }
+        val activeId = TranscriptionSessionManager.activeAgentId ?: defaultId
+        val agents = mutableListOf(
+            DropdownAgent(
+                id = AgentPreferences.ID_BUILT_IN,
+                name = AgentPreferences.NAME_BUILT_IN,
+                subtitle = "Multipurpose"
+            )
+        )
+        for (c in customs) {
+            agents.add(DropdownAgent(id = c.id, name = c.name, subtitle = c.hint))
+        }
+
+        // Wear the expanded pill's own theme, including day/night
+        // auto-switch, so the card always matches the pill beside it.
+        val pillName = try {
+            if (FloatingBubblePreferences.isFollowSystem(this)) {
+                val night = (resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+                FloatingBubblePreferences.getEffectivePillTheme(this, night)
+            } else {
+                FloatingBubblePreferences.getPillTheme(this)
+            }
+        } catch (_: Exception) {
+            FloatingBubblePreferences.PILL_THEME_OBSIDIAN
+        }
+        val pillTheme = PillTheme.forName(pillName)
+
+        val stripHeightPx = (44f * density).roundToInt()
+        val expandedHeightPx = (350f * density).roundToInt()
+
+        // Dynamic frame: initialized to strip height (44dp) so underlying screen
+        // elements remain 100% touchable. Expands to 350dp only while the card is open.
+        // Window move animations stay off, exactly like the pill windows: the
+        // card content carries the only motion, so the system never plays a
+        // competing move animation over the resize.
+        val lp = WindowManager.LayoutParams().apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            format = PixelFormat.TRANSLUCENT
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            width = (240f * density).roundToInt()
+            height = stripHeightPx
+            gravity = winGravity
+            x = winX
+            y = winY
+            if (Build.VERSION.SDK_INT >= 34) {
+                setCanPlayMoveAnimation(false)
+            }
+        }
+
+        dropdownCollapseSignal.value = 0
+        val view = ComposeView(this).apply {
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+            )
+            setViewTreeLifecycleOwner(this@FloatingBubbleService)
+            setViewTreeViewModelStoreOwner(this@FloatingBubbleService)
+            setViewTreeSavedStateRegistryOwner(this@FloatingBubbleService)
+            // Outside taps fold the card back to the strip without taking
+            // the window down, so the strip stays available all turn.
+            setOnTouchListener { _, event ->
+                if (event.action == android.view.MotionEvent.ACTION_OUTSIDE) {
+                    dropdownCollapseSignal.value = dropdownCollapseSignal.value + 1
+                    true
+                } else {
+                    false
+                }
+            }
+            setContent {
+                AgentDropdownOverlay(
+                    openBelow = below,
+                    agents = agents,
+                    initialActiveId = activeId,
+                    defaultId = defaultId,
+                    pillTheme = pillTheme,
+                    collapse = dropdownCollapseSignal,
+                    animated = cardAnimated,
+                    onExpandedChange = { isExpanded ->
+                        dropdownHeightJob?.cancel()
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            lp.setCanPlayMoveAnimation(false)
+                        }
+                        if (isExpanded) {
+                            lp.height = expandedHeightPx
+                            try {
+                                if (agentDropdownView?.isAttachedToWindow == true) {
+                                    windowManager.updateViewLayout(agentDropdownView, lp)
+                                }
+                            } catch (_: Exception) {}
+                        } else {
+                            dropdownHeightJob = scope.launch {
+                                if (cardAnimated) kotlinx.coroutines.delay(220)
+                                lp.height = stripHeightPx
+                                try {
+                                    if (Build.VERSION.SDK_INT >= 34) {
+                                        lp.setCanPlayMoveAnimation(false)
+                                    }
+                                    if (agentDropdownView?.isAttachedToWindow == true) {
+                                        windowManager.updateViewLayout(agentDropdownView, lp)
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    },
+                    onPick = { id ->
+                        // No auto-collapse: the card stays open so the agent
+                        // can change any number of times. The check moves at
+                        // once. Confirm applies whatever is active; untouched
+                        // means the settings default.
+                        TranscriptionSessionManager.activeAgentId = id
+                    }
+                )
+            }
+        }
+        try {
+            windowManager.addView(view, lp)
+            agentDropdownView = view
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add agent dropdown overlay", e)
+            agentDropdownView = null
+        }
+    }
+
+    private fun hideAgentDropdown() {
+        dropdownHeightJob?.cancel()
+        dropdownHeightJob = null
+        agentDropdownView?.let {
+            try {
+                if (it.isAttachedToWindow) windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
+        agentDropdownView = null
+    }
+
     private fun removeOverlayView() {
+        hideAgentDropdown()
         interactionView?.let {
             if (it.isAttachedToWindow) {
                 windowManager.removeView(it)
