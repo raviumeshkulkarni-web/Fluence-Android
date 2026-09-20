@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -15,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -150,8 +152,12 @@ private fun DrawerRow(
             .clip(FluenceShapes.Small)
             .background(bg)
             .then(if (selected) Modifier.border(1.dp, colors.outlineSubtle, FluenceShapes.Small) else Modifier)
-            .clickable(onClickLabel = "Open $label", onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
+            .selectable(
+                selected = selected,
+                role = Role.Tab,
+                onClick = onClick
+            )
+            .padding(horizontal = FluenceSpacing.Base, vertical = 9.dp)
             .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

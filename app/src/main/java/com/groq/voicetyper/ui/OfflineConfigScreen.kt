@@ -1,12 +1,14 @@
 package com.groq.voicetyper.ui
 
 import com.groq.voicetyper.FeedbackBus
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -18,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -132,16 +135,37 @@ fun OfflineConfigScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = FluenceSpacing.Base)
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsTopBar(title = "Offline Transcription", onBack = onNavigateBack)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
-            // Switch
+            // Full-row toggle: the row owns touch and accessibility, the
+            // switch is display-only. The model-ready guard lives in the
+            // row handler so taps anywhere behave identically.
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .toggleable(
+                        value = offlineEnabled,
+                        role = Role.Switch,
+                        onValueChange = { checked ->
+                            val selectedModelReady = when (selectedEngineType) {
+                                OfflineEngineType.SENSEVOICE -> modelReady
+                                OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
+                                OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
+                            }
+                            if (checked && !selectedModelReady) {
+                                FeedbackBus.show("Download the selected model first.")
+                            } else {
+                                offlineEnabled = checked
+                                OfflinePreferences.setOfflineModeEnabled(context, checked)
+                            }
+                        }
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -161,19 +185,7 @@ fun OfflineConfigScreen(
 
                 Switch(
                     checked = offlineEnabled,
-                    onCheckedChange = { checked ->
-                        val selectedModelReady = when (selectedEngineType) {
-                            OfflineEngineType.SENSEVOICE -> modelReady
-                            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
-                            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
-                        }
-                        if (checked && !selectedModelReady) {
-                            FeedbackBus.show("Download the selected model first.")
-                        } else {
-                            offlineEnabled = checked
-                            OfflinePreferences.setOfflineModeEnabled(context, checked)
-                        }
-                    },
+                    onCheckedChange = null,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                         checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -183,23 +195,23 @@ fun OfflineConfigScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Model Selector
             Text(
                 text = "Choose a model",
                 color = colors.textPrimary,
-style = FluenceTypography.labelLarge
+                style = FluenceTypography.labelLarge
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
             Text(
                 text = "Pick the option that fits how you dictate. You can change this any time.",
                 color = colors.textSecondary,
-                    style = FluenceTypography.labelMedium
+                style = FluenceTypography.labelMedium
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)) {
                 ModelOptionCard(
                     title = "Fast (English)",
                     description = "Quick, reliable English dictation for everyday use.",
@@ -240,7 +252,7 @@ style = FluenceTypography.labelLarge
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Multilingual (SenseVoice) Model Status
             ModelDownloadCard(
@@ -271,7 +283,7 @@ style = FluenceTypography.labelLarge
                 }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Fast (English) Model Status - v2 Small
             ModelDownloadCard(
@@ -302,7 +314,7 @@ style = FluenceTypography.labelLarge
                 }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Pro (English) Model Status - v2 Medium
             ModelDownloadCard(
@@ -333,7 +345,7 @@ style = FluenceTypography.labelLarge
                 }
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xxl))
         }
     }
 }
@@ -360,7 +372,7 @@ private fun ModelOptionCard(
             .selectable(
                 selected = isSelected,
                 interactionSource = interaction,
-                indication = null,
+                indication = LocalIndication.current,
                 role = Role.RadioButton,
                 onClick = onSelect
             )
@@ -554,6 +566,7 @@ private fun ModelDownloadCard(
                 val progressPercentage = if (totalBytes > 0) {
                     bytesDownloaded.toFloat() / totalBytes.toFloat()
                 } else 0f
+                val percentInt = (progressPercentage * 100).toInt()
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -565,22 +578,25 @@ private fun ModelDownloadCard(
                         style = FluenceTypography.labelLarge
                     )
                     Text(
-                        text = "${(progressPercentage * 100).toInt()}%",
+                        text = "$percentInt%",
                         color = colors.textSecondary,
                         style = FluenceTypography.labelLarge,
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
                 LinearProgressIndicator(
                     progress = { progressPercentage },
                     color = colors.textPrimary,
                     trackColor = colors.textPrimary.copy(alpha = 0.1f),
-                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .semantics { stateDescription = "$percentInt%" }
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
                 Button(
                     onClick = onCancel,

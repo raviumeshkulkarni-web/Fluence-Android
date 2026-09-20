@@ -22,17 +22,23 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -93,6 +99,21 @@ fun FormattingScreen(
     var agentPresetLabel by remember { mutableStateOf("") }
     var agentModelLabel by remember { mutableStateOf("") }
     var showModelSheet by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var customCount by remember {
+        mutableIntStateOf(com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context).size)
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                customCount = com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context).size
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(Unit) {
         val preset = withContext(Dispatchers.IO) { SecurityUtils.getLlmPreset(context) }
@@ -189,7 +210,7 @@ fun FormattingScreen(
                 }
                 item {
                     Text(
-                        text = "Apps in no bucket follow the field you type in.",
+                        text = "Apps you haven't filed just follow the text field you're typing in.",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
                         modifier = Modifier
@@ -217,7 +238,7 @@ fun FormattingScreen(
                 }
                 item {
                     Text(
-                        text = "Polishes filler words and grammar after dictation.",
+                        text = "Cleans up filler words like um and fixes grammar right after you dictate.",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
                         modifier = Modifier
@@ -271,9 +292,6 @@ fun FormattingScreen(
                 }
                 item {
                     val stylesRowSource = remember { MutableInteractionSource() }
-                    val customCount = remember(cleanupEnabled) {
-                        com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context).size
-                    }
                     val stylesSummary = if (customCount > 0) {
                         "Proofread, Natural, Professional plus $customCount custom"
                     } else {
@@ -354,9 +372,18 @@ private fun ToggleRow(
     modifier: Modifier = Modifier
 ) {
     val colors = PrecisionTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .pressScale(interactionSource)
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
             .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
             .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -376,7 +403,7 @@ private fun ToggleRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                 checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -384,7 +411,6 @@ private fun ToggleRow(
                 uncheckedTrackColor = colors.panel
             ),
             modifier = Modifier.semantics {
-                role = Role.Switch
                 contentDescription = toggleLabel
                 stateDescription = if (checked) "On" else "Off"
             }
@@ -410,7 +436,7 @@ private fun BucketRow(
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp)
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
             .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

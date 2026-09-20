@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,6 +55,7 @@ fun TranscriptionDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        modifier = modifier,
         containerColor = colors.panelElevated,
         contentColor = colors.textPrimary,
         tonalElevation = 4.dp,
@@ -65,7 +64,7 @@ fun TranscriptionDetailSheet(
         dragHandle = {
             Box(
                 modifier = Modifier
-                    .padding(vertical = 12.dp)
+                    .padding(vertical = FluenceSpacing.Md)
                     .width(32.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
@@ -77,14 +76,14 @@ fun TranscriptionDetailSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(bottom = 8.dp)
+                .padding(bottom = FluenceSpacing.Sm)
         ) {
             // Title
             Text(
                 text = "Transcription",
                 color = colors.textPrimary,
                 style = FluenceTypography.headlineMedium,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 12.dp)
+                modifier = Modifier.padding(start = FluenceSpacing.Lg, end = FluenceSpacing.Lg, top = FluenceSpacing.Xs, bottom = FluenceSpacing.Md)
             )
 
             entry?.let { item ->
@@ -94,7 +93,7 @@ fun TranscriptionDetailSheet(
                         .fillMaxWidth()
                         .heightIn(max = 400.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp)
+                        .padding(horizontal = FluenceSpacing.Lg)
                 ) {
                     Text(
                         text = item.text,
@@ -103,7 +102,7 @@ fun TranscriptionDetailSheet(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 // Timestamp
                 val sdf = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
@@ -111,17 +110,17 @@ fun TranscriptionDetailSheet(
                     text = sdf.format(Date(item.timestamp)),
                     color = colors.textSecondary,
                     style = FluenceTypography.labelMedium.copy(fontFamily = GeistMonoFont),
-                    modifier = Modifier.padding(horizontal = 24.dp)
+                    modifier = Modifier.padding(horizontal = FluenceSpacing.Lg)
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 // Action buttons
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(horizontal = FluenceSpacing.Lg),
+                    horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)
                 ) {
                     val copyInteractionSource = remember { MutableInteractionSource() }
                     val deleteInteractionSource = remember { MutableInteractionSource() }
@@ -142,12 +141,12 @@ fun TranscriptionDetailSheet(
                             .pressScale(copyInteractionSource)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ContentCopy,
+                            imageVector = FluenceIcons.Copy,
                             contentDescription = null,
                             tint = colors.textPrimary,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                         Text(text = "Copy", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
 
@@ -163,18 +162,18 @@ fun TranscriptionDetailSheet(
                                 .pressScale(deleteInteractionSource)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Delete,
+                                imageVector = FluenceIcons.Trash2,
                                 contentDescription = null,
                                 tint = colors.error,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                             Text(text = "Delete", color = colors.error, style = FluenceTypography.labelLarge)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 if (showDeleteConfirmation) {
                     AlertDialog(

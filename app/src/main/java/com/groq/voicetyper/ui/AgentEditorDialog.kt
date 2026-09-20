@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -40,6 +43,7 @@ fun AgentEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.dialog,
+        modifier = Modifier.imePadding(),
         title = {
             Text(
                 text = if (agentToEdit == null) "New agent" else "Edit agent",
@@ -49,9 +53,16 @@ fun AgentEditorDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Text(
+                    text = "Tell Agent Mode how to write for you. It shapes your words only — it can never take actions.",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall
+                )
                 OutlinedTextField(
                     value = nameText,
                     onValueChange = {
@@ -89,14 +100,14 @@ fun AgentEditorDialog(
                         if (it.length <= AgentPreferences.MAX_AGENT_HINT_LENGTH) hintText = it
                         errorMessage = null
                     },
-                    label = { Text("How should it behave") },
+                    label = { Text("What should it do") },
                     placeholder = { Text("e.g. Always reply professionally and keep it short") },
                     minLines = 3,
                     maxLines = 6,
                     supportingText = {
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Runs inside the fixed command contract. Same powers as the built-in agent.",
+                                text = "Only shapes your wording. It can't press buttons or take actions, just like the built-in agent.",
                                 color = colors.textTertiary,
                                 style = FluenceTypography.labelSmall,
                                 modifier = Modifier.weight(1f)

@@ -69,6 +69,10 @@ import java.util.Locale
 
 private const val AVG_WPM = 40.0
 
+// Breathing room between the chart card edge and the viewport fold, so
+// the x-axis labels never sit half below it on phones.
+private val ChartFoldBreathingRoom = FluenceSpacing.Base
+
 private fun abbreviate(n: Long): String = when {
     n >= 1_000_000 -> String.format(Locale.US, "%.1fM", n / 1_000_000.0)
     n >= 1_000 -> String.format(Locale.US, "%.1fK", n / 1_000.0)
@@ -258,10 +262,12 @@ fun HomeScreen(
             // Fill the remaining viewport with the plot, clamped to sane
             // bounds. The card's own vertical padding is subtracted too —
             // without it the card bottom (x-axis labels) always sits 48dp
-            // below the fold. Below the minimum the existing scroll takes
-            // over; above the maximum (tablets) the card keeps its composure.
+            // below the fold. A small breathing margin keeps the card edge
+            // visibly clear of the fold on phones. Below the minimum the
+            // existing scroll takes over; above the maximum (tablets) the
+            // card keeps its composure.
             val chartPlotHeight = if (measuredAbove != null && measuredChrome != null) {
-                (viewportHeight - measuredAbove - measuredChrome - ActivityChartCardVerticalPadding)
+                (viewportHeight - measuredAbove - measuredChrome - ActivityChartCardVerticalPadding - ChartFoldBreathingRoom)
                     .coerceIn(ChartPlotMinHeight, ChartPlotMaxHeight)
             } else {
                 ChartPlotMinHeight
@@ -512,15 +518,24 @@ private fun HomeStatusBanner(
             .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Xs)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val statusInteraction = remember { MutableInteractionSource() }
             Row(
-                modifier = Modifier.clickable(
-                    onClickLabel = "Open keyboard settings",
-                    role = Role.Button,
-                    onClick = onOpenKeyboardSettings
-                ).padding(vertical = 8.dp),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .pressScale(statusInteraction)
+                    .clickable(
+                        interactionSource = statusInteraction,
+                        indication = LocalIndication.current,
+                        onClickLabel = "Open keyboard settings",
+                        role = Role.Button,
+                        onClick = onOpenKeyboardSettings
+                    )
+                    .padding(vertical = FluenceSpacing.Sm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -532,9 +547,10 @@ private fun HomeStatusBanner(
                 Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                 Text(statusText, color = colors.textPrimary, style = FluenceTypography.labelLarge)
             }
-            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+            Spacer(modifier = Modifier.width(FluenceSpacing.Md))
             Text("·", color = colors.textTertiary, style = FluenceTypography.bodySmall)
-            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+            Spacer(modifier = Modifier.width(FluenceSpacing.Md))
+            val modelInteraction = remember { MutableInteractionSource() }
             Text(
                 text = if (OfflinePreferences.isOfflineModeEnabled(context)) {
                     "${offlineModelLabel(context)} (Offline)"
@@ -547,12 +563,17 @@ private fun HomeStatusBanner(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .pressScale(modelInteraction)
                     .clickable(
+                        interactionSource = modelInteraction,
+                        indication = LocalIndication.current,
                         onClickLabel = "Switch transcription model",
                         role = Role.Button,
                         onClick = onOpenModelSwitcher
                     )
-                    .padding(vertical = 8.dp)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .padding(vertical = FluenceSpacing.Sm)
             )
         }
     }
@@ -649,6 +670,8 @@ private fun DashboardHeroStats(
     }
 }
 
+private val HeroBadgeSlotHeight = 24.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DashboardStatCell(
@@ -665,7 +688,7 @@ private fun DashboardStatCell(
             .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Base)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null,
+                indication = LocalIndication.current,
                 onClick = {},
                 onLongClickLabel = "Copy value",
                 onLongClick = {
@@ -703,16 +726,24 @@ private fun DashboardStatCell(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        if (trend != null) {
-            Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
-            TrendBadge(trend = trend)
+        Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+        // The badge slot is always reserved, badge or not, so no cell ever
+        // changes size when the comparison appears or disappears — rows
+        // stay equal and the graph below never moves.
+        Box(
+            modifier = Modifier.heightIn(min = HeroBadgeSlotHeight),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (trend != null) {
+                TrendBadge(trend = trend)
+            }
         }
         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
         Text(
             text = foot,
             color = colors.textTertiary,
             style = FluenceTypography.labelMedium,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }
@@ -778,6 +809,7 @@ private fun TrendBadge(trend: TrendInfo) {
                 letterSpacing = 0.sp,
             ),
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

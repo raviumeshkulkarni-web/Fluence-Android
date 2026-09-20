@@ -1,5 +1,6 @@
 package com.groq.voicetyper.ui
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -73,7 +74,7 @@ fun FluenceSegmentedControl(
                         onClick = { onSelect(index) },
                         role = Role.Tab,
                         interactionSource = interactionSource,
-                        indication = null,
+                        indication = LocalIndication.current,
                     )
                     .pressScale(interactionSource)
                     .semantics { contentDescription = option.accessibilityLabel },

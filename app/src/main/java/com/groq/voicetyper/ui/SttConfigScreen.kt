@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -86,7 +87,7 @@ private fun ApiKeySection(
         }
     )
 
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -270,7 +271,7 @@ fun SttConfigScreen(
         ) {
             SettingsTopBar(title = "AI Transcription", onBack = onNavigateBack)
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Provider
             Text(
@@ -315,7 +316,7 @@ fun SttConfigScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Language
             Text(
@@ -338,7 +339,7 @@ fun SttConfigScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showLanguageDropdown = true }
+                        .clickable(role = Role.Button, onClickLabel = "Select language") { showLanguageDropdown = true }
                         .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                         .background(colors.inputBg, FluenceShapes.Medium)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -397,7 +398,7 @@ fun SttConfigScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // Transcription Model
             Text(
@@ -437,7 +438,7 @@ fun SttConfigScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showModelDropdown = true }
+                            .clickable(role = Role.Button, onClickLabel = "Select model") { showModelDropdown = true }
                             .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                             .background(colors.inputBg, FluenceShapes.Medium)
                             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -489,7 +490,7 @@ fun SttConfigScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             var isStreamingEnabled by remember { mutableStateOf(SecurityUtils.isStreamingEnabled(context)) }
             val isStreamingSupported = selectedProvider == "mistral" || selectedProvider == "custom"
@@ -570,7 +571,7 @@ fun SttConfigScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
             // API Key section
             if (selectedProvider == "groq") {
@@ -676,7 +677,7 @@ fun SttConfigScreen(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 OutlinedTextField(
                     value = customBaseUrl,
@@ -697,7 +698,7 @@ fun SttConfigScreen(
                     label = { Text("Base URL", color = colors.textSecondary) }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 OutlinedTextField(
                     value = customModel,
@@ -718,7 +719,7 @@ fun SttConfigScreen(
                     label = { Text("Model", color = colors.textSecondary) }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -787,7 +788,7 @@ fun SttConfigScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
         }
     }
 }

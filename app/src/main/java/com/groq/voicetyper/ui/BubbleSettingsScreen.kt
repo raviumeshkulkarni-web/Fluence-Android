@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -193,7 +194,7 @@ fun BubbleSettingsScreen(
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Master switch — same pref key the accessibility service reads.
             // Single home for the toggle (moved here from Permissions).
@@ -209,6 +210,21 @@ fun BubbleSettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .toggleable(
+                            value = bubbleEnabled,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                if (!accessibilityEnabled) {
+                                    FeedbackBus.show("Enable accessibility service first")
+                                } else {
+                                    bubbleEnabled = checked
+                                    FloatingBubblePreferences.setBubbleEnabled(context, checked)
+                                    if (!checked) {
+                                        FeedbackBus.show("Floating bubble disabled")
+                                    }
+                                }
+                            }
+                        )
                         .padding(
                             horizontal = FluenceSpacing.Base,
                             vertical = FluenceSpacing.Base
@@ -234,21 +250,7 @@ fun BubbleSettingsScreen(
                     }
                     Switch(
                         checked = bubbleEnabled,
-                        onCheckedChange = { checked ->
-                            if (!accessibilityEnabled) {
-                                FeedbackBus.show("Enable accessibility service first")
-                            } else {
-                                bubbleEnabled = checked
-                                FloatingBubblePreferences.setBubbleEnabled(context, checked)
-                                if (!checked) {
-                                    FeedbackBus.show("Floating bubble disabled")
-                                }
-                            }
-                        },
-                        modifier = Modifier.semantics {
-                            role = Role.Switch
-                            stateDescription = if (bubbleEnabled) "On" else "Off"
-                        },
+                        onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                             checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -259,7 +261,7 @@ fun BubbleSettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             BubblePreviewCard(
                 pillTheme = pillTheme,
@@ -269,7 +271,7 @@ fun BubbleSettingsScreen(
                 glowOn = glowOn,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             Column(
                 modifier = Modifier
@@ -296,6 +298,14 @@ fun BubbleSettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .toggleable(
+                            value = followSystem,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                followSystem = checked
+                                FloatingBubblePreferences.setFollowSystem(context, checked)
+                            }
+                        )
                         .padding(
                             horizontal = FluenceSpacing.Base,
                             vertical = FluenceSpacing.Base
@@ -321,14 +331,7 @@ fun BubbleSettingsScreen(
                     }
                     Switch(
                         checked = followSystem,
-                        onCheckedChange = { checked ->
-                            followSystem = checked
-                            FloatingBubblePreferences.setFollowSystem(context, checked)
-                        },
-                        modifier = Modifier.semantics {
-                            role = Role.Switch
-                            stateDescription = if (followSystem) "On" else "Off"
-                        },
+                        onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                             checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -339,7 +342,7 @@ fun BubbleSettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             FluenceSectionHeader(label = "Collapsed bubble")
 
@@ -387,7 +390,7 @@ fun BubbleSettingsScreen(
                 }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             FluenceSectionHeader(label = "Recording pill")
 
@@ -432,6 +435,14 @@ fun BubbleSettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .toggleable(
+                            value = glowOn,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                glowOn = checked
+                                FloatingBubblePreferences.setGlowEnabled(context, checked)
+                            }
+                        )
                         .padding(
                             horizontal = FluenceSpacing.Base,
                             vertical = FluenceSpacing.Base
@@ -454,14 +465,7 @@ fun BubbleSettingsScreen(
 
                     Switch(
                         checked = glowOn,
-                        onCheckedChange = { checked ->
-                            glowOn = checked
-                            FloatingBubblePreferences.setGlowEnabled(context, checked)
-                        },
-                        modifier = Modifier.semantics {
-                            role = Role.Switch
-                            stateDescription = if (glowOn) "On" else "Off"
-                        },
+                        onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                             checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -515,7 +519,7 @@ fun BubbleSettingsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
             }
         }
     }
@@ -572,7 +576,7 @@ private fun PillThemeRow(
             .clickable(
                 enabled = enabled,
                 onClickLabel = "Select ${preset.label} theme",
-                role = Role.Button,
+                role = Role.RadioButton,
                 onClick = onSelect
             )
             .semantics {
@@ -667,7 +671,7 @@ private fun CollapsedStyleRow(
             .clickable(
                 enabled = enabled,
                 onClickLabel = "Select $title collapsed style",
-                role = Role.Button,
+                role = Role.RadioButton,
                 onClick = onSelect
             )
             .semantics {

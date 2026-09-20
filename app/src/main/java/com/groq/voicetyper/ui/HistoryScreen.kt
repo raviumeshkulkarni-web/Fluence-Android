@@ -20,7 +20,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
@@ -713,6 +712,7 @@ private fun highlightQueryMatches(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryTranscriptRow(
     entry: TranscriptionEntry,
@@ -732,34 +732,29 @@ private fun HistoryTranscriptRow(
     var showMenu by remember { mutableStateOf(false) }
     val foreign = com.groq.voicetyper.sync.SyncAccounts.isForeign(entry.syncAccount)
     val bgColor = if (isSelected) colors.textPrimary.copy(alpha = 0.08f) else androidx.compose.ui.graphics.Color.Transparent
+    val rowInteraction = remember { MutableInteractionSource() }
     Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min)
+                .background(bgColor)
+                .combinedClickable(
+                    interactionSource = rowInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    onClickLabel = if (isMultiSelect || isSelected) "Toggle selection"
+                    else if (expanded) "Collapse" else "Expand",
+                    onLongClickLabel = "Select",
+                    onClick = {
+                        if (isMultiSelect || isSelected) onToggleSelect() else onToggleExpand()
+                    },
+                    onLongClick = {
+                        onToggleSelect()
+                    }
+                )
                 .semantics(mergeDescendants = true) {
                     if (isSelected) stateDescription = "Selected"
-                    onClick(
-                        label = if (isMultiSelect || isSelected) "Toggle selection"
-                        else if (expanded) "Collapse" else "Expand"
-                    ) {
-                        if (isMultiSelect || isSelected) onToggleSelect() else onToggleExpand()
-                        true
-                    }
-                    onLongClick(label = "Select") {
-                        onToggleSelect()
-                        true
-                    }
-                }
-                .pointerInput(isSelected, isMultiSelect, expanded) {
-                    detectTapGestures(
-                        onLongPress = { onToggleSelect() },
-                        onTap = {
-                            if (isMultiSelect || isSelected) onToggleSelect() else onToggleExpand()
-                        }
-                    )
-                }
-                .background(bgColor),
+                },
             verticalAlignment = Alignment.Top
         ) {
             // Timeline rail (Windows parity): per-row segments so the rail

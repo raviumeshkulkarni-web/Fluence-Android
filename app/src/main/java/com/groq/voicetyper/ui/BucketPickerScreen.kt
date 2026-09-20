@@ -28,9 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -47,10 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
@@ -128,7 +124,7 @@ fun BucketPickerScreen(
             )
 
             Text(
-                text = "Tap an app to move it here. Each app lives in one bucket.",
+                text = "Tap an app to file it in this bucket. Tap again to move it back to Auto. Each app follows exactly one bucket.",
                 color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
                 modifier = Modifier
@@ -187,7 +183,7 @@ fun BucketPickerScreen(
                 singleLine = true,
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        imageVector = FluenceIcons.Search,
                         contentDescription = null,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
@@ -202,10 +198,10 @@ fun BucketPickerScreen(
                                 .pressScale(remember { MutableInteractionSource() })
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = FluenceIcons.X,
                                 contentDescription = "Clear search",
                                 tint = colors.textTertiary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -227,7 +223,7 @@ fun BucketPickerScreen(
                 textStyle = FluenceTypography.bodySmall
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
             HorizontalDivider(color = colors.outlineSubtle)
 
             when {
@@ -242,7 +238,7 @@ fun BucketPickerScreen(
                             icon = if (apps.isEmpty()) {
                                 Icons.Default.PhoneAndroid
                             } else {
-                                Icons.Default.Search
+                                FluenceIcons.Search
                             },
                             title = if (apps.isEmpty()) {
                                 "No launchable apps found"
@@ -312,9 +308,6 @@ private fun BucketPickerItem(
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
-    val iconBitmap = remember(app.packageName) {
-        app.icon.toBitmap(48, 48).asImageBitmap()
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val override = overrides[app.packageName]
     val checked = override == bucket
@@ -344,19 +337,16 @@ private fun BucketPickerItem(
                     }
                 }
             )
-            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp)
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
             .defaultMinSize(minHeight = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            bitmap = iconBitmap,
-            contentDescription = null,
-            modifier = Modifier
-                .size(44.dp)
-                .background(colors.panel, RoundedCornerShape(10.dp))
+        AsyncAppIcon(
+            packageName = app.packageName,
+            fallbackDrawable = app.icon
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(FluenceSpacing.Md))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label, color = colors.textPrimary, style = FluenceTypography.titleMedium)

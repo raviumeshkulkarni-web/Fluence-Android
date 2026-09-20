@@ -11,7 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,7 +35,6 @@ fun UpdateDialogHost(
     onDismissError: () -> Unit,
     onRequestInstallPermission: () -> Unit
 ) {
-    val colors = PrecisionTheme.colors
     when (updateState) {
         is UpdateState.UpdateAvailable -> {
             UpdateAvailableDialog(
@@ -178,11 +178,11 @@ private fun UpdateDownloadingDialog(
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(FluenceSpacing.Base)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp)
+                    .padding(FluenceSpacing.Lg)
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -192,7 +192,7 @@ private fun UpdateDownloadingDialog(
                     style = FluenceTypography.headlineMedium
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
                 val progressFloat = state.progressPercent / 100f
                 LinearProgressIndicator(
@@ -200,12 +200,13 @@ private fun UpdateDownloadingDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
+                        .clip(RoundedCornerShape(4.dp))
+                        .semantics { stateDescription = "${state.progressPercent}%" },
                     color = colors.textPrimary,
                     trackColor = colors.sunken,
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Md))
 
                 val downloadedFormatted = formatBytes(state.bytesDownloaded)
                 val totalFormatted = formatBytes(state.totalBytes)
@@ -226,7 +227,7 @@ private fun UpdateDownloadingDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
                 OutlinedButton(
                     onClick = onCancel,

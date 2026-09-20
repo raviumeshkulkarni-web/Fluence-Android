@@ -61,22 +61,6 @@ import kotlinx.coroutines.launch
 private val ExpandedWidthBreakpoint = 840.dp
 private val PermanentDrawerWidth = 320.dp
 
-private val screenOrder = listOf(
-    Screen.Home,
-    Screen.History,
-    Screen.SettingsHub,
-    Screen.SttConfig,
-    Screen.AgentConfig,
-    Screen.OfflineConfig,
-    Screen.CustomDictionary,
-    Screen.Snippets,
-    Screen.SyncConfig,
-    Screen.Permissions,
-    Screen.PrivacyExclusions,
-    Screen.BubbleSettings,
-    Screen.About
-)
-
 @Composable
 fun FluenceNavHost(
     syncManager: SyncManager,
@@ -85,8 +69,7 @@ fun FluenceNavHost(
     onSignInClick: () -> Unit = {},
     onSignOutClick: () -> Unit = {},
     onConsentClick: () -> Unit = {},
-    signInError: String? = null,
-    syncSection: @Composable () -> Unit = {}
+    signInError: String? = null
 ) {
     // Back stack survives config changes (rotation); screens' local state is
     // remembered saveably on their own. Restored via string codes (see Saver).
@@ -242,9 +225,7 @@ fun FluenceNavHost(
                 )
                 Screen.SettingsHub -> SettingsScreen(
                     onNavigateBack = { navigateBack() },
-                    onNavigateTo = { navigateTo(it) },
-                    syncManager = syncManager,
-                    syncSection = syncSection
+                    onNavigateTo = { navigateTo(it) }
                 )
                 Screen.SttConfig -> SttConfigScreen(
                     onNavigateBack = { navigateBack() }

@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,9 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,10 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
@@ -92,13 +87,15 @@ fun AiStylePickerScreen(
     val title = remember(styleId) {
         AiCleanupPreferences.styleTitle(context, styleId)
     }
+    // Built-in styles show a fixed before/after example. Custom styles have
+    // user-written instructions, so no canned example applies — the section
+    // is hidden for them instead of showing a misleading generic one.
+    val isBuiltIn = remember(styleId) { AiCleanupPreferences.isBuiltIn(styleId) }
     val exampleIn = remember(styleId) {
-        if (AiCleanupPreferences.isBuiltIn(styleId)) AiCleanupPreferences.builtInMeta(styleId).exampleIn
-        else "Your dictation keeps its facts. Your style changes the wording."
+        if (isBuiltIn) AiCleanupPreferences.builtInMeta(styleId).exampleIn else ""
     }
     val exampleOut = remember(styleId) {
-        if (AiCleanupPreferences.isBuiltIn(styleId)) AiCleanupPreferences.builtInMeta(styleId).exampleOut
-        else "Your custom wording, with facts kept exact."
+        if (isBuiltIn) AiCleanupPreferences.builtInMeta(styleId).exampleOut else ""
     }
 
     LaunchedEffect(Unit) {
@@ -130,7 +127,7 @@ fun AiStylePickerScreen(
             )
 
             androidx.compose.material3.Text(
-                text = "Tap an app to move it here. Each app uses one AI style.",
+                text = "Tap an app to give it this style. Tap again to move it back to Auto. Each app follows exactly one style.",
                 color = colors.textSecondary,
                 style = FluenceTypography.bodySmall,
                 modifier = Modifier
@@ -143,36 +140,38 @@ fun AiStylePickerScreen(
                     )
             )
 
-            FluenceSectionHeader(label = "EXAMPLE")
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Small,
-                border = BorderStroke(1.dp, colors.outlineSubtle),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-            ) {
-                Column(
-                    modifier = Modifier.padding(
-                        horizontal = FluenceSpacing.Md,
-                        vertical = FluenceSpacing.Sm
-                    )
+            if (isBuiltIn) {
+                FluenceSectionHeader(label = "EXAMPLE")
+                Surface(
+                    color = colors.panel,
+                    shape = FluenceShapes.Small,
+                    border = BorderStroke(1.dp, colors.outlineSubtle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FluenceSpacing.Base)
                 ) {
-                    Text(
-                        text = "Mic heard: $exampleIn",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodySmall
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "$title makes: $exampleOut",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.bodySmall
-                    )
+                    Column(
+                        modifier = Modifier.padding(
+                            horizontal = FluenceSpacing.Md,
+                            vertical = FluenceSpacing.Sm
+                        )
+                    ) {
+                        Text(
+                            text = "Mic heard: $exampleIn",
+                            color = colors.textSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "$title makes: $exampleOut",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            }
 
             OutlinedTextField(
                 value = searchQuery,
@@ -183,7 +182,7 @@ fun AiStylePickerScreen(
                 singleLine = true,
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        imageVector = FluenceIcons.Search,
                         contentDescription = null,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
@@ -198,10 +197,10 @@ fun AiStylePickerScreen(
                                 .pressScale(remember { MutableInteractionSource() })
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = FluenceIcons.X,
                                 contentDescription = "Clear search",
                                 tint = colors.textTertiary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -223,7 +222,7 @@ fun AiStylePickerScreen(
                 textStyle = FluenceTypography.bodySmall
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
             HorizontalDivider(color = colors.outlineSubtle)
 
             when {
@@ -235,7 +234,7 @@ fun AiStylePickerScreen(
                 filteredApps.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         FluenceEmptyState(
-                            icon = if (apps.isEmpty()) Icons.Default.PhoneAndroid else Icons.Default.Search,
+                            icon = if (apps.isEmpty()) Icons.Default.PhoneAndroid else FluenceIcons.Search,
                             title = if (apps.isEmpty()) "No launchable apps found" else "No apps match your search",
                             description = if (apps.isEmpty()) "No apps installed that can be placed."
                             else "Try a different word or app name."
@@ -294,9 +293,6 @@ private fun AiPickerItem(
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
-    val iconBitmap = remember(app.packageName) {
-        app.icon.toBitmap(48, 48).asImageBitmap()
-    }
     val interactionSource = remember { MutableInteractionSource() }
     val override = overrides[app.packageName]
     val checked = override == styleId
@@ -327,19 +323,16 @@ private fun AiPickerItem(
                     }
                 }
             )
-            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp)
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
             .defaultMinSize(minHeight = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            bitmap = iconBitmap,
-            contentDescription = null,
-            modifier = Modifier
-                .size(44.dp)
-                .background(colors.panel, androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+        AsyncAppIcon(
+            packageName = app.packageName,
+            fallbackDrawable = app.icon
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(FluenceSpacing.Md))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label, color = colors.textPrimary, style = FluenceTypography.titleMedium)

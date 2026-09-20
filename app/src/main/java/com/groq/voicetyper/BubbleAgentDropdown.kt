@@ -103,14 +103,20 @@ fun AgentDropdownOverlay(
     } else {
         shrinkVertically(animationSpec = snap(), shrinkTowards = expandFrom)
     }
-    // Wears the expanded pill's own theme in its agent accent: shell base,
-    // teal border and check, fore colors for text. No app-theme tokens here
-    // so the strip and card always match the pill beside them.
+    // Wears the expanded pill's own paints: shell base, the pill's own
+    // border gradient, and the on-shell contrast text (cancelIcon is the
+    // pill's content color on every theme: white on dark shells, near-black
+    // on Light). Only the agent accents (chevron, check) use the agent wave
+    // color, mirroring the teal wave the pill shows in agent mode. The wave
+    // foreground is never used for text. No app-theme tokens here so the
+    // strip and card always match the pill beside them.
     val cardBg = pillTheme.shellBase
-    val cardBorder = pillTheme.waveA.copy(alpha = 0.45f)
-    val titleColor = pillTheme.waveAFore
-    val bodyColor = pillTheme.waveAFore.copy(alpha = 0.72f)
-    val faintColor = pillTheme.waveAFore.copy(alpha = 0.55f)
+    val cardBorder = androidx.compose.ui.graphics.Brush.linearGradient(
+        listOf(pillTheme.borderStart, pillTheme.borderEnd)
+    )
+    val titleColor = pillTheme.cancelIcon
+    val bodyColor = pillTheme.cancelIcon.copy(alpha = 0.72f)
+    val faintColor = pillTheme.cancelIcon.copy(alpha = 0.55f)
     val dividerColor = pillTheme.waveWellBorder
     val checkColor = pillTheme.waveA
     // Entrance mask: the window is added as recording starts, the same
@@ -270,7 +276,7 @@ private fun AgentCard(
     currentActive: String,
     defaultId: String,
     cardBg: androidx.compose.ui.graphics.Color,
-    cardBorder: androidx.compose.ui.graphics.Color,
+    cardBorder: androidx.compose.ui.graphics.Brush,
     titleColor: androidx.compose.ui.graphics.Color,
     bodyColor: androidx.compose.ui.graphics.Color,
     faintColor: androidx.compose.ui.graphics.Color,

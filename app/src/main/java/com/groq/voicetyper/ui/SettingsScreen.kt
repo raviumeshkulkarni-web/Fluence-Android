@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.rotate
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.DarkMode
@@ -33,7 +34,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,8 +51,8 @@ import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.sync.SyncManager
 import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -123,9 +123,7 @@ private fun SettingsRow(
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateTo: (Screen) -> Unit,
-    modifier: Modifier = Modifier,
-    syncManager: SyncManager? = null,
-    syncSection: @Composable () -> Unit = {}
+    modifier: Modifier = Modifier
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
@@ -189,17 +187,17 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // AI Transcription
             SettingsRow(
-                icon = Icons.Default.Mic,
+                icon = FluenceIcons.Mic,
                 title = "AI Transcription",
                 summary = "$providerLabel \u00b7 ${sttModel.value}",
                 onClick = { onNavigateTo(Screen.SttConfig) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // AI Agent Mode
             SettingsRow(
@@ -209,7 +207,7 @@ fun SettingsScreen(
                 onClick = { onNavigateTo(Screen.AgentConfig) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Offline Transcription
             SettingsRow(
@@ -223,7 +221,7 @@ fun SettingsScreen(
                 onClick = { onNavigateTo(Screen.OfflineConfig) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Permissions & Services
             SettingsRow(
@@ -233,7 +231,7 @@ fun SettingsScreen(
                 onClick = { onNavigateTo(Screen.Permissions) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Privacy & App Exclusions
             SettingsRow(
@@ -247,7 +245,7 @@ fun SettingsScreen(
                 onClick = { onNavigateTo(Screen.PrivacyExclusions) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Floating Bubble
             SettingsRow(
@@ -257,7 +255,7 @@ fun SettingsScreen(
                 onClick = { onNavigateTo(Screen.BubbleSettings) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Audio Focus — separate collapsed card; tap the header to reveal the
             // Off / Duck / Pause selector inside. Same card + FluenceSegmentedControl
@@ -305,7 +303,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.VolumeDown,
+                            imageVector = Icons.AutoMirrored.Filled.VolumeDown,
                             contentDescription = null,
                             tint = colors.textSecondary,
                             modifier = Modifier.size(22.dp)
@@ -385,7 +383,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // Appearance, 3-option selector: follow the phone day/night
             // state, or pin light / dark. Writes the same `theme_mode` pref
@@ -513,7 +511,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
             // About
             SettingsRow(

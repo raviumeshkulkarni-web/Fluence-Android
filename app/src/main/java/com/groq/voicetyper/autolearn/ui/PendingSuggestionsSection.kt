@@ -190,19 +190,25 @@ private fun SuggestionRow(
                 style = FluenceTypography.labelSmall
             )
         }
-        TextButton(
+        FilledTonalButton(
             onClick = onAccept,
-            contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+            shape = FluenceShapes.Small,
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = colors.buttonSecondary,
+                contentColor = colors.textPrimary
+            ),
+            contentPadding = PaddingValues(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Xs),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Accept", color = colors.textSecondary, style = FluenceTypography.labelMedium)
+            Text("Accept", style = FluenceTypography.labelMedium)
         }
+        Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
         TextButton(
             onClick = onDismiss,
             contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
             modifier = Modifier.heightIn(min = 48.dp)
         ) {
-            Text("Dismiss", color = colors.textSecondary, style = FluenceTypography.labelMedium)
+            Text("Dismiss", color = colors.textTertiary, style = FluenceTypography.labelMedium)
         }
     }
 }

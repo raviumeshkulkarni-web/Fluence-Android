@@ -348,49 +348,66 @@ private fun ModelRow(
     onToggleFavorite: () -> Unit,
 ) {
     val colors = PrecisionTheme.colors
+    val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(
-                selected = selected,
-                role = Role.RadioButton,
-                onClick = onSelect
-            )
-            .padding(horizontal = FluenceSpacing.Lg, vertical = 14.dp),
+            .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = model,
-            color = if (selected) colors.textPrimary else colors.textSecondary,
-            style = FluenceTypography.bodyLarge.copy(
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        if (providerCaption != null) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .pressScale(rowInteraction)
+                .selectable(
+                    selected = selected,
+                    interactionSource = rowInteraction,
+                    indication = androidx.compose.foundation.LocalIndication.current,
+                    role = Role.RadioButton,
+                    onClick = onSelect
+                )
+                .padding(
+                    start = FluenceSpacing.Lg,
+                    end = FluenceSpacing.Sm,
+                    top = FluenceSpacing.Md,
+                    bottom = FluenceSpacing.Md
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = providerCaption,
-                color = colors.textTertiary,
-                style = FluenceTypography.labelSmall,
+                text = model,
+                color = if (selected) colors.textPrimary else colors.textSecondary,
+                style = FluenceTypography.bodyLarge.copy(
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                ),
                 maxLines = 1,
-                modifier = Modifier.padding(start = FluenceSpacing.Sm)
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-        }
-        if (selected) {
-            Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
-            Icon(
-                imageVector = com.groq.voicetyper.ui.icons.FluenceIcons.Check,
-                contentDescription = null,
-                tint = colors.textPrimary,
-                modifier = Modifier.size(20.dp)
-            )
+            if (providerCaption != null) {
+                Text(
+                    text = providerCaption,
+                    color = colors.textTertiary,
+                    style = FluenceTypography.labelSmall,
+                    maxLines = 1,
+                    modifier = Modifier.padding(start = FluenceSpacing.Sm)
+                )
+            }
+            if (selected) {
+                Spacer(modifier = Modifier.width(FluenceSpacing.Xs))
+                Icon(
+                    imageVector = com.groq.voicetyper.ui.icons.FluenceIcons.Check,
+                    contentDescription = null,
+                    tint = colors.textPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
         val starInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         IconButton(
             onClick = onToggleFavorite,
             modifier = Modifier
+                .padding(end = FluenceSpacing.Md)
                 .size(48.dp)
                 .pressScale(starInteraction),
             interactionSource = starInteraction

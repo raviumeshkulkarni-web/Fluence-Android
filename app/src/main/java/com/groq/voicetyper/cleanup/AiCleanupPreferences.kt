@@ -47,21 +47,21 @@ object AiCleanupPreferences {
         ID_NATURAL -> BuiltInMeta(
             id = ID_NATURAL,
             title = "Natural",
-            explanation = "Short and human for chat. Removes repeats.",
+            explanation = "Turns rambling speech into a short, natural chat message. Keeps names and numbers exact.",
             exampleIn = "like are you free tomorrow evening time let me know if that works for you",
             exampleOut = "free tomorrow evening. let me know if that works"
         )
         ID_PROFESSIONAL -> BuiltInMeta(
             id = ID_PROFESSIONAL,
             title = "Professional",
-            explanation = "Polite and clear for work.",
+            explanation = "Rewrites speech as a polite, clear work message. Never adds new facts.",
             exampleIn = "yeah tell boss project delayed need two more days will update soon",
             exampleOut = "Hi. Update on the project. We need two more days. Will keep you posted."
         )
         else -> BuiltInMeta(
             id = ID_PROOFREAD,
             title = "Proofread",
-            explanation = "Fix grammar and filler. Keep all words.",
+            explanation = "Fixes grammar and removes filler words like um. Keeps everything you said.",
             exampleIn = "hello world. hello again um please send report",
             exampleOut = "Hello world. Hello again. Please send report."
         )

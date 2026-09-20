@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -40,6 +43,7 @@ fun CustomStyleEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.dialog,
+        modifier = Modifier.imePadding(),
         title = {
             Text(
                 text = if (styleToEdit == null) "New style" else "Edit style",
@@ -49,9 +53,16 @@ fun CustomStyleEditorDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Text(
+                    text = "Describe how your dictation should be rewritten. Names, numbers, and facts are always kept exactly as spoken.",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall
+                )
                 OutlinedTextField(
                     value = nameText,
                     onValueChange = {
@@ -88,14 +99,14 @@ fun CustomStyleEditorDialog(
                         if (it.length <= AiCleanupPreferences.MAX_STYLE_HINT_LENGTH) hintText = it
                         errorMessage = null
                     },
-                    label = { Text("How should it write") },
+                    label = { Text("Describe the style") },
                     placeholder = { Text("e.g. Make it funny, very friendly, and extremely short") },
                     minLines = 3,
                     maxLines = 6,
                     supportingText = {
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Used as a style hint. Facts and names are always kept.",
+                                text = "Your instruction guides the rewrite. Names, numbers, and facts are always kept exactly as spoken.",
                                 color = colors.textTertiary,
                                 style = FluenceTypography.labelSmall,
                                 modifier = Modifier.weight(1f)

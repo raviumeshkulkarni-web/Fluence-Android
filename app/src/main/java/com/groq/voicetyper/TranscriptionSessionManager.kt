@@ -726,6 +726,9 @@ object TranscriptionSessionManager {
             sessionOwner = SessionOwner.BUBBLE
             recordingStartTimestampMs = 0L
             _partialText.value = ""
+            // One-turn agent pick ends with the turn; never leak it into
+            // the next session.
+            activeAgentId = null
         }
         unregisterNoisyReceiver(context)
     }
@@ -818,12 +821,14 @@ object TranscriptionSessionManager {
                         _recordingState.value = RecordingState.IDLE
                         _isAgentMode.value = false
                         currentListener = null
+                        activeAgentId = null
                     }
                 } catch (e: Exception) {
                     if (sessionGeneration == generation) {
                         showError("Offline transcription failed: ${e.localizedMessage}")
                         activeEngineType = null
                         _isAgentMode.value = false
+                        activeAgentId = null
                     }
                 }
             }
@@ -935,6 +940,7 @@ object TranscriptionSessionManager {
                             _recordingState.value = RecordingState.IDLE
                             currentListener = null
                             _isAgentMode.value = false
+                            activeAgentId = null
                         }
                     }
                 },
@@ -942,6 +948,7 @@ object TranscriptionSessionManager {
                     if (sessionGeneration == generation) {
                         showError(error.localizedMessage ?: "Transcription failed")
                         _isAgentMode.value = false
+                        activeAgentId = null
                     }
                 }
             )
@@ -1131,6 +1138,7 @@ object TranscriptionSessionManager {
         activeEngineType = null
         offlineTextAccumulator.setLength(0)
         sessionOwner = SessionOwner.BUBBLE
+        activeAgentId = null
 
         val ctx = appContext
         if (ctx != null) {

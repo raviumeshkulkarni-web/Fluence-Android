@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -24,11 +26,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -48,7 +49,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -56,7 +56,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsTopBar
@@ -65,6 +64,7 @@ import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -187,7 +187,7 @@ fun PrivacyExclusionsScreen(
                 singleLine = true,
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        imageVector = FluenceIcons.Search,
                         contentDescription = null,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
@@ -202,10 +202,10 @@ fun PrivacyExclusionsScreen(
                                 .pressScale(remember { MutableInteractionSource() })
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = FluenceIcons.X,
                                 contentDescription = "Clear search",
                                 tint = colors.textTertiary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -227,7 +227,7 @@ fun PrivacyExclusionsScreen(
                 textStyle = FluenceTypography.bodySmall
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
             HorizontalDivider(color = colors.outlineSubtle)
 
             when {
@@ -242,7 +242,7 @@ fun PrivacyExclusionsScreen(
                             icon = if (apps.isEmpty()) {
                                 Icons.Default.PhoneAndroid
                             } else {
-                                Icons.Default.Search
+                                FluenceIcons.Search
                             },
                             title = if (apps.isEmpty()) {
                                 "No launchable apps found"
@@ -287,25 +287,29 @@ private fun AppExclusionRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val colors = PrecisionTheme.colors
-    val iconBitmap = remember(app.packageName) {
-        app.icon.toBitmap(48, 48).asImageBitmap()
-    }
+    val interactionSource = remember { MutableInteractionSource() }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp),
+            .pressScale(interactionSource)
+            .toggleable(
+                value = isExcluded,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Switch,
+                onValueChange = onCheckedChange
+            )
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
+            .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            bitmap = iconBitmap,
-            contentDescription = null,
-            modifier = Modifier
-                .size(44.dp)
-                .background(colors.panel, RoundedCornerShape(10.dp))
+        AsyncAppIcon(
+            packageName = app.packageName,
+            fallbackDrawable = app.icon
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(FluenceSpacing.Md))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(app.label, color = colors.textPrimary, style = FluenceTypography.titleMedium)
@@ -314,7 +318,7 @@ private fun AppExclusionRow(
         // Monochrome Switch Styling matching app design system
         Switch(
             checked = isExcluded,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                 checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
@@ -322,7 +326,6 @@ private fun AppExclusionRow(
                 uncheckedTrackColor = colors.panel
             ),
             modifier = Modifier.semantics {
-                role = Role.Switch
                 contentDescription = "Exclude ${app.label}"
                 stateDescription = if (isExcluded) "Excluded" else "Not excluded"
             }
