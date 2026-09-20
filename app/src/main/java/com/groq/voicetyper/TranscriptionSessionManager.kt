@@ -163,22 +163,76 @@ object TranscriptionSessionManager {
     ): String {
         if (_isAgentMode.value) return applyAppAwareFormatting(context, dictedText)
         return try {
-            val style = try {
-                val resolved = com.groq.voicetyper.formatting.CategoryResolver.resolve(
-                    variation = activeInputVariation,
-                    packageName = activeTargetPackage,
-                    overrides = com.groq.voicetyper.formatting.FormattingPreferences.getOverrides(context)
-                )
-                com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(resolved.name)
+            // Per-app AI style wins when set. Otherwise fall back to the
+            // existing deterministic bucket mapping, so behavior is unchanged
+            // for apps with no AI style.
+            val aiStyleId = try {
+                com.groq.voicetyper.cleanup.AiCleanupPreferences.styleForPackage(context, activeTargetPackage)
             } catch (_: Exception) {
-                com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(null)
+                null
             }
-            val cleaned = com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanup(
-                context,
-                dictedText,
-                style,
-                isOfflineActive = isOfflineActive
-            )
+            val cleaned = if (!aiStyleId.isNullOrBlank()) {
+                if (com.groq.voicetyper.cleanup.AiCleanupPreferences.isBuiltIn(aiStyleId)) {
+                    val style = com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(aiStyleId)
+                    com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanup(
+                        context,
+                        dictedText,
+                        style,
+                        isOfflineActive = isOfflineActive
+                    )
+                } else {
+                    val hint = try {
+                        com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context)
+                            .firstOrNull { it.id == aiStyleId }?.hint
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (hint.isNullOrBlank()) {
+                        // Deleted custom style: behave as if no AI style was set.
+                        val style = try {
+                            val resolved = com.groq.voicetyper.formatting.CategoryResolver.resolve(
+                                variation = activeInputVariation,
+                                packageName = activeTargetPackage,
+                                overrides = com.groq.voicetyper.formatting.FormattingPreferences.getOverrides(context)
+                            )
+                            com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(resolved.name)
+                        } catch (_: Exception) {
+                            com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(null)
+                        }
+                        com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanup(
+                            context,
+                            dictedText,
+                            style,
+                            isOfflineActive = isOfflineActive
+                        )
+                    } else {
+                        com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanupWithCustom(
+                            context,
+                            dictedText,
+                            com.groq.voicetyper.cleanup.CleanupStyle.PROOFREAD,
+                            customHint = hint,
+                            isOfflineActive = isOfflineActive
+                        )
+                    }
+                }
+            } else {
+                val style = try {
+                    val resolved = com.groq.voicetyper.formatting.CategoryResolver.resolve(
+                        variation = activeInputVariation,
+                        packageName = activeTargetPackage,
+                        overrides = com.groq.voicetyper.formatting.FormattingPreferences.getOverrides(context)
+                    )
+                    com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(resolved.name)
+                } catch (_: Exception) {
+                    com.groq.voicetyper.cleanup.CleanupProcessor.styleForName(null)
+                }
+                com.groq.voicetyper.cleanup.CleanupProcessor.maybeCleanup(
+                    context,
+                    dictedText,
+                    style,
+                    isOfflineActive = isOfflineActive
+                )
+            }
             applyAppAwareFormatting(context, cleaned)
         } catch (_: Exception) {
             try {

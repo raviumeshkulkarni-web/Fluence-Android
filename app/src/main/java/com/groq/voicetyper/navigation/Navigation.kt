@@ -40,6 +40,8 @@ import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.AboutScreen
 import com.groq.voicetyper.ui.AgentConfigScreen
+import com.groq.voicetyper.ui.AiCleanupStylesScreen
+import com.groq.voicetyper.ui.AiStylePickerScreen
 import com.groq.voicetyper.ui.BubbleSettingsScreen
 import com.groq.voicetyper.ui.BucketPickerScreen
 import com.groq.voicetyper.ui.FormattingScreen
@@ -288,6 +290,14 @@ fun FluenceNavHost(
                 )
                 is Screen.BucketPicker -> BucketPickerScreen(
                     bucket = com.groq.voicetyper.formatting.FormattingCategory.fromName(screen.bucket),
+                    onNavigateBack = { navigateBack() }
+                )
+                Screen.AiCleanupStyles -> AiCleanupStylesScreen(
+                    onNavigateBack = { navigateBack() },
+                    onNavigateTo = { navigateTo(it) }
+                )
+                is Screen.AiStylePicker -> AiStylePickerScreen(
+                    styleId = screen.styleId,
                     onNavigateBack = { navigateBack() }
                 )
             }

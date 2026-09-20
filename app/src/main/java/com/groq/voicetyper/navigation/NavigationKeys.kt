@@ -21,6 +21,8 @@ sealed interface Screen {
     data object About : Screen
     data class TranscriptionDetail(val entryId: Long) : Screen
     data class BucketPicker(val bucket: String) : Screen
+    data object AiCleanupStyles : Screen
+    data class AiStylePicker(val styleId: String) : Screen
 }
 
 // Screen isn't itself Saveable, so the navigation back stack is persisted
@@ -44,11 +46,16 @@ private fun encodeScreen(screen: Screen): String = when (screen) {
     Screen.About -> "about"
     is Screen.TranscriptionDetail -> "detail:${screen.entryId}"
     is Screen.BucketPicker -> "bucket:${screen.bucket}"
+    Screen.AiCleanupStyles -> "ai_styles"
+    is Screen.AiStylePicker -> "ai_style:${screen.styleId}"
 }
 
 private fun decodeScreen(code: String): Screen? = when {
     code.startsWith("detail:") ->
         code.removePrefix("detail:").toLongOrNull()?.let { Screen.TranscriptionDetail(it) }
+    code == "ai_styles" -> Screen.AiCleanupStyles
+    code.startsWith("ai_style:") ->
+        code.removePrefix("ai_style:").takeIf { it.isNotBlank() }?.let { Screen.AiStylePicker(it) }
     code.startsWith("bucket:") ->
         code.removePrefix("bucket:").let { raw ->
             val category = com.groq.voicetyper.formatting.FormattingCategory.fromName(raw)
@@ -65,6 +72,7 @@ private fun decodeScreen(code: String): Screen? = when {
         "permissions" -> Screen.Permissions
         "privacy_exclusions" -> Screen.PrivacyExclusions
         "formatting" -> Screen.Formatting
+        "ai_styles" -> Screen.AiCleanupStyles
         "bubble_settings" -> Screen.BubbleSettings
         "dictionary" -> Screen.CustomDictionary
         "snippets" -> Screen.Snippets

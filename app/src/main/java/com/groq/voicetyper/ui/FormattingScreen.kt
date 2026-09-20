@@ -270,6 +270,52 @@ fun FormattingScreen(
                     }
                 }
                 item {
+                    val stylesRowSource = remember { MutableInteractionSource() }
+                    val customCount = remember(cleanupEnabled) {
+                        com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context).size
+                    }
+                    val stylesSummary = if (customCount > 0) {
+                        "Proofread, Natural, Professional plus $customCount custom"
+                    } else {
+                        "Proofread, Natural, Professional"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pressScale(stylesRowSource)
+                            .clickable(
+                                interactionSource = stylesRowSource,
+                                indication = androidx.compose.foundation.LocalIndication.current,
+                                onClickLabel = "Open AI cleanup styles",
+                                role = Role.Button,
+                                onClick = { onNavigateTo(Screen.AiCleanupStyles) }
+                            )
+                            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                            .heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "AI cleanup styles",
+                                color = colors.textPrimary,
+                                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = stylesSummary,
+                                color = colors.textSecondary,
+                                style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                item {
                     Spacer(modifier = Modifier.height(FluenceSpacing.Md))
                 }
             }

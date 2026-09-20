@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -261,12 +262,32 @@ fun FluenceSectionHeader(
             modifier = Modifier.weight(1f)
         )
         if (actionLabel != null && onAction != null) {
-            TextButton(
-                onClick = onAction,
-                contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
-                modifier = Modifier.heightIn(min = 48.dp)
+            // shadcn-style outline button: bordered pill on panel so the add
+            // action reads as a button, not as plain header text. Tokens only,
+            // no new values introduced.
+            val actionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .pressScale(actionSource)
+                    .clip(FluenceShapes.Small)
+                    .background(colors.panel)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Small)
+                    .clickable(
+                        interactionSource = actionSource,
+                        indication = androidx.compose.foundation.LocalIndication.current,
+                        onClickLabel = actionLabel,
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClick = onAction
+                    )
+                    .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Xs),
+                contentAlignment = Alignment.Center
             ) {
-                Text(actionLabel, color = colors.textPrimary, style = FluenceTypography.labelMedium)
+                Text(
+                    actionLabel,
+                    color = colors.textPrimary,
+                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
             }
         }
     }

@@ -17,6 +17,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -922,15 +923,30 @@ private fun OnboardingStepRow(
         )
 
         if (!isDone && actionLabel != null && onAction != null) {
-            TextButton(
-                onClick = onAction,
-                contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm, vertical = 0.dp),
-                modifier = Modifier.heightIn(min = 48.dp)
+            // Same outline button language as section headers so setup
+            // actions read as buttons. Tokens only.
+            val stepActionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .pressScale(stepActionSource)
+                    .clip(FluenceShapes.Small)
+                    .background(colors.panel)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Small)
+                    .clickable(
+                        interactionSource = stepActionSource,
+                        indication = LocalIndication.current,
+                        onClickLabel = actionLabel,
+                        role = Role.Button,
+                        onClick = onAction
+                    )
+                    .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Xs),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = actionLabel,
-                    color = BrandAmethyst,
-                    style = FluenceTypography.labelMedium
+                    color = colors.textPrimary,
+                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
                 )
             }
         }
