@@ -10,6 +10,9 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 class FluenceAccessibilityService : AccessibilityService() {
 
@@ -35,6 +38,25 @@ class FluenceAccessibilityService : AccessibilityService() {
         }
 
         /**
+         * Pure visibility-gate decisions for the opt-in "show only when
+         * keyboard is visible" mode. Unit-tested; the service applies them
+         * in handleFocusChange/evaluateAllWindows.
+         *
+         * shouldShowBubble: the existing editable-focus requirement ANDed
+         * with IME visibility when the mode is on. When off, reduces to the
+         * focus requirement exactly (existing behavior, unchanged).
+         *
+         * shouldApplyImeHide: the IME gate may only hide while IDLE — never
+         * while RECORDING, TRANSCRIBING (or surfacing an ERROR), so a
+         * keyboard dismissal can never cancel an in-flight session.
+         */
+        fun shouldShowBubble(editableFocused: Boolean, imeOnly: Boolean, imeVisible: Boolean): Boolean =
+            editableFocused && (!imeOnly || imeVisible)
+
+        fun shouldApplyImeHide(imeOnly: Boolean, imeVisible: Boolean, recordingState: RecordingState): Boolean =
+            imeOnly && !imeVisible && recordingState == RecordingState.IDLE
+
+        /**
          * Bubble-only foreground check. The IME deliberately does not use this
          * source; it uses its current EditorInfo package instead.
          */
@@ -57,9 +79,16 @@ class FluenceAccessibilityService : AccessibilityService() {
     }
 
     private var isFloatingBubbleEnabled = false
+    // Opt-in "show only when keyboard is visible" mode. Cached like the
+    // master switch; when false every gate below is a no-op and behavior is
+    // exactly today's focus-based visibility.
+    private var isImeOnlyEnabled = false
     private val handler = Handler(Looper.getMainLooper())
     private var pendingEvaluation: Runnable? = null
     private var accessibilityWindowManager: WindowManager? = null
+    private val evalScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main
+    )
 
     private val prefListener =
         android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
@@ -68,6 +97,14 @@ class FluenceAccessibilityService : AccessibilityService() {
                 if (!isFloatingBubbleEnabled) {
                     cancelPendingEvaluation()
                     BubbleController.stopService(this)
+                }
+            } else if (key == FloatingBubblePreferences.KEY_BUBBLE_IME_ONLY) {
+                isImeOnlyEnabled = prefs.getBoolean(key, false)
+                // Converge immediately on toggle: a visible bubble with no
+                // keyboard must hide (if idle), a hidden one with an open
+                // keyboard may show. Debounced like every other evaluation.
+                if (isFloatingBubbleEnabled) {
+                    scheduleFullEvaluation()
                 }
             }
         }
@@ -78,7 +115,21 @@ class FluenceAccessibilityService : AccessibilityService() {
         activeInstance = this
         val sharedPrefs = getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
         isFloatingBubbleEnabled = sharedPrefs.getBoolean(FloatingBubblePreferences.KEY_BUBBLE_ENABLED, false)
+        isImeOnlyEnabled = sharedPrefs.getBoolean(FloatingBubblePreferences.KEY_BUBBLE_IME_ONLY, false)
         sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
+        // After a session ends, the keyboard/focus picture may have changed
+        // underneath it (e.g. keyboard dismissed mid-recording, which must
+        // never interrupt the session). Re-evaluate once back at IDLE so the
+        // IME gate converges. drop(1) skips the initial IDLE emission.
+        evalScope.launch {
+            BubbleController.recordingState
+                .drop(1)
+                .collect { state ->
+                    if (state == RecordingState.IDLE && isFloatingBubbleEnabled && isImeOnlyEnabled) {
+                        scheduleFullEvaluation()
+                    }
+                }
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -112,6 +163,17 @@ class FluenceAccessibilityService : AccessibilityService() {
                 scheduleFullEvaluation()
             }
 
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                // Window added/removed/bounds changed — this is how IME
+                // (keyboard) show/hide reaches us. Only the opt-in IME mode
+                // needs it; when off, ignore to keep behavior identical.
+                // Debounced: keyboard switches produce a remove+add pair, and
+                // this event fires for every system window transition.
+                if (isImeOnlyEnabled) {
+                    scheduleFullEvaluation()
+                }
+            }
+
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 // Text changed in a view — the user is typing or voice text was
                 // injected. Keep the bubble visible if there's a focused editable.
@@ -128,6 +190,60 @@ class FluenceAccessibilityService : AccessibilityService() {
     // ────────────────────────────────────────────────────────────────────
 
     /**
+     * Single choke point for "focus says show". Applies the opt-in IME gate:
+     * editable focus AND keyboard visible when the mode is on. When the
+     * keyboard is absent the bubble never appears, and an already-visible
+     * bubble converges to hidden — but only while IDLE, so an in-flight
+     * recording/transcription is never interrupted. When the mode is off,
+     * behaves exactly like the code it replaces. Callers retain node
+     * ownership (showBubble copies via obtain), as before.
+     */
+    private fun gatedShowBubble(node: AccessibilityNodeInfo) {
+        // Short-circuit: skip the window scan entirely when the mode is off.
+        val imeOnly = isImeOnlyEnabled
+        val imeVisible = imeOnly && isImeVisible()
+        if (!shouldShowBubble(true, imeOnly, imeVisible)) {
+            if (shouldApplyImeHide(imeOnly, imeVisible, BubbleController.recordingState.value)) {
+                BubbleController.hideBubble()
+            }
+            return
+        }
+        if (isSecureField(node)) {
+            BubbleController.hideBubble()
+        } else {
+            BubbleController.showBubble(this, node)
+        }
+    }
+
+    /**
+     * True while a soft-keyboard window exists. Scans the already-available
+     * window list (no polling, no new permissions) and recycles every entry.
+     */
+    private fun isImeVisible(): Boolean {
+        val infos = try {
+            windows
+        } catch (_: Exception) {
+            null
+        } ?: return false
+        var found = false
+        for (info in infos) {
+            try {
+                if (info.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    found = true
+                }
+            } catch (_: Exception) {
+                // Treat an unreadable entry as absent; keep scanning.
+            } finally {
+                try {
+                    info.recycle()
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return found
+    }
+
+    /**
      * Called when we have a direct [node] reference from an event source.
      * We first check the node itself; if it's not an editable field, we fall
      * back to scanning all application windows.
@@ -139,11 +255,7 @@ class FluenceAccessibilityService : AccessibilityService() {
         }
 
         if (isEditableTextField(node)) {
-            if (isSecureField(node)) {
-                BubbleController.hideBubble()
-            } else {
-                BubbleController.showBubble(this, node)
-            }
+            gatedShowBubble(node)
             return
         }
 
@@ -191,11 +303,7 @@ class FluenceAccessibilityService : AccessibilityService() {
                 val root = window.root ?: continue
                 val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 if (focused != null && isEditableTextField(focused)) {
-                    if (isSecureField(focused)) {
-                        BubbleController.hideBubble()
-                    } else {
-                        BubbleController.showBubble(this, focused)
-                    }
+                    gatedShowBubble(focused)
                     focused.recycle()
                     root.recycle()
                     return
@@ -216,11 +324,7 @@ class FluenceAccessibilityService : AccessibilityService() {
                     if (found !== root) {
                         root.recycle()
                     }
-                    if (isSecureField(found)) {
-                        BubbleController.hideBubble()
-                    } else {
-                        BubbleController.showBubble(this, found)
-                    }
+                    gatedShowBubble(found)
                     found.recycle()
                     return
                 }
@@ -232,11 +336,7 @@ class FluenceAccessibilityService : AccessibilityService() {
             if (legacyRoot != null) {
                 val focused = legacyRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 if (focused != null && isEditableTextField(focused)) {
-                    if (isSecureField(focused)) {
-                        BubbleController.hideBubble()
-                    } else {
-                        BubbleController.showBubble(this, focused)
-                    }
+                    gatedShowBubble(focused)
                     focused.recycle()
                     legacyRoot.recycle()
                     return
@@ -404,6 +504,7 @@ class FluenceAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         cancelPendingEvaluation()
+        evalScope.cancel()
         if (activeInstance === this) {
             activeInstance = null
         }

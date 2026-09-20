@@ -137,6 +137,11 @@ fun BubbleSettingsScreen(
     var bubbleEnabled by remember {
         mutableStateOf(FloatingBubblePreferences.isBubbleEnabled(context))
     }
+    // Opt-in: bubble appears only while the soft keyboard is open. Default
+    // off = today's focus-based behavior, unchanged.
+    var imeOnly by remember {
+        mutableStateOf(FloatingBubblePreferences.isImeOnly(context))
+    }
     var accessibilityEnabled by remember {
         mutableStateOf(isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java))
     }
@@ -155,6 +160,8 @@ fun BubbleSettingsScreen(
                     followSystem = FloatingBubblePreferences.isFollowSystem(context)
                 FloatingBubblePreferences.KEY_BUBBLE_ENABLED ->
                     bubbleEnabled = FloatingBubblePreferences.isBubbleEnabled(context)
+                FloatingBubblePreferences.KEY_BUBBLE_IME_ONLY ->
+                    imeOnly = FloatingBubblePreferences.isImeOnly(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -170,6 +177,7 @@ fun BubbleSettingsScreen(
                 accessibilityEnabled =
                     isAccessibilityServiceEnabled(context, FluenceAccessibilityService::class.java)
                 bubbleEnabled = FloatingBubblePreferences.isBubbleEnabled(context)
+                imeOnly = FloatingBubblePreferences.isImeOnly(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -250,6 +258,66 @@ fun BubbleSettingsScreen(
                     }
                     Switch(
                         checked = bubbleEnabled,
+                        onCheckedChange = null,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+
+            // Opt-in visibility mode: bubble shows only while the keyboard is
+            // open. Off (default) = existing focus-based behavior.
+            Surface(
+                color = colors.panel,
+                shape = FluenceShapes.Medium,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = imeOnly,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                imeOnly = checked
+                                FloatingBubblePreferences.setImeOnly(context, checked)
+                            }
+                        )
+                        .padding(
+                            horizontal = FluenceSpacing.Base,
+                            vertical = FluenceSpacing.Base
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Show only when keyboard is visible",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                        Text(
+                            text = if (imeOnly) {
+                                "On · bubble appears only while typing"
+                            } else {
+                                "Bubble shows whenever a text field is focused"
+                            },
+                            color = colors.textSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = imeOnly,
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,

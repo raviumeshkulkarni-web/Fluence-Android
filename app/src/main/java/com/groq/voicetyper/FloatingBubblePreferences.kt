@@ -21,6 +21,23 @@ object FloatingBubblePreferences {
             .apply()
     }
 
+    // Opt-in visibility mode: show the bubble only while the soft keyboard
+    // (IME window) is visible. Default OFF preserves the existing
+    // focus-based behavior exactly; every reader must early-return when off.
+    const val KEY_BUBBLE_IME_ONLY = "floating_bubble_ime_only"
+
+    fun isImeOnly(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_BUBBLE_IME_ONLY, false)
+    }
+
+    fun setImeOnly(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_BUBBLE_IME_ONLY, enabled)
+            .apply()
+    }
+
     // Collapsed-bubble style, INDEPENDENT from the expanded-pill theme.
     // original = today's colorful orb (fixed obsidian paints + logo PNG).
     // classic  = pre-orb amethyst glass equalizer (fixed obsidian paints).
