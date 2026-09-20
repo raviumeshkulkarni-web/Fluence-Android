@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.theme.rememberReducedMotion
@@ -197,7 +198,8 @@ enum class PillTheme(
 
 @Composable
 fun FloatingBubbleUI(
-    isAnchoredRight: Boolean,
+    cardX: Int,
+    cardY: Int,
     onDrag: (dx: Float, dy: Float) -> Unit,
     onDragReleased: () -> Unit,
     onWidthUpdated: (Float) -> Unit
@@ -350,13 +352,23 @@ fun FloatingBubbleUI(
         label = "bubbleAlpha"
     )
     Box(
-        modifier = Modifier
-            // Preserve the fixed V1 visual frame for both collapsed and expanded states.
-            .widthIn(min = 272.dp)
-            .heightIn(min = 96.dp)
-            .padding(16.dp),
-        contentAlignment = contentAlignment
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopStart
     ) {
+        Box(
+            modifier = Modifier
+                // Absolute card position inside the fixed full-screen window.
+                // cardX/cardY and contentAlignment below come from state
+                // updated synchronously on the main thread, so every frame
+                // renders a complete, consistent geometry — the precondition
+                // for the side-flip center flash no longer exists.
+                .offset { IntOffset(cardX, cardY) }
+                // Preserve the fixed V1 visual frame for both collapsed and expanded states.
+                .widthIn(min = 272.dp)
+                .heightIn(min = 96.dp)
+                .padding(16.dp),
+            contentAlignment = contentAlignment
+        ) {
         Box(
             modifier = Modifier
                 .size(width = width, height = height)
@@ -593,6 +605,7 @@ fun FloatingBubbleUI(
             }
         }
     }
+}
 }
 
 /**

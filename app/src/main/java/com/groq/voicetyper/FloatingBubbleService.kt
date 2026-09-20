@@ -16,9 +16,12 @@ import android.animation.AnimatorListenerAdapter
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.view.Choreographer
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -62,7 +65,7 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     private var isAnchoredRight = true
 
     // Interaction (touch) window: transparent overlay sized by its own Compose
-    // content, positioned identically to the visual window. The visual window is
+    // content, positioned from the card geometry. The visual window is
     // FLAG_NOT_TOUCHABLE, so every touch routes through this window.
     private var interactionView: ComposeView? = null
     private var interactionLayoutParams: WindowManager.LayoutParams? = null
@@ -70,6 +73,17 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     // Drag clamp constants shared by the visual and interaction windows.
     private var paddingPx = 0
     private var collapsedSizePx = 0
+    // The visual card is always exactly 272x96dp (outer Box min size covers
+    // both the 56dp collapsed bubble and the 240x64dp expanded pill).
+    private var cardWPx = 0
+
+    // Single source of truth for the visual card's position: absolute
+    // top-left screen coordinates (START|TOP space) of the 272x96dp card
+    // inside the full-screen, never-moving visual window. Snapshot state,
+    // mutated only on the main thread; every drag/snap write is observed by
+    // the next recomposition together with the anchored-side flow, so a
+    // frame can only ever show the complete old or new geometry.
+    private var cardPos by mutableStateOf(IntOffset.Zero)
 
     // One-turn agent dropdown: its own overlay window, fully independent of
     // the pill. The pill layout, animations, and gestures are never touched.
@@ -100,6 +114,16 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         scope.launch {
             BubbleController.recordingState.collect { state ->
                 updateScreenOnFlag(state == RecordingState.RECORDING)
+            }
+        }
+
+        // The interaction window's position is derived from the card geometry
+        // and its own size (88dp collapsed vs 272dp expanded), so it must be
+        // re-mirrored whenever the expanded state toggles. The window itself
+        // is transparent, so this never produces a visual artifact.
+        scope.launch {
+            BubbleController.isBubbleExpanded.collect {
+                mirrorPositionToInteraction()
             }
         }
 
@@ -194,7 +218,17 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         val collapsedSize = (56 * density).toInt()
         paddingPx = padding
         collapsedSizePx = collapsedSize
+        cardWPx = (272 * density).roundToInt()
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
 
+        // The visual window is full-screen, transparent, and NEVER moves
+        // after creation (fixed TOP|START origin). All bubble positioning
+        // happens inside Compose via the card offset, which is derived from
+        // the same state as the inner TopEnd/TopStart alignment in a single
+        // recomposition. There is no WindowManager-origin vs Compose-
+        // alignment pair to disagree, so the one-frame center flash the old
+        // gravity-flip produced cannot occur — not hidden, impossible.
         layoutParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             format = PixelFormat.TRANSLUCENT
@@ -204,16 +238,31 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             // The visual window never receives input; the interaction window owns it.
             this.flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or if (lastIsAnchoredRight) Gravity.END else Gravity.START
-            x = if (lastIsAnchoredRight) -padding else (lastX ?: -padding)
-            y = lastY ?: (resources.displayMetrics.heightPixels / 3 - padding)
-
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
         }
 
         isAnchoredRight = lastIsAnchoredRight
         BubbleController.updateAnchoredRight(lastIsAnchoredRight)
+        // Seed the card position before the first composition so no frame
+        // ever renders a default/centered card. Persisted coordinates are
+        // absolute card top-left values in the same space; without them the
+        // card rests flush right at one-third screen height (as before).
+        val persistedX = lastCardX
+        val persistedY = lastCardY
+        cardPos = if (persistedX != null && persistedY != null) {
+            IntOffset(
+                BubbleController.clampCardX(persistedX, isAnchoredRight, cardWPx, paddingPx, collapsedSizePx, screenW),
+                BubbleController.clampCardY(persistedY, paddingPx, collapsedSizePx, screenH)
+            )
+        } else {
+            IntOffset(screenW - cardWPx + paddingPx, screenH / 3 - paddingPx)
+        }
+        lastCardX = cardPos.x
+        lastCardY = cardPos.y
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(
@@ -226,12 +275,15 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
             setContent {
                 FloatingBubbleUI(
-                    isAnchoredRight = isAnchoredRight,
+                    cardX = cardPos.x,
+                    cardY = cardPos.y,
                     onDrag = { dx, dy -> handleDrag(dx, dy) },
                     onDragReleased = { handleDragReleased() },
                     onWidthUpdated = { _ ->
-                        // WindowManager native gravity (Gravity.START or Gravity.END) keeps the anchored
-                        // edge fixed automatically while Compose resizes. No per-frame updateViewLayout required!
+                        // The card frame is a constant 272x96dp and the window
+                        // never moves, so size morphs need no per-frame
+                        // updateViewLayout — the inner alignment pins the
+                        // anchored edge automatically.
                     }
                 )
             }
@@ -250,13 +302,15 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
         }
 
-        // Interaction window: transparent overlay hosting the touch replica,
-        // added after the visual window so it sits on top and receives every
-        // touch (verified in InputDispatcher: topmost-first dispatch). Its size
-        // is driven by its own Compose content (88x88dp collapsed, 272x96dp
-        // expanded — instant on state transitions, never per-frame). Its position
-        // mirrors the visual window's x/y/gravity; both windows share the same
-        // frame in each state, so the visual window below never receives touches.
+        // Interaction window: transparent overlay hosting the touch replica.
+        // Added after the visual window so it sits on top and receives every
+        // touch (verified in InputDispatcher: topmost-first dispatch). Its
+        // size is driven by its own Compose content (88x88dp collapsed,
+        // 272x96dp expanded — instant on state transitions, never per-frame).
+        // Its gravity is permanently TOP|START, so its x/y are absolute
+        // screen coordinates derived from the card geometry: no gravity flip
+        // ever occurs on this window either.
+        val touchPos = interactionPosFor(BubbleController.isBubbleExpanded.value)
         val interactionLp = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             format = PixelFormat.TRANSLUCENT
@@ -265,9 +319,9 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = layoutParams.gravity
-            x = layoutParams.x
-            y = layoutParams.y
+            gravity = Gravity.TOP or Gravity.START
+            x = touchPos.x
+            y = touchPos.y
         }
         interactionLayoutParams = interactionLp
         val touchView = ComposeView(this).apply {
@@ -306,65 +360,78 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
     }
 
     /**
-     * Shared drag handler for the visual and interaction windows. The visual
-     * window's position is the single source of truth; the interaction window
-     * mirrors it.
+     * Shared drag handler for the visual and interaction windows. The card
+     * position is absolute (gravity-independent), so a finger delta applies
+     * directly with no sign flip. The visual window is never touched — the
+     * cardPos state write recomposes the card to its new offset — and the
+     * interaction window mirrors it below.
      */
     private fun handleDrag(dx: Float, dy: Float) {
+        // A fresh drag owns the bubble: kill any in-flight snap so the stale
+        // animation can't fight the finger or apply an outdated side flip
+        // when it ends. No-op when no snap is running; taps never reach here.
+        snapAnimator?.cancel()
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
-        val lp = layoutParams
-        // Keep the resting gravity for the entire drag; the flip happens only at
-        // snap completion. Under Gravity.END the x inset is from the right edge,
-        // so a left-based finger delta is subtracted; under Gravity.START it is added.
-        if (isAnchoredRight) {
-            lp.x = (lp.x - dx.toInt()).coerceIn(-paddingPx, screenWidth - collapsedSizePx - paddingPx)
-        } else {
-            lp.x = (lp.x + dx.toInt()).coerceIn(-paddingPx, screenWidth - collapsedSizePx - paddingPx)
-        }
-        lp.y = (lp.y + dy.toInt()).coerceIn(-paddingPx, screenHeight - collapsedSizePx - paddingPx)
-        lastX = lp.x
-        lastY = lp.y
-        if (isViewAdded && composeView != null && composeView!!.isAttachedToWindow) {
-            FluenceAccessibilityService.updateBubbleVisualOverlay(composeView!!, lp)
-        }
+        cardPos = IntOffset(
+            BubbleController.clampCardX(
+                cardPos.x + dx.toInt(), isAnchoredRight, cardWPx,
+                paddingPx, collapsedSizePx, screenWidth
+            ),
+            BubbleController.clampCardY(
+                cardPos.y + dy.toInt(), paddingPx, collapsedSizePx, screenHeight
+            )
+        )
+        lastCardX = cardPos.x
+        lastCardY = cardPos.y
         mirrorPositionToInteraction()
     }
 
     private fun handleDragReleased() {
         val screenWidth = resources.displayMetrics.widthPixels
-        val lp = layoutParams
-        // No mid-drag flip anymore: the current gravity is END iff isAnchoredRight.
-        val currentlyEnd = isAnchoredRight
-        val bubbleLeft = if (currentlyEnd) {
-            // END gravity: x is inset from the right; bubble sits `padding` from window-right.
-            screenWidth - lp.x - paddingPx - collapsedSizePx
-        } else {
-            lp.x + paddingPx
-        }
-        val isLeft = bubbleLeft + collapsedSizePx / 2 < screenWidth / 2
-        val finalAnchorRight = !isLeft
-        // Snap target expressed in the CURRENT gravity's coordinate space.
-        val targetX = if (currentlyEnd) {
-            if (finalAnchorRight) -paddingPx else screenWidth - collapsedSizePx - paddingPx
-        } else {
-            if (finalAnchorRight) screenWidth - collapsedSizePx - paddingPx else -paddingPx
-        }
-        animateSnap(targetX, finalAnchorRight, currentlyEnd)
+        val bubbleLeft = cardPos.x + BubbleController.cardInnerOffsetX(
+            isAnchoredRight, cardWPx, paddingPx, collapsedSizePx
+        )
+        val finalAnchorRight = !BubbleController.isLeftSide(bubbleLeft, collapsedSizePx, screenWidth)
+        // Settle target expressed in the CURRENT side's card space, so the
+        // bubble glides release-point -> edge directly. The post-flip rest
+        // uses the same edge with the final side's offset (applied atomically
+        // with the flip in animateSnap), keeping the bubble stationary.
+        val edgeBubble = BubbleController.edgeBubbleLeftPx(finalAnchorRight, screenWidth, collapsedSizePx)
+        val settleX = BubbleController.settleCardX(edgeBubble, isAnchoredRight, cardWPx, paddingPx, collapsedSizePx)
+        animateSnap(settleX, finalAnchorRight, edgeBubble)
     }
 
     /**
-     * Copies the visual window's position to the interaction window. Called on
-     * every drag frame, every snap frame, the snap-end gravity flip, and mount.
+     * Absolute top-left of the interaction window for the current card
+     * geometry. Expanded, the touch frame equals the card frame exactly;
+     * collapsed, it is the 88dp touch frame hugging the 56dp bubble.
+     */
+    private fun interactionPosFor(expanded: Boolean): IntOffset {
+        return if (expanded) {
+            IntOffset(cardPos.x, cardPos.y)
+        } else {
+            val bubbleLeft = cardPos.x + BubbleController.cardInnerOffsetX(
+                isAnchoredRight, cardWPx, paddingPx, collapsedSizePx
+            )
+            IntOffset(bubbleLeft - paddingPx, cardPos.y)
+        }
+    }
+
+    /**
+     * Copies the card geometry to the interaction window. Called on every
+     * drag frame, every snap frame, snap end, expanded toggles, and mount.
+     * The interaction window is transparent, so its updates can never
+     * produce a visual artifact; only hit-testing follows a frame behind.
      */
     private fun mirrorPositionToInteraction() {
         val view = interactionView ?: return
         if (!view.isAttachedToWindow) return
         val lp2 = interactionLayoutParams ?: return
-        lp2.x = layoutParams.x
-        lp2.y = layoutParams.y
-        lp2.gravity = layoutParams.gravity
-        // Match the visual window: the snap-end flip must teleport, not glide.
+        val pos = interactionPosFor(BubbleController.isBubbleExpanded.value)
+        lp2.x = pos.x
+        lp2.y = pos.y
+        lp2.gravity = Gravity.TOP or Gravity.START
         if (Build.VERSION.SDK_INT >= 34) {
             lp2.setCanPlayMoveAnimation(false)
         }
@@ -399,15 +466,12 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         val screenW = metrics.widthPixels.toFloat()
         val screenH = metrics.heightPixels.toFloat()
         // True expanded pill frame: 240x64dp content inside the 16dp
-        // padded visual window, matching FloatingBubbleUI exactly.
+        // padded visual card, matching FloatingBubbleUI exactly. The card
+        // geometry is absolute, so no gravity-dependent conversion needed.
         val pillW = 240f * density
         val pillH = 64f * density
-        val pillLeft = if (isAnchoredRight) {
-            screenW - layoutParams.x.toFloat() - paddingPx.toFloat() - pillW
-        } else {
-            layoutParams.x.toFloat() + paddingPx.toFloat()
-        }
-        val pillTop = layoutParams.y.toFloat() + paddingPx.toFloat()
+        val pillLeft = (cardPos.x + paddingPx).toFloat()
+        val pillTop = (cardPos.y + paddingPx).toFloat()
         val below = pillTop + pillH / 2f < screenH / 2f
 
         // Strip matches the expanded pill width so it reads as part of it,
@@ -592,6 +656,8 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     private fun removeOverlayView() {
         hideAgentDropdown()
+        snapAnimator?.cancel()
+        snapAnimator = null
         interactionView?.let {
             if (it.isAttachedToWindow) {
                 windowManager.removeView(it)
@@ -627,9 +693,9 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
     private var snapAnimator: android.animation.ValueAnimator? = null
 
-    private fun animateSnap(targetX: Int, finalAnchorRight: Boolean, currentlyEnd: Boolean) {
+    private fun animateSnap(targetX: Int, finalAnchorRight: Boolean, edgeBubbleLeft: Int) {
         snapAnimator?.cancel()
-        val startX = layoutParams.x
+        val startX = cardPos.x
         val animator = android.animation.ValueAnimator.ofInt(startX, targetX)
         animator.duration = 350
         animator.interpolator = android.view.animation.DecelerateInterpolator()
@@ -641,49 +707,39 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
 
             override fun onAnimationEnd(animation: Animator) {
                 if (wasCancelled || !isViewAdded || composeView?.isAttachedToWindow != true) return
-                // Gravity/alignment flip happens only at snap completion, and only when the
-                // final side differs from the gravity used during the drag. The bubble is
-                // already at rest on the target edge, so the simultaneous origin-move and
-                // alignment-flip is geometrically continuous.
-                if (finalAnchorRight != currentlyEnd) {
-                    val padding = (16 * resources.displayMetrics.density).toInt()
-                    val view = composeView
-                    if (view != null) {
-                        // Alpha gate: hide the overlay for exactly one frame while WindowManager
-                        // repositions the window origin and Compose applies the alignment flip.
-                        // The Choreographer callback restores alpha on Frame N+1 before traversal.
-                        view.alpha = 0f
-                        BubbleController.updateAnchoredRight(finalAnchorRight)
-                        layoutParams.gravity = Gravity.TOP or if (finalAnchorRight) Gravity.END else Gravity.START
-                        layoutParams.x = -padding
-                        lastX = layoutParams.x
-                        if (Build.VERSION.SDK_INT >= 34) {
-                            layoutParams.setCanPlayMoveAnimation(false)
-                        }
-                        if (isViewAdded && view.isAttachedToWindow) {
-                            FluenceAccessibilityService.updateBubbleVisualOverlay(view, layoutParams)
-                            mirrorPositionToInteraction()
-                        }
-                        Choreographer.getInstance().postFrameCallback {
-                            if (view.alpha == 0f) {
-                                view.alpha = 1f
-                            }
-                        }
-                    }
+                // Side flip at snap completion. The snap settled the bubble
+                // exactly onto its edge under the OLD alignment; here the
+                // card teleports to the same edge under the NEW alignment
+                // (edge - newOffset) in the same synchronous commit as the
+                // side flip. Bubble position before:
+                //   settleCard + offset(old) == edge.
+                // Bubble position after:
+                //   (edge - offset(new)) + offset(new) == edge.
+                // Identical — the flip is bubble-stationary and therefore
+                // invisible, with no window move, no hiding, no delays, and
+                // no dependence on frame timing. Same-side releases skip the
+                // flip (settle == rest, zero jump).
+                cardPos = IntOffset(
+                    edgeBubbleLeft - BubbleController.cardInnerOffsetX(
+                        finalAnchorRight, cardWPx, paddingPx, collapsedSizePx
+                    ),
+                    cardPos.y
+                )
+                lastCardX = cardPos.x
+                lastCardY = cardPos.y
+                if (finalAnchorRight != isAnchoredRight) {
+                    BubbleController.updateAnchoredRight(finalAnchorRight)
                 }
                 isAnchoredRight = finalAnchorRight
                 lastIsAnchoredRight = finalAnchorRight
+                mirrorPositionToInteraction()
             }
         })
         animator.addUpdateListener { animation ->
             val currX = animation.animatedValue as Int
-            layoutParams.x = currX
-            lastX = currX
-            composeView?.let {
-                if (isViewAdded && it.isAttachedToWindow) {
-                    FluenceAccessibilityService.updateBubbleVisualOverlay(it, layoutParams)
-                }
-            }
+            cardPos = cardPos.copy(x = currX)
+            lastCardX = currX
+            // No visual-window update: cardPos drives recomposition directly.
             mirrorPositionToInteraction()
         }
         snapAnimator = animator
@@ -712,9 +768,10 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         private const val NOTIFICATION_ID = 2026
 
         
-        // Static variables to persist the bubble's coordinates and side anchoring across show/hide events
-        private var lastX: Int? = null
-        private var lastY: Int? = null
+        // Static variables to persist the bubble's coordinates and side anchoring across show/hide events.
+        // Coordinates are absolute card top-left values (START|TOP space), matching cardPos.
+        private var lastCardX: Int? = null
+        private var lastCardY: Int? = null
         private var lastIsAnchoredRight: Boolean = true
     }
 }

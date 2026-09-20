@@ -46,6 +46,45 @@ object BubbleController {
         _isAnchoredRight.value = anchoredRight
     }
 
+    // ── Card geometry (pure, unit-tested) ────────────────────────────────
+    // The visual overlay window is full-screen and never moves; the bubble
+    // card (always exactly 272x96dp: max(272, inner+32) x max(96, inner+32))
+    // is positioned inside it by absolute card top-left coordinates. These
+    // helpers are the single source of truth for that mapping, shared by
+    // FloatingBubbleService. Because a side change updates the card offset
+    // and the anchored side synchronously on the main thread, one
+    // recomposition observes both — a mixed old/new frame (the center
+    // flash) is structurally impossible. Snap targets are always flush to
+    // a screen edge, never the center.
+    fun cardInnerOffsetX(anchoredRight: Boolean, cardWPx: Int, paddingPx: Int, collapsedPx: Int): Int =
+        if (anchoredRight) cardWPx - paddingPx - collapsedPx else paddingPx
+
+    fun clampCardX(xPx: Int, anchoredRight: Boolean, cardWPx: Int, paddingPx: Int, collapsedPx: Int, screenWPx: Int): Int {
+        val off = cardInnerOffsetX(anchoredRight, cardWPx, paddingPx, collapsedPx)
+        return xPx.coerceIn(-off, screenWPx - collapsedPx - off)
+    }
+
+    fun clampCardY(yPx: Int, paddingPx: Int, collapsedPx: Int, screenHPx: Int): Int =
+        yPx.coerceIn(-paddingPx, screenHPx - collapsedPx - paddingPx)
+
+    fun snapTargetCardX(finalAnchoredRight: Boolean, screenWPx: Int, cardWPx: Int, paddingPx: Int): Int =
+        if (finalAnchoredRight) screenWPx - cardWPx + paddingPx else -paddingPx
+
+    // Edge (flush) bubble-left for a side, in absolute screen coordinates.
+    fun edgeBubbleLeftPx(finalAnchoredRight: Boolean, screenWPx: Int, collapsedPx: Int): Int =
+        if (finalAnchoredRight) screenWPx - collapsedPx else 0
+
+    // Snap-settle card position: places the bubble exactly on [edgeBubbleLeftPx]
+    // while the CURRENT side alignment is still active, so the visible snap
+    // glides release-point -> edge directly. The post-flip rest
+    // (snapTargetCardX) uses the same edge with the NEW side's offset, which
+    // is what makes the flip bubble-stationary (see FloatingBubbleService).
+    fun settleCardX(edgeBubbleLeftPx: Int, currentAnchoredRight: Boolean, cardWPx: Int, paddingPx: Int, collapsedPx: Int): Int =
+        edgeBubbleLeftPx - cardInnerOffsetX(currentAnchoredRight, cardWPx, paddingPx, collapsedPx)
+
+    fun isLeftSide(bubbleLeftPx: Int, collapsedPx: Int, screenWPx: Int): Boolean =
+        bubbleLeftPx + collapsedPx / 2 < screenWPx / 2
+
     // Delegate recording flows to the centralized TranscriptionSessionManager
     val recordingState: StateFlow<RecordingState> = TranscriptionSessionManager.recordingState
     val isAgentMode: StateFlow<Boolean> = TranscriptionSessionManager.isAgentMode
