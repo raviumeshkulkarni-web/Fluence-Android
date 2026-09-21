@@ -238,7 +238,7 @@ fun FormattingScreen(
                 }
                 item {
                     Text(
-                        text = "Cleans up filler words like um and fixes grammar right after you dictate.",
+                        text = "Every app is cleaned automatically when this is on. Use styles below only to override specific apps.",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
                         modifier = Modifier
@@ -293,9 +293,9 @@ fun FormattingScreen(
                 item {
                     val stylesRowSource = remember { MutableInteractionSource() }
                     val stylesSummary = if (customCount > 0) {
-                        "Proofread, Natural, Professional plus $customCount custom"
+                        "Auto for all apps · 3 built-in + $customCount custom"
                     } else {
-                        "Proofread, Natural, Professional"
+                        "Auto for all apps · Proofread, Natural, Professional"
                     }
                     Row(
                         modifier = Modifier

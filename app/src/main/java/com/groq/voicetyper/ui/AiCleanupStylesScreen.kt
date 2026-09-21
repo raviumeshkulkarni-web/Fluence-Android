@@ -181,7 +181,7 @@ fun AiCleanupStylesScreen(
         }
 
         Text(
-            text = "Give each app its own writing style: casual for WhatsApp, polished for Gmail. Tap a style, then tap the apps that should use it. The three built-in styles work out of the box.",
+            text = "Every app is cleaned up automatically, no setup needed. Tap a style only to override specific apps; each app follows one style at a time. Styles apply when AI cleanup is on and you're online.",
             color = colors.textSecondary,
             style = FluenceTypography.bodySmall,
             textAlign = TextAlign.Start,
