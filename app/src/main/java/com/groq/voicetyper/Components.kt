@@ -46,11 +46,15 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
@@ -430,11 +434,67 @@ fun FluenceFeedbackHost(modifier: Modifier = Modifier) {
         }
     }
     SnackbarHost(hostState = hostState, modifier = modifier) { data ->
+        // Premium unified toast: elevated dialog surface, outlineSubtle hairline,
+        // shadow-menu/dialog depth, Medium 12dp radius, and Fluence typography.
+        // No raw colors — all tokens, inset-aware via host modifier.
+        val shape = FluenceShapes.Medium
         Snackbar(
-            snackbarData = data,
-            shape = FluenceShapes.Small,
+            modifier = Modifier
+                .shadow(
+                    elevation = 12.dp,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = Color.Black.copy(alpha = 0.45f),
+                    spotColor = Color.Black.copy(alpha = 0.45f)
+                )
+                .border(1.dp, colors.outlineSubtle, shape),
+            shape = shape,
             containerColor = colors.dialog,
-            contentColor = colors.textPrimary
-        )
+            contentColor = colors.textPrimary,
+            actionContentColor = colors.textPrimary,
+            dismissActionContentColor = colors.textSecondary
+        ) {
+            androidx.compose.foundation.layout.Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                androidx.compose.material3.Text(
+                    text = data.visuals.message,
+                    color = colors.textPrimary,
+                    style = FluenceTypography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                val actionLabel = data.visuals.actionLabel
+                if (actionLabel != null) {
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Md))
+                    TextButton(
+                        onClick = { data.performAction() },
+                        contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm, vertical = FluenceSpacing.Xs)
+                    ) {
+                        androidx.compose.material3.Text(
+                            text = actionLabel,
+                            color = colors.textPrimary,
+                            style = FluenceTypography.labelLarge
+                        )
+                    }
+                }
+                if (data.visuals.withDismissAction) {
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    androidx.compose.material3.IconButton(
+                        onClick = { data.dismiss() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = com.groq.voicetyper.ui.icons.FluenceIcons.X,
+                            contentDescription = "Dismiss",
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }

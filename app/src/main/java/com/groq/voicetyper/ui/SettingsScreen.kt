@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.LocalIndication
@@ -266,7 +267,8 @@ fun SettingsScreen(
                 val audioChevronAngle by animateFloatAsState(
                     targetValue = if (audioCardExpanded) 90f else 0f,
                     animationSpec = if (reducedMotion) snap() else tween(
-                        durationMillis = FluenceMotion.durationImmediate
+                        durationMillis = FluenceMotion.durationImmediate,
+                        easing = FastOutSlowInEasing
                     ),
                     label = "audio_focus_chevron"
                 )
@@ -329,11 +331,11 @@ fun SettingsScreen(
                     AnimatedVisibility(
                         visible = audioCardExpanded,
                         enter = if (reducedMotion) EnterTransition.None
-                        else fadeIn(tween(FluenceMotion.durationStructural)) +
-                            expandVertically(tween(FluenceMotion.durationStructural)),
+                        else fadeIn(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            expandVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)),
                         exit = if (reducedMotion) ExitTransition.None
-                        else fadeOut(tween(FluenceMotion.durationStructural)) +
-                            shrinkVertically(tween(FluenceMotion.durationStructural)),
+                        else fadeOut(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            shrinkVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)),
                     ) {
                         Column(
                             modifier = Modifier
@@ -384,7 +386,8 @@ fun SettingsScreen(
                 val appearanceChevronAngle by animateFloatAsState(
                     targetValue = if (appearanceExpanded) 90f else 0f,
                     animationSpec = if (appearanceReducedMotion) snap() else tween(
-                        durationMillis = FluenceMotion.durationImmediate
+                        durationMillis = FluenceMotion.durationImmediate,
+                        easing = FastOutSlowInEasing
                     ),
                     label = "appearance_chevron"
                 )
@@ -443,11 +446,11 @@ fun SettingsScreen(
                     AnimatedVisibility(
                         visible = appearanceExpanded,
                         enter = if (appearanceReducedMotion) EnterTransition.None
-                        else fadeIn(tween(FluenceMotion.durationStructural)) +
-                            expandVertically(tween(FluenceMotion.durationStructural)),
+                        else fadeIn(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            expandVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)),
                         exit = if (appearanceReducedMotion) ExitTransition.None
-                        else fadeOut(tween(FluenceMotion.durationStructural)) +
-                            shrinkVertically(tween(FluenceMotion.durationStructural)),
+                        else fadeOut(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) +
+                            shrinkVertically(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)),
                     ) {
                         Column(
                             modifier = Modifier

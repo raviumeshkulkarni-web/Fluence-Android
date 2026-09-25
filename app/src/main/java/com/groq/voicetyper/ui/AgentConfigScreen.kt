@@ -1,6 +1,7 @@
 package com.groq.voicetyper.ui
 
 import com.groq.voicetyper.FeedbackBus
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -278,12 +280,20 @@ fun AgentConfigScreen(
                         } else {
                             var showModelDropdown by remember { mutableStateOf(false) }
 
+                            val agentTriggerInteraction = remember { MutableInteractionSource() }
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { showModelDropdown = true }
-                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                        .pressScale(agentTriggerInteraction)
+                                        .clickable(
+                                            interactionSource = agentTriggerInteraction,
+                                            indication = LocalIndication.current,
+                                            role = Role.Button,
+                                            onClickLabel = "Select model",
+                                            onClick = { showModelDropdown = true }
+                                        )
+                                        .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
                                         .background(colors.inputBg, FluenceShapes.Medium)
                                         .padding(horizontal = 16.dp, vertical = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically,

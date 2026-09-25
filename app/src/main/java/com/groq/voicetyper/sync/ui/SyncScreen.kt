@@ -7,9 +7,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -116,9 +118,8 @@ fun SyncScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // Rotating sync icon animation when sync is active
-    // Reduced motion: the transition still exists but is never applied to
-    // rotation below, so the icon renders static.
+    // Rotating sync icon animation when sync is active — 1000ms uniform rotation
+    // (continuous spin, not a Fluence tier). Non-essential so reducedMotion keeps it static.
     val motionPrefs = LocalMotionPreferences.current
     val infiniteTransition = rememberInfiniteTransition(label = "sync_rotation")
     val rotationAngle by infiniteTransition.animateFloat(
@@ -299,9 +300,22 @@ fun SyncScreen(
             )
             SettingsJointCard {
                 if (status.signedIn) {
+                    val syncToggleInteraction = remember { MutableInteractionSource() }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .pressScale(syncToggleInteraction)
+                            .toggleable(
+                                value = status.syncEnabled,
+                                role = Role.Switch,
+                                interactionSource = syncToggleInteraction,
+                                indication = LocalIndication.current,
+                                onValueChange = { checked ->
+                                    SyncManager.setSyncEnabled(context, checked)
+                                    manager.refreshStatus()
+                                }
+                            )
                             .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -321,12 +335,8 @@ fun SyncScreen(
 
                         Switch(
                             checked = status.syncEnabled,
-                            onCheckedChange = { checked ->
-                                SyncManager.setSyncEnabled(context, checked)
-                                manager.refreshStatus()
-                            },
+                            onCheckedChange = null,
                             modifier = Modifier.semantics {
-                                role = Role.Switch
                                 stateDescription = if (status.syncEnabled) "On" else "Off"
                             },
                             colors = SwitchDefaults.colors(

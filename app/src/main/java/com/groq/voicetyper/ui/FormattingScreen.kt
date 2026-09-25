@@ -399,7 +399,8 @@ private fun ToggleRow(
                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                 checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
                 uncheckedThumbColor = colors.textPrimary,
-                uncheckedTrackColor = colors.panel
+                uncheckedTrackColor = colors.panel,
+                uncheckedBorderColor = colors.outlineSubtle
             ),
             modifier = Modifier.semantics {
                 contentDescription = toggleLabel

@@ -521,7 +521,7 @@ fun HistoryScreen(
                                 visible = group.key !in collapsedDays,
                                 enter = rowEnter,
                                 exit = rowExit,
-                                modifier = Modifier.animateItemPlacement(),
+                                modifier = if (reducedMotion) Modifier else Modifier.animateItemPlacement(),
                             ) {
                                 HistoryTranscriptRow(
                                     entry = entry,
@@ -861,8 +861,8 @@ private fun HistoryTranscriptRow(
                     )
                     if (!foreign) {
                         DropdownMenuItem(
-                            text = { Text("Delete", color = colors.error, style = FluenceTypography.bodyLarge) },
-                            leadingIcon = { Icon(FluenceIcons.Trash2, null, tint = colors.error, modifier = Modifier.size(20.dp)) },
+                            text = { Text("Delete", color = colors.errorText, style = FluenceTypography.bodyLarge) },
+                            leadingIcon = { Icon(FluenceIcons.Trash2, null, tint = colors.errorText, modifier = Modifier.size(20.dp)) },
                             onClick = { onDelete(); showMenu = false }
                         )
                     }
@@ -887,7 +887,8 @@ private fun DayGroupHeader(
     val chevronAngle by animateFloatAsState(
         targetValue = if (collapsed) -90f else 0f,
         animationSpec = if (reducedMotion) snap() else tween(
-            durationMillis = FluenceMotion.durationImmediate
+            durationMillis = FluenceMotion.durationImmediate,
+            easing = FastOutSlowInEasing
         ),
         label = "group_chevron"
     )

@@ -486,7 +486,7 @@ private fun AgentRow(
                 onClick = onClick,
                 colors = RadioButtonDefaults.colors(
                     selectedColor = colors.textPrimary,
-                    unselectedColor = colors.textSecondary.copy(alpha = 0.5f)
+                    unselectedColor = colors.textSecondary
                 ),
                 modifier = Modifier.padding(end = FluenceSpacing.Sm)
             )

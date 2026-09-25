@@ -1,6 +1,7 @@
 package com.groq.voicetyper.ui
 
 import com.groq.voicetyper.FeedbackBus
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -350,12 +351,20 @@ fun SttConfigScreen(
                     var showLanguageDropdown by remember { mutableStateOf(false) }
                     val currentLanguageLabel = languages.find { it.first == selectedLanguage }?.second ?: "Auto-detect"
 
+                    val languageTriggerInteraction = remember { MutableInteractionSource() }
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable(role = Role.Button, onClickLabel = "Select language") { showLanguageDropdown = true }
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                .pressScale(languageTriggerInteraction)
+                                .clickable(
+                                    interactionSource = languageTriggerInteraction,
+                                    indication = LocalIndication.current,
+                                    role = Role.Button,
+                                    onClickLabel = "Select language",
+                                    onClick = { showLanguageDropdown = true }
+                                )
+                                .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
                                 .background(colors.inputBg, FluenceShapes.Medium)
                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -368,47 +377,45 @@ fun SttConfigScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Box {
-                                Icon(
-                                    imageVector = FluenceIcons.ChevronDown,
-                                    contentDescription = "Select language",
-                                    tint = colors.textSecondary
-                                )
-                                DropdownMenu(
-                                    expanded = showLanguageDropdown,
-                                    onDismissRequest = { showLanguageDropdown = false },
-                                    modifier = Modifier
-                                        .width(220.dp)
-                                        .heightIn(max = 280.dp)
-                                        .background(colors.dialog, FluenceShapes.Medium)
-                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                                ) {
-                                    languages.forEach { (code, name) ->
-                                        val isSelected = code == selectedLanguage
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = name,
-                                                    color = colors.textPrimary,
-                                                    style = FluenceTypography.bodyLarge
-                                                )
-                                            },
-                                            colors = MenuDefaults.itemColors(
-                                                textColor = colors.textPrimary,
-                                                leadingIconColor = colors.textSecondary,
-                                                trailingIconColor = colors.textSecondary
-                                            ),
-                                            modifier = if (isSelected) Modifier
-                                                .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                            else Modifier,
-                                            onClick = {
-                                                selectedLanguage = code
-                                                SecurityUtils.saveSttLanguage(context, code ?: "")
-                                                showLanguageDropdown = false
-                                            }
+                            Icon(
+                                imageVector = FluenceIcons.ChevronDown,
+                                contentDescription = "Select language",
+                                tint = colors.textSecondary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showLanguageDropdown,
+                            onDismissRequest = { showLanguageDropdown = false },
+                            modifier = Modifier
+                                .width(220.dp)
+                                .heightIn(max = 280.dp)
+                                .background(colors.dialog, FluenceShapes.Medium)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                        ) {
+                            languages.forEach { (code, name) ->
+                                val isSelected = code == selectedLanguage
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = name,
+                                            color = colors.textPrimary,
+                                            style = FluenceTypography.bodyLarge
                                         )
+                                    },
+                                    colors = MenuDefaults.itemColors(
+                                        textColor = colors.textPrimary,
+                                        leadingIconColor = colors.textSecondary,
+                                        trailingIconColor = colors.textSecondary
+                                    ),
+                                    modifier = if (isSelected) Modifier
+                                        .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                    else Modifier,
+                                    onClick = {
+                                        selectedLanguage = code
+                                        SecurityUtils.saveSttLanguage(context, code ?: "")
+                                        showLanguageDropdown = false
                                     }
-                                }
+                                )
                             }
                         }
                     }
@@ -459,12 +466,20 @@ fun SttConfigScreen(
                             else listOf(SecurityUtils.getSttModel(context, selectedProvider))
                         }
 
+                        val modelTriggerInteraction = remember { MutableInteractionSource() }
                         Box(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(role = Role.Button, onClickLabel = "Select model") { showModelDropdown = true }
-                                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                    .pressScale(modelTriggerInteraction)
+                                    .clickable(
+                                        interactionSource = modelTriggerInteraction,
+                                        indication = LocalIndication.current,
+                                        role = Role.Button,
+                                        onClickLabel = "Select model",
+                                        onClick = { showModelDropdown = true }
+                                    )
+                                    .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
                                     .background(colors.inputBg, FluenceShapes.Medium)
                                     .padding(horizontal = 16.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -495,7 +510,7 @@ fun SttConfigScreen(
                                 availableModels.forEach { m ->
                                     val isSelected = m == selectedModel
                                     DropdownMenuItem(
-                                        text = { Text(text = m, color = colors.textPrimary) },
+                                        text = { Text(text = m, color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
                                         colors = MenuDefaults.itemColors(
                                             textColor = colors.textPrimary,
                                             leadingIconColor = colors.textSecondary,
@@ -561,6 +576,12 @@ fun SttConfigScreen(
                                 selectedLabelColor = colors.textPrimary,
                                 containerColor = colors.buttonSecondary,
                                 labelColor = colors.textSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                borderColor = colors.inputBorder,
+                                selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                enabled = true,
+                                selected = !isStreamingEnabled || !isStreamingSupported
                             )
                         )
 
@@ -581,6 +602,12 @@ fun SttConfigScreen(
                                 labelColor = colors.textSecondary,
                                 disabledContainerColor = colors.buttonSecondary.copy(alpha = 0.4f),
                                 disabledLabelColor = colors.textDisabled
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                borderColor = colors.inputBorder,
+                                selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                enabled = isStreamingSupported,
+                                selected = isStreamingEnabled && isStreamingSupported
                             )
                         )
                     }

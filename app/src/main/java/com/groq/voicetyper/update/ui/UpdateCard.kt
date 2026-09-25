@@ -1,13 +1,18 @@
 package com.groq.voicetyper.update.ui
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -109,46 +114,74 @@ fun AboutAndUpdateCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Auto-Check Toggle
+            val autoCheckInteraction = remember { MutableInteractionSource() }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .pressScale(autoCheckInteraction)
+                    .toggleable(
+                        value = autoCheck,
+                        role = Role.Switch,
+                        interactionSource = autoCheckInteraction,
+                        indication = LocalIndication.current,
+                        onValueChange = { checked ->
+                            autoCheck = checked
+                            viewModel.setAutoCheckEnabled(checked)
+                        }
+                    )
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Automatic Updates Check", color = colors.textPrimary, style = FluenceTypography.labelLarge)
+                Text("Automatic Updates Check", color = colors.textPrimary, style = FluenceTypography.labelLarge, modifier = Modifier.weight(1f))
                 Switch(
                     checked = autoCheck,
-                    onCheckedChange = { checked ->
-                        autoCheck = checked
-                        viewModel.setAutoCheckEnabled(checked)
-                    },
+                    onCheckedChange = null,
+                    modifier = Modifier.semantics { stateDescription = if (autoCheck) "On" else "Off" },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                         checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
                         uncheckedThumbColor = colors.textPrimary,
-                        uncheckedTrackColor = colors.panel
+                        uncheckedTrackColor = colors.panel,
+                        uncheckedBorderColor = colors.outlineSubtle
                     )
                 )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            val meteredInteraction = remember { MutableInteractionSource() }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .pressScale(meteredInteraction)
+                    .toggleable(
+                        value = allowMeteredDownload,
+                        role = Role.Switch,
+                        interactionSource = meteredInteraction,
+                        indication = LocalIndication.current,
+                        onValueChange = { checked ->
+                            allowMeteredDownload = checked
+                            viewModel.setAllowMeteredDownloads(checked)
+                        }
+                    )
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Download over Mobile Data", style = FluenceTypography.labelLarge, color = colors.textPrimary)
+                Text("Download over Mobile Data", style = FluenceTypography.labelLarge, color = colors.textPrimary, modifier = Modifier.weight(1f))
                 Switch(
                     checked = allowMeteredDownload,
-                    onCheckedChange = { checked ->
-                        allowMeteredDownload = checked
-                        viewModel.setAllowMeteredDownloads(checked)
-                    },
+                    onCheckedChange = null,
+                    modifier = Modifier.semantics { stateDescription = if (allowMeteredDownload) "On" else "Off" },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
                         checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
                         uncheckedThumbColor = colors.textPrimary,
-                        uncheckedTrackColor = colors.panel
+                        uncheckedTrackColor = colors.panel,
+                        uncheckedBorderColor = colors.outlineSubtle
                     )
                 )
             }

@@ -289,9 +289,10 @@ fun FluenceNavHost(
             FluenceFeedbackHost(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .displayCutoutPadding()
                     .navigationBarsPadding()
                     .imePadding()
-                    .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                    .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
             )
         }
         }
