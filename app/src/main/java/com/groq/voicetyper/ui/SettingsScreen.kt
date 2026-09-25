@@ -45,6 +45,8 @@ import com.groq.voicetyper.AudioFocusMode
 import com.groq.voicetyper.AudioFocusPreferences
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.offline.ModelAssetManager
@@ -57,65 +59,58 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-private fun SettingsRow(
+private fun SettingsNavRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     summary: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = PrecisionTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
-    Surface(
-        color = colors.panel,
-        shape = FluenceShapes.Medium,
-        shadowElevation = 0.dp,
-        modifier = Modifier
+    Row(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base)
             .pressScale(interactionSource)
-            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
             .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
                 onClickLabel = "Open $title",
-                role = androidx.compose.ui.semantics.Role.Button,
+                role = Role.Button,
                 onClick = onClick
             )
+            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = colors.textSecondary,
-                modifier = Modifier.size(22.dp)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(22.dp)
+        )
+
+        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = colors.textPrimary,
+                style = FluenceTypography.titleMedium
             )
-
-            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    style = FluenceTypography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                Text(
-                    text = summary,
-                    color = colors.textSecondary,
-                    style = FluenceTypography.bodySmall
-                )
-            }
-
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.textSecondary,
-                modifier = Modifier.size(20.dp)
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+            Text(
+                text = summary,
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall
             )
         }
+
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 
@@ -179,103 +174,93 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(horizontal = FluenceSpacing.Base)
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsTopBar(
                 title = "Settings",
-                onBack = onNavigateBack,
-                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                onBack = onNavigateBack
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // AI Transcription
-            SettingsRow(
-                icon = FluenceIcons.Mic,
-                title = "AI Transcription",
-                summary = "$providerLabel \u00b7 ${sttModel.value}",
-                onClick = { onNavigateTo(Screen.SttConfig) }
+            // Section 1: Transcription
+            SettingsSectionHeader(
+                title = "Transcription",
+                description = "Speech recognition and AI intelligence engines"
             )
+            SettingsJointCard {
+                SettingsNavRow(
+                    icon = FluenceIcons.Mic,
+                    title = "AI Transcription",
+                    summary = "$providerLabel \u00b7 ${sttModel.value}",
+                    onClick = { onNavigateTo(Screen.SttConfig) }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsNavRow(
+                    icon = Icons.Default.AutoAwesome,
+                    title = "AI Agent Mode",
+                    summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
+                    onClick = { onNavigateTo(Screen.AgentConfig) }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsNavRow(
+                    icon = Icons.Default.PhoneAndroid,
+                    title = "Offline Transcription",
+                    summary = when {
+                        offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
+                        modelReady.value -> "Model installed \u00b7 Disabled"
+                        else -> "Model not installed"
+                    },
+                    onClick = { onNavigateTo(Screen.OfflineConfig) }
+                )
+            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // AI Agent Mode
-            SettingsRow(
-                icon = Icons.Default.AutoAwesome,
-                title = "AI Agent Mode",
-                summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
-                onClick = { onNavigateTo(Screen.AgentConfig) }
+            // Section 2: System & Privacy
+            SettingsSectionHeader(
+                title = "System & Privacy",
+                description = "Permissions, sync, background services, and app exclusions"
             )
+            SettingsJointCard {
+                SettingsNavRow(
+                    icon = Icons.Default.Security,
+                    title = "Permissions & Services",
+                    summary = "Microphone, overlay, accessibility, battery",
+                    onClick = { onNavigateTo(Screen.Permissions) }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsNavRow(
+                    icon = Icons.Default.Lock,
+                    title = "Privacy & App Exclusions",
+                    summary = when (excludedAppCount.value) {
+                        0 -> "Disabled"
+                        1 -> "Active \u00b7 1 app excluded"
+                        else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
+                    },
+                    onClick = { onNavigateTo(Screen.PrivacyExclusions) }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsNavRow(
+                    icon = FluenceIcons.RefreshCw,
+                    title = "Google Drive Sync",
+                    summary = "Cloud backup \u00b7 Cross-device sync",
+                    onClick = { onNavigateTo(Screen.SyncConfig) }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsNavRow(
+                    icon = Icons.Default.Circle,
+                    title = "Floating Bubble",
+                    summary = "Personalize the bubble look",
+                    onClick = { onNavigateTo(Screen.BubbleSettings) }
+                )
+            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Offline Transcription
-            SettingsRow(
-                icon = Icons.Default.PhoneAndroid,
-                title = "Offline Transcription",
-                summary = when {
-                    offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
-                    modelReady.value -> "Model installed \u00b7 Disabled"
-                    else -> "Model not installed"
-                },
-                onClick = { onNavigateTo(Screen.OfflineConfig) }
+            // Section 3: Preferences
+            SettingsSectionHeader(
+                title = "Preferences",
+                description = "Audio behavior and visual appearance"
             )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Permissions & Services
-            SettingsRow(
-                icon = Icons.Default.Security,
-                title = "Permissions & Services",
-                summary = "Microphone, overlay, accessibility, battery",
-                onClick = { onNavigateTo(Screen.Permissions) }
-            )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Privacy & App Exclusions
-            SettingsRow(
-                icon = Icons.Default.Lock,
-                title = "Privacy & App Exclusions",
-                summary = when (excludedAppCount.value) {
-                    0 -> "Disabled"
-                    1 -> "Active \u00b7 1 app excluded"
-                    else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
-                },
-                onClick = { onNavigateTo(Screen.PrivacyExclusions) }
-            )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Floating Bubble
-            SettingsRow(
-                icon = Icons.Default.Circle,
-                title = "Floating Bubble",
-                summary = "Personalize the bubble look",
-                onClick = { onNavigateTo(Screen.BubbleSettings) }
-            )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Audio Focus — separate collapsed card; tap the header to reveal the
-            // Off / Duck / Pause selector inside. Same card + FluenceSegmentedControl
-            // pattern as Appearance, same trailing arrow (size/tint/family) as every
-            // SettingsRow — rotation to 90° signals expanded, same structural expand
-            // motion as Home onboarding. Collapsed by default so the hub stays
-            // uncluttered; the summary always shows the current mode.
-            // Touch effect mirrors SettingsRow: shared press source drives both
-            // the card press-scale and the header ripple.
-            val audioPressSource = remember { MutableInteractionSource() }
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .pressScale(audioPressSource)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+            SettingsJointCard {
+                // Audio Focus row
+                val audioPressSource = remember { MutableInteractionSource() }
                 var audioCardExpanded by rememberSaveable { mutableStateOf(false) }
                 val reducedMotion = LocalMotionPreferences.current.reducedMotion
                 val audioChevronAngle by animateFloatAsState(
@@ -286,20 +271,20 @@ fun SettingsScreen(
                     label = "audio_focus_chevron"
                 )
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .pressScale(audioPressSource)
                             .clickable(
                                 interactionSource = audioPressSource,
                                 indication = LocalIndication.current,
                                 role = Role.Button,
                                 onClickLabel = if (audioCardExpanded) "Collapse" else "Expand",
                                 onClick = { audioCardExpanded = !audioCardExpanded }
-                            ),
+                            )
+                            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -350,9 +335,11 @@ fun SettingsScreen(
                         else fadeOut(tween(FluenceMotion.durationStructural)) +
                             shrinkVertically(tween(FluenceMotion.durationStructural)),
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = FluenceSpacing.Base, end = FluenceSpacing.Base, bottom = 14.dp)
+                        ) {
                             val focusOptions = remember {
                                 listOf(
                                     SegmentChoice(label = "Off", accessibilityLabel = "Play through while dictating"),
@@ -381,30 +368,14 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            // Appearance, 3-option selector: follow the phone day/night
-            // state, or pin light / dark. Writes the same `theme_mode` pref
-            // MainActivity observes, so the switch is instant, no restart.
-            // Unknown/legacy values fall back to dark (see getThemeMode).
-            // Collapsed card mirroring the audio card above: same trailing arrow,
-            // same motion, same SettingsRow touch effect.
-            val appearancePressSource = remember { MutableInteractionSource() }
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .pressScale(appearancePressSource)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+                // Appearance row
+                val appearancePressSource = remember { MutableInteractionSource() }
                 val effectiveDark = resolveDarkTheme(themeMode.value)
                 val appearanceSummary = when (themeMode.value) {
-                    ThemeModeSystem -> "Follow phone · currently ${if (effectiveDark) "dark" else "light"}"
+                    ThemeModeSystem -> "Follow phone \u00b7 currently ${if (effectiveDark) "dark" else "light"}"
                     ThemeModeLight -> "Light surfaces, deepened teal accents"
                     else -> "Signature dark surfaces"
                 }
@@ -418,20 +389,20 @@ fun SettingsScreen(
                     label = "appearance_chevron"
                 )
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .pressScale(appearancePressSource)
                             .clickable(
                                 interactionSource = appearancePressSource,
                                 indication = LocalIndication.current,
                                 role = Role.Button,
                                 onClickLabel = if (appearanceExpanded) "Collapse" else "Expand",
                                 onClick = { appearanceExpanded = !appearanceExpanded }
-                            ),
+                            )
+                            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -478,9 +449,11 @@ fun SettingsScreen(
                         else fadeOut(tween(FluenceMotion.durationStructural)) +
                             shrinkVertically(tween(FluenceMotion.durationStructural)),
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = FluenceSpacing.Base, end = FluenceSpacing.Base, bottom = 14.dp)
+                        ) {
                             val themeOptions = remember {
                                 listOf(
                                     SegmentChoice(label = "System", accessibilityLabel = "Follow system day night theme"),
@@ -511,15 +484,21 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // About
-            SettingsRow(
-                icon = Icons.Default.Info,
+            // Section 4: About
+            SettingsSectionHeader(
                 title = "About",
-                summary = "Version \u00b7 Licenses",
-                onClick = { onNavigateTo(Screen.About) }
+                description = "Version, licenses, and diagnostics"
             )
+            SettingsJointCard {
+                SettingsNavRow(
+                    icon = Icons.Default.Info,
+                    title = "About",
+                    summary = "Version \u00b7 Licenses",
+                    onClick = { onNavigateTo(Screen.About) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
         }
     }
 }

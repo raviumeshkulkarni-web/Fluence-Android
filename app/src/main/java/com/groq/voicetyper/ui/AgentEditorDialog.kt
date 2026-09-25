@@ -83,8 +83,8 @@ fun AgentEditorDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,
@@ -122,8 +122,8 @@ fun AgentEditorDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,

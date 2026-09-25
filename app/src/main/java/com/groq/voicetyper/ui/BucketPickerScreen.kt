@@ -43,13 +43,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.formatting.AppAwareFormatter
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.formatting.BuiltInApps
@@ -143,18 +148,16 @@ fun BucketPickerScreen(
             // punctuation stays readable.
             val sampleIn = "Hello world. hello again."
             val sampleOut = remember(bucket) { AppAwareFormatter.format(sampleIn, bucket) }
-            FluenceSectionHeader(label = "EXAMPLE")
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Small,
-                border = BorderStroke(1.dp, colors.outlineSubtle),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
+            SettingsSectionHeader(
+                title = "Example",
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
+            SettingsJointCard(
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             ) {
                 Column(
                     modifier = Modifier.padding(
-                        horizontal = FluenceSpacing.Md,
+                        horizontal = FluenceSpacing.Base,
                         vertical = FluenceSpacing.Sm
                     )
                 ) {
@@ -209,8 +212,8 @@ fun BucketPickerScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary,
-                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                    unfocusedBorderColor = colors.outlineSubtle,
+                    focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                    unfocusedBorderColor = colors.inputBorder,
                     focusedContainerColor = colors.panelElevated,
                     unfocusedContainerColor = colors.panelElevated,
                     cursorColor = colors.textPrimary
@@ -224,76 +227,105 @@ fun BucketPickerScreen(
             )
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-            HorizontalDivider(color = colors.outlineSubtle)
 
-            when {
-                isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.textSecondary)
-                    }
-                }
-                filteredApps.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        FluenceEmptyState(
-                            icon = if (apps.isEmpty()) {
-                                Icons.Default.PhoneAndroid
-                            } else {
-                                FluenceIcons.Search
-                            },
-                            title = if (apps.isEmpty()) {
-                                "No launchable apps found"
-                            } else {
-                                "No apps match your search"
-                            },
-                            description = if (apps.isEmpty()) {
-                                "No apps installed that can be placed."
-                            } else {
-                                "Try a different word or app name."
-                            }
-                        )
-                    }
-                }
-                else -> {
-                    // Selected apps pin to an INCLUDED section on top so the
-                    // user always sees what is in this bucket without
-                    // scrolling. Everything else follows under ALL APPS.
-                    val (included, rest) = filteredApps.partition { app ->
-                        overrides[app.packageName] == bucket
-                    }
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        if (included.isNotEmpty()) {
-                            item(key = "included-header") {
-                                FluenceSectionHeader(label = "INCLUDED")
-                            }
-                            items(included, key = { "in-${it.packageName}" }) { app ->
-                                BucketPickerItem(
-                                    app = app,
-                                    bucket = bucket,
-                                    overrides = overrides,
-                                    onMove = { label -> FeedbackBus.show(label) },
-                                    onOverridesChange = { overrides = it }
-                                )
-                                HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
-                            }
+            SettingsSectionHeader(
+                title = "Installed Apps",
+                description = "Tap an app to assign this formatting style",
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .clip(FluenceShapes.Medium)
+                    .background(colors.cardSurface)
+                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+            ) {
+                when {
+                    isLoading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = colors.textSecondary)
                         }
-                        if (rest.isNotEmpty()) {
-                            item(key = "all-header") {
-                                FluenceSectionHeader(label = "ALL APPS")
+                    }
+                    filteredApps.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            FluenceEmptyState(
+                                icon = if (apps.isEmpty()) {
+                                    Icons.Default.PhoneAndroid
+                                } else {
+                                    FluenceIcons.Search
+                                },
+                                title = if (apps.isEmpty()) {
+                                    "No launchable apps found"
+                                } else {
+                                    "No apps match your search"
+                                },
+                                description = if (apps.isEmpty()) {
+                                    "No apps installed that can be placed."
+                                } else {
+                                    "Try a different word or app name."
+                                }
+                            )
+                        }
+                    }
+                    else -> {
+                        // Selected apps pin to an INCLUDED section on top so the
+                        // user always sees what is in this bucket without
+                        // scrolling. Everything else follows under ALL APPS.
+                        val (included, rest) = filteredApps.partition { app ->
+                            overrides[app.packageName] == bucket
+                        }
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            if (included.isNotEmpty()) {
+                                item(key = "included-header") {
+                                    FluenceSectionHeader(
+                                        label = "INCLUDED",
+                                        modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                                    )
+                                }
+                                itemsIndexed(included, key = { _, it -> "in-${it.packageName}" }) { index, app ->
+                                    BucketPickerItem(
+                                        app = app,
+                                        bucket = bucket,
+                                        overrides = overrides,
+                                        onMove = { label -> FeedbackBus.show(label) },
+                                        onOverridesChange = { overrides = it }
+                                    )
+                                    if (index < included.size - 1 || rest.isNotEmpty()) {
+                                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                                    }
+                                }
                             }
-                            items(rest, key = { "all-${it.packageName}" }) { app ->
-                                BucketPickerItem(
-                                    app = app,
-                                    bucket = bucket,
-                                    overrides = overrides,
-                                    onMove = { label -> FeedbackBus.show(label) },
-                                    onOverridesChange = { overrides = it }
-                                )
-                                HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                            if (rest.isNotEmpty()) {
+                                if (included.isNotEmpty()) {
+                                    item(key = "all-header") {
+                                        FluenceSectionHeader(
+                                            label = "ALL APPS",
+                                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                                        )
+                                    }
+                                }
+                                itemsIndexed(rest, key = { _, it -> "all-${it.packageName}" }) { index, app ->
+                                    BucketPickerItem(
+                                        app = app,
+                                        bucket = bucket,
+                                        overrides = overrides,
+                                        onMove = { label -> FeedbackBus.show(label) },
+                                        onOverridesChange = { overrides = it }
+                                    )
+                                    if (index < rest.size - 1) {
+                                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
         }
     }
 }

@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.cleanup.AiCleanupPreferences
 import com.groq.voicetyper.navigation.Screen
@@ -180,57 +182,66 @@ fun AiCleanupStylesScreen(
             )
         }
 
-        Text(
-            text = "Every app is cleaned up automatically, no setup needed. Tap a style only to override specific apps; each app follows one style at a time. Styles apply when AI cleanup is on and you're online.",
-            color = colors.textSecondary,
-            style = FluenceTypography.bodySmall,
-            textAlign = TextAlign.Start,
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = FluenceSpacing.Base,
-                    end = FluenceSpacing.Base,
-                    bottom = FluenceSpacing.Sm
-                )
-        )
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
+                .fillMaxSize()
                 .padding(horizontal = FluenceSpacing.Base)
-                .background(colors.cardSurface, FluenceShapes.Medium)
         ) {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                item {
-                    FluenceSectionHeader(label = "BUILT IN")
-                }
-                items(AiCleanupPreferences.BUILT_IN_IDS, key = { it }) { styleId ->
-                    val meta = AiCleanupPreferences.builtInMeta(styleId)
-                    val count = overrides.count { it.value == styleId }
-                    AiStyleRow(
-                        title = meta.title,
-                        description = meta.explanation,
-                        badge = if (count > 0) "$count apps" else "Tap to assign apps",
-                        onClick = { onNavigateTo(Screen.AiStylePicker(styleId)) }
-                    )
-                    HorizontalDivider(
-                        color = colors.outlineSubtle,
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                    )
-                }
-                item {
-                    FluenceSectionHeader(
-                        label = "CUSTOM STYLES",
-                        actionLabel = "+ New",
-                        onAction = {
-                            styleToEdit = null
-                            showEditor = true
+            item {
+                Text(
+                    text = "Every app is cleaned up automatically, no setup needed. Tap a style only to override specific apps; each app follows one style at a time. Styles apply when AI cleanup is on and you're online.",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = FluenceSpacing.Sm)
+                )
+            }
+
+            // Section 1: Built-in Styles
+            item {
+                SettingsSectionHeader(
+                    title = "Built-in Styles",
+                    description = "Standard cleanup prompts applied automatically"
+                )
+            }
+            item {
+                SettingsJointCard {
+                    AiCleanupPreferences.BUILT_IN_IDS.forEachIndexed { index, styleId ->
+                        val meta = AiCleanupPreferences.builtInMeta(styleId)
+                        val count = overrides.count { it.value == styleId }
+                        AiStyleRow(
+                            title = meta.title,
+                            description = meta.explanation,
+                            badge = if (count > 0) "$count apps" else "Tap to assign apps",
+                            onClick = { onNavigateTo(Screen.AiStylePicker(styleId)) }
+                        )
+                        if (index < AiCleanupPreferences.BUILT_IN_IDS.lastIndex) {
+                            HorizontalDivider(
+                                color = colors.divider,
+                                thickness = 1.dp
+                            )
                         }
-                    )
+                    }
                 }
-                if (customs.isEmpty()) {
-                    item {
+            }
+
+            // Section 2: Custom Styles
+            item {
+                SettingsSectionHeader(
+                    title = "Custom Styles",
+                    description = "Custom prompt instructions for specific apps",
+                    actionLabel = "+ New",
+                    onAction = {
+                        styleToEdit = null
+                        showEditor = true
+                    }
+                )
+            }
+            item {
+                SettingsJointCard {
+                    if (customs.isEmpty()) {
                         FluenceEmptyState(
                             icon = FluenceIcons.Zap,
                             title = "No custom styles yet",
@@ -242,44 +253,46 @@ fun AiCleanupStylesScreen(
                             },
                             modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
                         )
-                    }
-                } else {
-                    items(customs, key = { it.id }) { style ->
-                        val count = overrides.count { it.value == style.id }
-                        AiStyleRow(
-                            title = style.name,
-                            description = if (count > 0) "$count apps" else "Tap to assign apps",
-                            badge = null,
-                            isCustom = true,
-                            isSelected = style.id in selectedIds,
-                            isMultiSelect = isMultiSelect,
-                            onToggleSelect = {
-                                selectedIds = if (style.id in selectedIds) {
-                                    selectedIds - style.id
-                                } else {
-                                    selectedIds + style.id
+                    } else {
+                        customs.forEachIndexed { index, style ->
+                            val count = overrides.count { it.value == style.id }
+                            AiStyleRow(
+                                title = style.name,
+                                description = if (count > 0) "$count apps" else "Tap to assign apps",
+                                badge = null,
+                                isCustom = true,
+                                isSelected = style.id in selectedIds,
+                                isMultiSelect = isMultiSelect,
+                                onToggleSelect = {
+                                    selectedIds = if (style.id in selectedIds) {
+                                        selectedIds - style.id
+                                    } else {
+                                        selectedIds + style.id
+                                    }
+                                },
+                                onClick = { onNavigateTo(Screen.AiStylePicker(style.id)) },
+                                onEdit = {
+                                    styleToEdit = style
+                                    showEditor = true
+                                },
+                                onDelete = {
+                                    pendingDeleteIds = listOf(style.id)
+                                    showDeleteDialog = true
                                 }
-                            },
-                            onClick = { onNavigateTo(Screen.AiStylePicker(style.id)) },
-                            onEdit = {
-                                styleToEdit = style
-                                showEditor = true
-                            },
-                            onDelete = {
-                                pendingDeleteIds = listOf(style.id)
-                                showDeleteDialog = true
+                            )
+                            if (index < customs.lastIndex) {
+                                HorizontalDivider(
+                                    color = colors.divider,
+                                    thickness = 1.dp
+                                )
                             }
-                        )
-                        HorizontalDivider(
-                            color = colors.outlineSubtle,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                        )
+                        }
                     }
                 }
-                item {
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
             }
         }
     }

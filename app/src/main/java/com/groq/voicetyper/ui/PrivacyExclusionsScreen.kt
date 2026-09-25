@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +27,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -58,6 +61,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.FluenceShapes
@@ -140,10 +145,7 @@ fun PrivacyExclusionsScreen(
 
             // User-approved expectation note: bank security warnings about
             // accessibility-enabled apps are misattributed to Fluence.
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, colors.outlineSubtle),
+            SettingsJointCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
@@ -213,8 +215,8 @@ fun PrivacyExclusionsScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary,
-                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                    unfocusedBorderColor = colors.outlineSubtle,
+                    focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                    unfocusedBorderColor = colors.inputBorder,
                     focusedContainerColor = colors.panelElevated,
                     unfocusedContainerColor = colors.panelElevated,
                     cursorColor = colors.textPrimary
@@ -228,54 +230,73 @@ fun PrivacyExclusionsScreen(
             )
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-            HorizontalDivider(color = colors.outlineSubtle)
 
-            when {
-                isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.textSecondary)
+            SettingsSectionHeader(
+                title = "Installed Apps",
+                description = "Toggle apps to completely exclude them from Fluence",
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = FluenceSpacing.Base)
+                    .clip(FluenceShapes.Medium)
+                    .background(colors.cardSurface)
+                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+            ) {
+                when {
+                    isLoading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = colors.textSecondary)
+                        }
                     }
-                }
-                filteredApps.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        FluenceEmptyState(
-                            icon = if (apps.isEmpty()) {
-                                Icons.Default.PhoneAndroid
-                            } else {
-                                FluenceIcons.Search
-                            },
-                            title = if (apps.isEmpty()) {
-                                "No launchable apps found"
-                            } else {
-                                "No apps match your search"
-                            },
-                            description = if (apps.isEmpty()) {
-                                "No apps installed that can be excluded."
-                            } else {
-                                "Try a different word or app name."
-                            }
-                        )
-                    }
-                }
-                else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(filteredApps, key = { it.packageName }) { app ->
-                            val isExcluded = excludedPackages.contains(app.packageName)
-                            AppExclusionRow(
-                                app = app,
-                                isExcluded = isExcluded,
-                                onCheckedChange = { excluded ->
-                                    PrivacyPreferences.setPackageExcluded(context, app.packageName, excluded)
-                                    excludedPackages = excludedPackages.toMutableSet().apply {
-                                        if (excluded) add(app.packageName) else remove(app.packageName)
-                                    }
+                    filteredApps.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            FluenceEmptyState(
+                                icon = if (apps.isEmpty()) {
+                                    Icons.Default.PhoneAndroid
+                                } else {
+                                    FluenceIcons.Search
+                                },
+                                title = if (apps.isEmpty()) {
+                                    "No launchable apps found"
+                                } else {
+                                    "No apps match your search"
+                                },
+                                description = if (apps.isEmpty()) {
+                                    "No apps installed that can be excluded."
+                                } else {
+                                    "Try a different word or app name."
                                 }
                             )
-                            HorizontalDivider(color = colors.outlineSubtle, modifier = Modifier.padding(start = 76.dp))
+                        }
+                    }
+                    else -> {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            itemsIndexed(filteredApps, key = { _, app -> app.packageName }) { index, app ->
+                                val isExcluded = excludedPackages.contains(app.packageName)
+                                AppExclusionRow(
+                                    app = app,
+                                    isExcluded = isExcluded,
+                                    onCheckedChange = { excluded ->
+                                        PrivacyPreferences.setPackageExcluded(context, app.packageName, excluded)
+                                        excludedPackages = excludedPackages.toMutableSet().apply {
+                                            if (excluded) add(app.packageName) else remove(app.packageName)
+                                        }
+                                    }
+                                )
+                                if (index < filteredApps.size - 1) {
+                                    HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                                }
+                            }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
         }
     }
 }

@@ -37,3 +37,4 @@ RELEASE_KEYSTORE_BASE64.txt
 *.jks
 *.p12
 *.pfx
+tasks/

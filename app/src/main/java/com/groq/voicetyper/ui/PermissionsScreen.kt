@@ -33,6 +33,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.FluenceAccessibilityService
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.isAccessibilityServiceEnabled
 import com.groq.voicetyper.pressScale
@@ -56,7 +58,7 @@ private fun PermissionRow(
                 stateDescription = if (isGranted) "Granted" else "Not granted"
             }
             .clickable(onClick = onRequest)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -93,15 +95,7 @@ private fun PermissionRow(
     }
 }
 
-@Composable
-private fun SectionDivider() {
-    val colors = PrecisionTheme.colors
-    HorizontalDivider(
-        color = colors.outlineSubtle,
-        thickness = 1.dp,
-        modifier = Modifier.padding(horizontal = 20.dp)
-    )
-}
+
 
 @Composable
 fun PermissionsScreen(
@@ -178,100 +172,105 @@ fun PermissionsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(horizontal = FluenceSpacing.Base)
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsTopBar(
                 title = "Permissions & Services",
-                onBack = onNavigateBack,
-                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                onBack = onNavigateBack
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            PermissionRow(
-                icon = Icons.Default.Keyboard,
-                title = "Voice Typing Keyboard",
-                description = if (keyboardEnabled) "Enabled & Selected" else "Tap to enable or select as active keyboard",
-                isGranted = keyboardEnabled,
-                onRequest = {
-                    context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-                }
+            SettingsSectionHeader(
+                title = "Required Permissions",
+                description = "Core capabilities needed for transcription and overlay functionality"
             )
 
-            SectionDivider()
-
-            PermissionRow(
-                icon = Icons.Default.Mic,
-                title = "Microphone",
-                description = if (micGranted) "Granted" else "Required for voice typing",
-                isGranted = micGranted,
-                onRequest = {
-                    if (micGranted) {
-                        FeedbackBus.show("Microphone permission already granted")
-                    } else {
-                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            SettingsJointCard {
+                PermissionRow(
+                    icon = Icons.Default.Keyboard,
+                    title = "Voice Typing Keyboard",
+                    description = if (keyboardEnabled) "Enabled & Selected" else "Tap to enable or select as active keyboard",
+                    isGranted = keyboardEnabled,
+                    onRequest = {
+                        context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
                     }
-                }
-            )
+                )
 
-            SectionDivider()
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            PermissionRow(
-                icon = Icons.Default.PictureInPicture,
-                title = "Display Over Other Apps",
-                description = if (overlayGranted) "Granted" else "Required for floating bubble",
-                isGranted = overlayGranted,
-                onRequest = {
-                    if (overlayGranted) {
-                        FeedbackBus.show("Overlay permission already granted")
-                    } else {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        overlayLauncher.launch(intent)
-                    }
-                }
-            )
-
-            SectionDivider()
-
-            PermissionRow(
-                icon = Icons.Default.Accessibility,
-                title = "Accessibility Service",
-                description = if (accessibilityEnabled) "Enabled" else "Required for orb and auto-mode",
-                isGranted = accessibilityEnabled,
-                onRequest = {
-                    if (accessibilityEnabled) {
-                        FeedbackBus.show("Accessibility service already enabled")
-                    } else {
-                        FeedbackBus.show("Find \"Fluence Transcribe\" and enable it", long = true)
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        context.startActivity(intent)
-                    }
-                }
-            )
-
-            SectionDivider()
-
-            PermissionRow(
-                icon = Icons.Default.BatteryAlert,
-                title = "Battery Optimization",
-                description = if (batteryUnrestricted) "Unrestricted" else "May kill background service",
-                isGranted = batteryUnrestricted,
-                onRequest = {
-                    if (batteryUnrestricted) {
-                        FeedbackBus.show("Already unrestricted")
-                    } else {
-                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = Uri.parse("package:${context.packageName}")
+                PermissionRow(
+                    icon = Icons.Default.Mic,
+                    title = "Microphone",
+                    description = if (micGranted) "Granted" else "Required for voice typing",
+                    isGranted = micGranted,
+                    onRequest = {
+                        if (micGranted) {
+                            FeedbackBus.show("Microphone permission already granted")
+                        } else {
+                            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
-                        batteryLauncher.launch(intent)
                     }
-                }
-            )
+                )
 
-            Spacer(modifier = Modifier.height(24.dp))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                PermissionRow(
+                    icon = Icons.Default.PictureInPicture,
+                    title = "Display Over Other Apps",
+                    description = if (overlayGranted) "Granted" else "Required for floating bubble",
+                    isGranted = overlayGranted,
+                    onRequest = {
+                        if (overlayGranted) {
+                            FeedbackBus.show("Overlay permission already granted")
+                        } else {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            overlayLauncher.launch(intent)
+                        }
+                    }
+                )
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                PermissionRow(
+                    icon = Icons.Default.Accessibility,
+                    title = "Accessibility Service",
+                    description = if (accessibilityEnabled) "Enabled" else "Required for orb and auto-mode",
+                    isGranted = accessibilityEnabled,
+                    onRequest = {
+                        if (accessibilityEnabled) {
+                            FeedbackBus.show("Accessibility service already enabled")
+                        } else {
+                            FeedbackBus.show("Find \"Fluence Transcribe\" and enable it", long = true)
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            context.startActivity(intent)
+                        }
+                    }
+                )
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                PermissionRow(
+                    icon = Icons.Default.BatteryAlert,
+                    title = "Battery Optimization",
+                    description = if (batteryUnrestricted) "Unrestricted" else "May kill background service",
+                    isGranted = batteryUnrestricted,
+                    onRequest = {
+                        if (batteryUnrestricted) {
+                            FeedbackBus.show("Already unrestricted")
+                        } else {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                            batteryLauncher.launch(intent)
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
         }
     }
 }

@@ -57,7 +57,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
-import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.agent.AgentPreferences
 import com.groq.voicetyper.pressScale
@@ -184,31 +185,32 @@ fun AgentsScreen(
             )
         }
 
-        Text(
-            text = "Agents are saved instructions that shape how Agent Mode writes for you, e.g. keep my emails short and professional. They only change wording and can never take actions. Tap one to make it your default.",
-            color = colors.textSecondary,
-            style = FluenceTypography.bodySmall,
-            textAlign = TextAlign.Start,
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = FluenceSpacing.Base,
-                    end = FluenceSpacing.Base,
-                    bottom = FluenceSpacing.Sm
-                )
-        )
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
+                .fillMaxSize()
                 .padding(horizontal = FluenceSpacing.Base)
-                .background(colors.cardSurface, FluenceShapes.Medium)
         ) {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                item {
-                    FluenceSectionHeader(label = "BUILT IN")
-                }
-                item {
+            item {
+                Text(
+                    text = "Agents are saved instructions that shape how Agent Mode writes for you, e.g. keep my emails short and professional. They only change wording and can never take actions. Tap one to make it your default.",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = FluenceSpacing.Sm)
+                )
+            }
+
+            // Section 1: Built-in Agent
+            item {
+                SettingsSectionHeader(
+                    title = "Built-in Agent",
+                    description = "System agent available for general dictation and editing"
+                )
+            }
+            item {
+                SettingsJointCard {
                     AgentRow(
                         title = "Fluence Agent",
                         description = "The all-rounder. Edits, rewrites, and answers questions.",
@@ -219,24 +221,24 @@ fun AgentsScreen(
                             FeedbackBus.show("Fluence Agent set as default")
                         }
                     )
-                    HorizontalDivider(
-                        color = colors.outlineSubtle,
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                    )
                 }
-                item {
-                    FluenceSectionHeader(
-                        label = "CUSTOM AGENTS",
-                        actionLabel = "+ New",
-                        onAction = {
-                            agentToEdit = null
-                            showEditor = true
-                        }
-                    )
-                }
-                if (customs.isEmpty()) {
-                    item {
+            }
+
+            // Section 2: Custom Agents
+            item {
+                SettingsSectionHeader(
+                    title = "Custom Agents",
+                    description = "Personalized instructions that shape how Agent Mode writes",
+                    actionLabel = "+ New",
+                    onAction = {
+                        agentToEdit = null
+                        showEditor = true
+                    }
+                )
+            }
+            item {
+                SettingsJointCard {
+                    if (customs.isEmpty()) {
                         FluenceEmptyState(
                             icon = FluenceIcons.Zap,
                             title = "No custom agents yet",
@@ -248,47 +250,49 @@ fun AgentsScreen(
                             },
                             modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
                         )
-                    }
-                } else {
-                    items(customs, key = { it.id }) { agent ->
-                        AgentRow(
-                            title = agent.name,
-                            description = agent.hint,
-                            isDefault = defaultId == agent.id,
-                            isCustom = true,
-                            isSelected = agent.id in selectedIds,
-                            isMultiSelect = isMultiSelect,
-                            onToggleSelect = {
-                                selectedIds = if (agent.id in selectedIds) {
-                                    selectedIds - agent.id
-                                } else {
-                                    selectedIds + agent.id
+                    } else {
+                        customs.forEachIndexed { index, agent ->
+                            AgentRow(
+                                title = agent.name,
+                                description = agent.hint,
+                                isDefault = defaultId == agent.id,
+                                isCustom = true,
+                                isSelected = agent.id in selectedIds,
+                                isMultiSelect = isMultiSelect,
+                                onToggleSelect = {
+                                    selectedIds = if (agent.id in selectedIds) {
+                                        selectedIds - agent.id
+                                    } else {
+                                        selectedIds + agent.id
+                                    }
+                                },
+                                onClick = {
+                                    AgentPreferences.setDefaultAgentId(context, agent.id)
+                                    refresh()
+                                    FeedbackBus.show("${agent.name} set as default")
+                                },
+                                onEdit = {
+                                    agentToEdit = agent
+                                    showEditor = true
+                                },
+                                onDelete = {
+                                    pendingDeleteIds = listOf(agent.id)
+                                    showDeleteDialog = true
                                 }
-                            },
-                            onClick = {
-                                AgentPreferences.setDefaultAgentId(context, agent.id)
-                                refresh()
-                                FeedbackBus.show("${agent.name} set as default")
-                            },
-                            onEdit = {
-                                agentToEdit = agent
-                                showEditor = true
-                            },
-                            onDelete = {
-                                pendingDeleteIds = listOf(agent.id)
-                                showDeleteDialog = true
+                            )
+                            if (index < customs.lastIndex) {
+                                HorizontalDivider(
+                                    color = colors.divider,
+                                    thickness = 1.dp
+                                )
                             }
-                        )
-                        HorizontalDivider(
-                            color = colors.outlineSubtle,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                        )
+                        }
                     }
                 }
-                item {
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
             }
         }
     }
@@ -479,7 +483,7 @@ private fun AgentRow(
             }
             RadioButton(
                 selected = isDefault,
-                onClick = null,
+                onClick = onClick,
                 colors = RadioButtonDefaults.colors(
                     selectedColor = colors.textPrimary,
                     unselectedColor = colors.textSecondary.copy(alpha = 0.5f)

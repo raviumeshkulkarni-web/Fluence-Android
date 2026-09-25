@@ -348,46 +348,54 @@ fun HistoryScreen(
                 )
             }
 
-            // Card fills the remaining viewport (Windows parity): section
-            // header, search, filters, then the list scrolling inside.
+            // Card fills the remaining viewport (Windows parity): search row with Clear All,
+            // filters, then the list scrolling inside.
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = FluenceSpacing.Base)
-                    .background(colors.cardSurface, FluenceShapes.Medium)
+                    .clip(FluenceShapes.Medium)
+                    .background(colors.cardSurface)
+                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             ) {
-                // Card header: section label + Clear All (Windows parity).
+                // Search row with Clear All button next to it (Windows parity)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = FluenceSpacing.Base, end = FluenceSpacing.Sm, top = FluenceSpacing.Sm),
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "RECENT TRANSCRIPTIONS",
-                        color = colors.textTertiary,
-                        style = FluenceTypography.labelSmall.copy(
-                            fontFamily = GeistMonoFont,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.8.sp
-                        ),
+                    HistorySearchBar(
+                        searchQuery = searchQuery,
+                        onSearchChange = { searchQuery = it },
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(
-                        onClick = { showClearAllDialog = true },
-                        contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
-                        modifier = Modifier.heightIn(min = 48.dp)
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    val clearInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .pressScale(clearInteraction)
+                            .clip(FluenceShapes.Small)
+                            .background(colors.panel)
+                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Small)
+                            .clickable(
+                                interactionSource = clearInteraction,
+                                indication = androidx.compose.foundation.LocalIndication.current,
+                                enabled = allEntries.isNotEmpty(),
+                                onClick = { showClearAllDialog = true }
+                            )
+                            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Clear All", color = colors.errorText, style = FluenceTypography.labelMedium)
+                        Text(
+                            text = "Clear All",
+                            color = if (allEntries.isNotEmpty()) colors.errorText else colors.textDisabled,
+                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
                     }
                 }
-
-                HistorySearchBar(
-                    searchQuery = searchQuery,
-                    onSearchChange = { searchQuery = it },
-                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
 
                 // Date filter (Windows All time / Today / Yesterday), same
                 // segmented control as the Activity chart selector.
@@ -633,8 +641,8 @@ private fun HistorySearchBar(
         },
         shape = FluenceShapes.Medium,
         colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-            unfocusedBorderColor = colors.outlineSubtle,
+            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+            unfocusedBorderColor = colors.inputBorder,
             focusedContainerColor = colors.panel,
             unfocusedContainerColor = colors.panel,
             focusedTextColor = colors.textPrimary,
@@ -925,7 +933,7 @@ private fun DayGroupHeader(
                 style = FluenceTypography.labelSmall.copy(fontFamily = GeistMonoFont)
             )
         }
-        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)
+        HorizontalDivider(color = colors.divider, thickness = 1.dp)
     }
 }
 

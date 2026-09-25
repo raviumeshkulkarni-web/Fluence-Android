@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.snippets.Snippet
@@ -140,157 +142,165 @@ fun SnippetsScreen(
                 )
             }
 
-            Text(
-                text = "Say a short trigger like my email and Fluence types your full text instead. Triggers work everywhere you dictate.",
-                color = colors.textSecondary,
-                style = FluenceTypography.bodySmall,
-                textAlign = TextAlign.Start,
+            LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = FluenceSpacing.Base,
-                        end = FluenceSpacing.Base,
-                        bottom = FluenceSpacing.Sm
-                    )
-            )
-
-            if (!isEnabled) {
-                Surface(
-                    color = colors.panelElevated,
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.N6)
-                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                ) {
+                    .fillMaxSize()
+                    .padding(horizontal = FluenceSpacing.Base)
+            ) {
+                item {
                     Text(
-                        text = "Text Expansion is paused. Your triggers won't expand until you turn it back on.",
+                        text = "Say a short trigger like my email and Fluence types your full text instead. Triggers work everywhere you dictate.",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
-                        modifier = Modifier.padding(FluenceSpacing.Md)
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = FluenceSpacing.Sm)
                     )
                 }
-            }
 
-            // Card fills the remaining viewport (Windows parity): the enable
-            // row, then the My Snippets table rows — no per-row cards.
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .background(colors.cardSurface, FluenceShapes.Medium)
-            ) {
-                val switchInteraction = remember { MutableInteractionSource() }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pressScale(switchInteraction)
-                        .toggleable(
-                            value = isEnabled,
-                            interactionSource = switchInteraction,
-                            indication = androidx.compose.foundation.LocalIndication.current,
-                            role = Role.Switch,
-                            onValueChange = { checked ->
-                                isEnabled = checked
-                                SnippetPreferences.setSnippetsEnabled(context, checked)
-                            }
-                        )
-                        .padding(horizontal = FluenceSpacing.Base)
-                        .padding(top = FluenceSpacing.Sm, bottom = FluenceSpacing.Lg)
-                        .heightIn(min = 48.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Enable Text Expansion",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Dictate a short trigger and Fluence pastes your expansion text instead",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
-                        )
+                if (!isEnabled) {
+                    item {
+                        Surface(
+                            color = colors.panelElevated,
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = FluenceSpacing.Sm)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                        ) {
+                            Text(
+                                text = "Text Expansion is paused. Your triggers won't expand until you turn it back on.",
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall,
+                                modifier = Modifier.padding(FluenceSpacing.Md)
+                            )
+                        }
                     }
-                    Switch(
-                        checked = isEnabled,
-                        onCheckedChange = null,
-                        modifier = Modifier.semantics {
-                            contentDescription = "Enable text expansion"
-                            stateDescription = if (isEnabled) "On" else "Off"
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            uncheckedThumbColor = colors.textPrimary,
-                            uncheckedTrackColor = colors.panel
-                        )
+                }
+
+                // Section 1: Text Expansion
+                item {
+                    SettingsSectionHeader(
+                        title = "Text Expansion",
+                        description = "Configure shorthand triggers that expand into longer text"
                     )
                 }
-                HorizontalDivider(
-                    color = colors.outlineSubtle,
-                    thickness = 1.dp,
-                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                )
-                FluenceSectionHeader(
-                    label = "MY SNIPPETS",
-                    actionLabel = "+ Add",
-                    onAction = {
-                        snippetToEdit = null
-                        showDialog = true
+                item {
+                    SettingsJointCard {
+                        val switchInteraction = remember { MutableInteractionSource() }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressScale(switchInteraction)
+                                .toggleable(
+                                    value = isEnabled,
+                                    interactionSource = switchInteraction,
+                                    indication = androidx.compose.foundation.LocalIndication.current,
+                                    role = Role.Switch,
+                                    onValueChange = { checked ->
+                                        isEnabled = checked
+                                        SnippetPreferences.setSnippetsEnabled(context, checked)
+                                    }
+                                )
+                                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
+                                .heightIn(min = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Enable Text Expansion",
+                                    color = colors.textPrimary,
+                                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Dictate a short trigger and Fluence pastes your expansion text instead",
+                                    color = colors.textSecondary,
+                                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+                            Switch(
+                                checked = isEnabled,
+                                onCheckedChange = null,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Enable text expansion"
+                                    stateDescription = if (isEnabled) "On" else "Off"
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                                    checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                    uncheckedThumbColor = colors.textPrimary,
+                                    uncheckedTrackColor = colors.panel
+                                )
+                            )
+                        }
                     }
-                )
-                if (snippets.isEmpty()) {
-                    FluenceEmptyState(
-                        icon = FluenceIcons.Zap,
-                        title = "No snippets yet",
-                        description = "Add a trigger phrase and its expansion, e.g. \"my email\" becomes your full email address",
-                        actionLabel = "Add your first snippet",
+                }
+
+                // Section 2: My Snippets
+                item {
+                    SettingsSectionHeader(
+                        title = "My Snippets",
+                        description = "Custom triggers and phrases mapped to expanded text",
+                        actionLabel = "+ Add",
                         onAction = {
                             snippetToEdit = null
                             showDialog = true
-                        },
-                        modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
+                        }
                     )
-                } else {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        itemsIndexed(
-                            items = snippets,
-                            key = { _, snippet -> snippet.id }
-                        ) { index, snippet ->
-                            SnippetRow(
-                                snippet = snippet,
-                                isSelected = snippet.id in selectedIds,
-                                isMultiSelect = isMultiSelect,
-                                onToggleSelect = {
-                                    selectedIds = if (snippet.id in selectedIds) {
-                                        selectedIds - snippet.id
-                                    } else {
-                                        selectedIds + snippet.id
-                                    }
-                                },
-                                onEdit = {
-                                    snippetToEdit = snippet
+                }
+
+                item {
+                    SettingsJointCard {
+                        if (snippets.isEmpty()) {
+                            FluenceEmptyState(
+                                icon = FluenceIcons.Zap,
+                                title = "No snippets yet",
+                                description = "Add a trigger phrase and its expansion, e.g. \"my email\" becomes your full email address",
+                                actionLabel = "Add your first snippet",
+                                onAction = {
+                                    snippetToEdit = null
                                     showDialog = true
                                 },
-                                onDelete = {
-                                    pendingDeleteIds = listOf(snippet.id)
-                                    showDeleteDialog = true
-                                }
+                                modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
                             )
-                            if (index < snippets.lastIndex) {
-                                HorizontalDivider(
-                                    color = colors.outlineSubtle,
-                                    thickness = 1.dp,
-                                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                        } else {
+                            snippets.forEachIndexed { index, snippet ->
+                                SnippetRow(
+                                    snippet = snippet,
+                                    isSelected = snippet.id in selectedIds,
+                                    isMultiSelect = isMultiSelect,
+                                    onToggleSelect = {
+                                        selectedIds = if (snippet.id in selectedIds) {
+                                            selectedIds - snippet.id
+                                        } else {
+                                            selectedIds + snippet.id
+                                        }
+                                    },
+                                    onEdit = {
+                                        snippetToEdit = snippet
+                                        showDialog = true
+                                    },
+                                    onDelete = {
+                                        pendingDeleteIds = listOf(snippet.id)
+                                        showDeleteDialog = true
+                                    }
                                 )
+                                if (index < snippets.lastIndex) {
+                                    HorizontalDivider(
+                                        color = colors.divider,
+                                        thickness = 1.dp
+                                    )
+                                }
                             }
                         }
-                        item {
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                        }
                     }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
                 }
             }
         }
@@ -505,8 +515,8 @@ private fun AddEditSnippetDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,
@@ -530,8 +540,8 @@ private fun AddEditSnippetDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,

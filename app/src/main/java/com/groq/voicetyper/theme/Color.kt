@@ -18,6 +18,7 @@ val DialogElevated = Color(0xFF363636)
 
 // ── Divider ─────────────────────────────────────────────────────────────────
 val OutlineSubtle  = Color(0xFF2A2A2A)
+val DividerVisible = Color(0xFF383838) // Clearly visible separator on Panel (#1E1E1E) cards
 
 // ── Card ────────────────────────────────────────────────────────────────────
 // Windows Dashboard card treatment (parity): cards render on --color-surface
@@ -25,6 +26,9 @@ val OutlineSubtle  = Color(0xFF2A2A2A)
 // surface for controls, sheets, and the range-selector container.
 val CardSurface    = Color(0xFF141414)
 val CardBorder     = Color(0x0DFFFFFF)
+
+// ── Form Input Border ───────────────────────────────────────────────────────
+val InputBorderDark = Color(0xFF484848) // Crisp 1dp outline on InputBg/Panel surfaces
 
 // ── Text Hierarchy ──────────────────────────────────────────────────────────
 val TextPrimary    = Color(0xFFE2E2E2)

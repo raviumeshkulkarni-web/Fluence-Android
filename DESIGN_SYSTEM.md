@@ -293,6 +293,24 @@ metadata only. User-requested legibility pass; all screens inherit via
 `FluenceTypography` tokens, no per-screen values. Files touched: Android
 `theme/Type.kt`; this entry.
 
+**2026-09-25 — Android v1.28.0 Card Surface Isolation, Visible Dividers & Input Borders Conformance.**
+Authorized by user. Addressed legibility and contrast across all Android non-dashboard screens:
+1. Card Surface Decoupling: `SettingsJointCard` containers strictly use `colors.panel` (`#1E1E1E` in dark mode, `#F5F5F7` in light mode), restoring the exact settings card shade from v1.28.0. The Android dashboard (`HomeScreen.kt`) remains completely frozen on `cardSurface` (`#141414`) with `0x0DFFFFFF` border.
+2. Crisp Full-Width Dividers: Introduced `DividerVisible = Color(0xFF383838)` exposed as `colors.divider` in `PrecisionColors`. All joint card dividers and list separators across settings, history, dictionary, snippets, permissions, offline STT, and style picker updated to `colors.divider` for clear border-to-border delineation.
+3. Form Input & API Key Borders: Introduced `InputBorderDark = Color(0xFF484848)` exposed as `colors.inputBorder` in `PrecisionColors`. `OutlinedTextField` boxes across STT settings, agent config, search fields, and dialogs now have clear, defined outlines on `#262626` / `#1E1E1E` surfaces.
+4. Segmented Control & Toggle Buttons (v1.28.0 Polished Architecture): Restored the exact, polished v1.28.0 `FluenceSegmentedControl` button architecture across the app (Online/Offline, Words/Sessions, chart range, History date filters, and preferences selectors) — soft `colors.panel` container, `1.dp` `colors.cardBorder`, `2.dp` padding, `colors.panelElevated` selected pill with `pressScale` and ripple indication, preserving the sleek, minimal button styling.
+Files touched:
+Android `theme/Color.kt`, `theme/Theme.kt`, `Components.kt`, `ui/SettingsScreen.kt`, `ui/SttConfigScreen.kt`, `ui/AgentConfigScreen.kt`, `ui/OfflineConfigScreen.kt`, `ui/PermissionsScreen.kt`, `ui/AboutScreen.kt`, `ui/PrivacyExclusionsScreen.kt`, `ui/AiStylePickerScreen.kt`, `ui/BucketPickerScreen.kt`, `ui/FormattingScreen.kt`, `ui/AiCleanupStylesScreen.kt`, `ui/AgentsScreen.kt`, `sync/ui/SyncScreen.kt`, `dictionary/ui/DictionaryScreen.kt`, `snippets/ui/SnippetsScreen.kt`, `ui/HistoryScreen.kt`, `ui/AgentEditorDialog.kt`, `ui/CustomStyleEditorDialog.kt`, `autolearn/ui/PendingSuggestionsSection.kt`, `navigation/FluenceDrawer.kt`.
+
+**2026-09-24 — Android "Headers with Joint Cards" & Full-Width Separators conformance (Windows Codex parity).**
+Authorized by user. Applied the Windows Codex UI architecture across all Android settings screens:
+1. Section headers placed outside cards using `SettingsSectionHeader` (15sp semi-bold title, 12.5sp description, optional action button).
+2. Sub-settings and options joined into `SettingsJointCard` containers (12dp `FluenceShapes.Medium`, `cardSurface` background, 1dp `cardBorder`).
+3. Horizontal dividers inside cards and lists extend full-width border-to-border (`HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)`) with zero start/end insets or padding, matching Windows client behavior.
+4. Frozen elements strictly preserved: `HomeScreen.kt`, `BubbleSettingsScreen.kt`, bubble overlay, and IME floating bubble remain untouched.
+Files touched:
+Android `ui/SettingsScreen.kt`, `ui/SttConfigScreen.kt`, `ui/OfflineConfigScreen.kt`, `ui/PermissionsScreen.kt`, `ui/AboutScreen.kt`, `update/ui/UpdateCard.kt`, `sync/ui/SyncScreen.kt`, `ui/PrivacyExclusionsScreen.kt`, `ui/BucketPickerScreen.kt`, `ui/AiStylePickerScreen.kt`, `ui/AgentsScreen.kt`, `ui/AgentConfigScreen.kt`, `docs/decisions/001-headers-with-joint-cards-pattern.md`.
+
 **2026-09-11 — Android M3 defaults to monochrome (user-directed).**
 Caret/text-selection and the M3 `primary` + surface-container ramp move from
 brand-amethyst-derived to neutral tokens: `primary`/`inversePrimary` are now

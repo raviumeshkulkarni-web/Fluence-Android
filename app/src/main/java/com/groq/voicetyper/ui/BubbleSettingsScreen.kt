@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -61,16 +62,21 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.HorizontalDivider
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceAccessibilityService
 import com.groq.voicetyper.ClassicCollapsedOrb
 import com.groq.voicetyper.FloatingBubblePreferences
-import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.PillTheme
 import com.groq.voicetyper.R
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.amethystObsidianGlow
 import com.groq.voicetyper.isAccessibilityServiceEnabled
+import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlin.math.roundToInt
@@ -190,36 +196,46 @@ fun BubbleSettingsScreen(
             .background(colors.canvas)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .imePadding()
     ) {
-        // Frozen header: switch + preview never scroll, so the preview stays
-        // visible while the options below slide. Only the inner column scrolls.
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = FluenceSpacing.Base)
         ) {
             SettingsTopBar(
                 title = "Floating Bubble",
-                onBack = onNavigateBack,
-                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                onBack = onNavigateBack
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
-            // Master switch — same pref key the accessibility service reads.
-            // Single home for the toggle (moved here from Permissions).
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
+            Text(
+                text = "A persistent floating bubble for instant voice typing and AI agent actions across any app.",
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+                    .padding(bottom = FluenceSpacing.Sm)
+            )
+
+            // Section 1: Activation & Visibility
+            SettingsSectionHeader(
+                title = "Activation & Visibility",
+                description = "Master switch and keyboard-visibility trigger"
+            )
+
+            SettingsJointCard {
+                val masterInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .pressScale(masterInteraction)
                         .toggleable(
                             value = bubbleEnabled,
+                            interactionSource = masterInteraction,
+                            indication = LocalIndication.current,
                             role = Role.Switch,
                             onValueChange = { checked ->
                                 if (!accessibilityEnabled) {
@@ -233,10 +249,7 @@ fun BubbleSettingsScreen(
                                 }
                             }
                         )
-                        .padding(
-                            horizontal = FluenceSpacing.Base,
-                            vertical = FluenceSpacing.Base
-                        ),
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -267,36 +280,25 @@ fun BubbleSettingsScreen(
                         )
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            // Opt-in visibility mode: bubble shows only while the keyboard is
-            // open. Off (default) = existing focus-based behavior.
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+                val imeInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .pressScale(imeInteraction)
                         .toggleable(
                             value = imeOnly,
+                            interactionSource = imeInteraction,
+                            indication = LocalIndication.current,
                             role = Role.Switch,
                             onValueChange = { checked ->
                                 imeOnly = checked
                                 FloatingBubblePreferences.setImeOnly(context, checked)
                             }
                         )
-                        .padding(
-                            horizontal = FluenceSpacing.Base,
-                            vertical = FluenceSpacing.Base
-                        ),
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -327,57 +329,50 @@ fun BubbleSettingsScreen(
                         )
                     )
                 }
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                BubblePreviewContent(
+                    pillTheme = pillTheme,
+                    collapsedTheme = collapsedTheme,
+                    collapsedStyleName = effectiveCollapsedName,
+                    bubbleOpacity = bubbleOpacity,
+                    glowOn = glowOn,
+                )
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
-            BubblePreviewCard(
-                pillTheme = pillTheme,
-                collapsedTheme = collapsedTheme,
-                collapsedStyleName = effectiveCollapsedName,
-                bubbleOpacity = bubbleOpacity,
-                glowOn = glowOn,
-            )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
+            // Scrollable remaining options below the frozen preview card
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .weight(1f)
+                    .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-            FluenceSectionHeader(label = "Day / night auto-switch")
+                // Section 2: Day / Night Auto-Switch
+                SettingsSectionHeader(
+                    title = "Day / Night Auto-Switch",
+                    description = "Automatically adapt bubble style to phone theme"
+                )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Opt-in overlay auto-switch: Light + Minimal by day, Obsidian +
-            // Classic by night. Manual selections below are preserved but
-            // ignored while this is on (rows dim + lock).
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+            SettingsJointCard {
+                val followInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .pressScale(followInteraction)
                         .toggleable(
                             value = followSystem,
+                            interactionSource = followInteraction,
+                            indication = LocalIndication.current,
                             role = Role.Switch,
                             onValueChange = { checked ->
                                 followSystem = checked
                                 FloatingBubblePreferences.setFollowSystem(context, checked)
                             }
                         )
-                        .padding(
-                            horizontal = FluenceSpacing.Base,
-                            vertical = FluenceSpacing.Base
-                        ),
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -410,111 +405,108 @@ fun BubbleSettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            FluenceSectionHeader(label = "Collapsed bubble")
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            CollapsedStyleRow(
-                title = "Original",
-                description = "Signature orb of Fluence",
-                selected = !isMinimalCollapsed && !isClassicCollapsed,
-                enabled = !followSystem,
-                onSelect = {
-                    collapsedStyleName = FloatingBubblePreferences.COLLAPSED_ORIGINAL
-                    FloatingBubblePreferences.setCollapsedStyle(
-                        context,
-                        FloatingBubblePreferences.COLLAPSED_ORIGINAL
-                    )
-                }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            CollapsedStyleRow(
-                title = "Classic",
-                description = "Amethyst glow, equalizer mark",
-                selected = isClassicCollapsed,
-                enabled = !followSystem,
-                onSelect = {
-                    collapsedStyleName = FloatingBubblePreferences.COLLAPSED_CLASSIC
-                    FloatingBubblePreferences.setCollapsedStyle(
-                        context,
-                        FloatingBubblePreferences.COLLAPSED_CLASSIC
-                    )
-                }
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            CollapsedStyleRow(
-                title = "Minimal",
-                description = "Waveform mark, no color",
-                selected = isMinimalCollapsed,
-                enabled = !followSystem,
-                onSelect = {
-                    collapsedStyleName = FloatingBubblePreferences.COLLAPSED_MINIMAL
-                    FloatingBubblePreferences.setCollapsedStyle(
-                        context,
-                        FloatingBubblePreferences.COLLAPSED_MINIMAL
-                    )
-                }
+            // Section 4: Collapsed Bubble
+            SettingsSectionHeader(
+                title = "Collapsed Bubble",
+                description = "Choose the collapsed floating orb appearance"
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            FluenceSectionHeader(label = "Recording pill")
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            PillTheme.entries.forEach { preset ->
-                PillThemeRow(
-                    preset = preset,
-                    selected = pillThemeName == preset.prefValue,
+            SettingsJointCard {
+                CollapsedStyleRow(
+                    title = "Original",
+                    description = "Signature orb of Fluence",
+                    selected = !isMinimalCollapsed && !isClassicCollapsed,
                     enabled = !followSystem,
                     onSelect = {
-                        pillThemeName = preset.prefValue
-                        FloatingBubblePreferences.setPillTheme(context, preset.prefValue)
+                        collapsedStyleName = FloatingBubblePreferences.COLLAPSED_ORIGINAL
+                        FloatingBubblePreferences.setCollapsedStyle(
+                            context,
+                            FloatingBubblePreferences.COLLAPSED_ORIGINAL
+                        )
                     }
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                CollapsedStyleRow(
+                    title = "Classic",
+                    description = "Amethyst glow, equalizer mark",
+                    selected = isClassicCollapsed,
+                    enabled = !followSystem,
+                    onSelect = {
+                        collapsedStyleName = FloatingBubblePreferences.COLLAPSED_CLASSIC
+                        FloatingBubblePreferences.setCollapsedStyle(
+                            context,
+                            FloatingBubblePreferences.COLLAPSED_CLASSIC
+                        )
+                    }
+                )
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                CollapsedStyleRow(
+                    title = "Minimal",
+                    description = "Waveform mark, no color",
+                    selected = isMinimalCollapsed,
+                    enabled = !followSystem,
+                    onSelect = {
+                        collapsedStyleName = FloatingBubblePreferences.COLLAPSED_MINIMAL
+                        FloatingBubblePreferences.setCollapsedStyle(
+                            context,
+                            FloatingBubblePreferences.COLLAPSED_MINIMAL
+                        )
+                    }
+                )
+            }
+
+            // Section 5: Recording Pill
+            SettingsSectionHeader(
+                title = "Recording Pill",
+                description = "Visual theme and color scheme during active dictation"
+            )
+
+            SettingsJointCard {
+                PillTheme.entries.forEachIndexed { index, preset ->
+                    PillThemeRow(
+                        preset = preset,
+                        selected = pillThemeName == preset.prefValue,
+                        enabled = !followSystem,
+                        onSelect = {
+                            pillThemeName = preset.prefValue
+                            FloatingBubblePreferences.setPillTheme(context, preset.prefValue)
+                        }
+                    )
+                    if (index < PillTheme.entries.size - 1) {
+                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             ModeLegendRow(dot = pillTheme.waveT, label = "Transcription mode")
-
             Spacer(modifier = Modifier.height(8.dp))
-
             ModeLegendRow(dot = pillTheme.waveA, label = "Agent mode")
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // Section 6: Appearance & Opacity
+            SettingsSectionHeader(
+                title = "Appearance & Opacity",
+                description = "Configure outer aura and resting transparency"
+            )
 
-            FluenceSectionHeader(label = "Pill glow")
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                shadowElevation = 0.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-            ) {
+            SettingsJointCard {
+                val glowInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .pressScale(glowInteraction)
                         .toggleable(
                             value = glowOn,
+                            interactionSource = glowInteraction,
+                            indication = LocalIndication.current,
                             role = Role.Switch,
                             onValueChange = { checked ->
                                 glowOn = checked
                                 FloatingBubblePreferences.setGlowEnabled(context, checked)
                             }
                         )
-                        .padding(
-                            horizontal = FluenceSpacing.Base,
-                            vertical = FluenceSpacing.Base
-                        ),
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -542,52 +534,49 @@ fun BubbleSettingsScreen(
                         )
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            FluenceSectionHeader(label = "Idle opacity")
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = FluenceSpacing.Base)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp)
                 ) {
-                    Text(
-                        text = "Idle opacity",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodyMedium
-                    )
-                    Text(
-                        text = "${(bubbleOpacity * 100).roundToInt()}%",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.titleMedium
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Idle opacity",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                        Text(
+                            text = "${(bubbleOpacity * 100).roundToInt()}%",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+                    Slider(
+                        value = bubbleOpacity,
+                        onValueChange = { newValue ->
+                            bubbleOpacity = newValue
+                            FloatingBubblePreferences.setOpacity(context, newValue)
+                        },
+                        valueRange = FloatingBubblePreferences.MIN_OPACITY..FloatingBubblePreferences.MAX_OPACITY,
+                        colors = SliderDefaults.colors(
+                            thumbColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            activeTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            inactiveTrackColor = colors.outlineSubtle
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                Slider(
-                    value = bubbleOpacity,
-                    onValueChange = { newValue ->
-                        bubbleOpacity = newValue
-                        FloatingBubblePreferences.setOpacity(context, newValue)
-                    },
-                    valueRange = FloatingBubblePreferences.MIN_OPACITY..FloatingBubblePreferences.MAX_OPACITY,
-                    colors = SliderDefaults.colors(
-                        thumbColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        activeTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        inactiveTrackColor = colors.outlineSubtle
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
             }
         }
     }
@@ -600,9 +589,7 @@ private fun ModeLegendRow(
 ) {
     val colors = PrecisionTheme.colors
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -629,20 +616,15 @@ private fun PillThemeRow(
     enabled: Boolean = true,
 ) {
     val colors = PrecisionTheme.colors
-    Surface(
-        color = colors.panel,
-        shape = FluenceShapes.Medium,
-        shadowElevation = 0.dp,
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base)
-            .border(
-                1.dp,
-                if (selected) colors.textPrimary else colors.outlineSubtle,
-                FluenceShapes.Medium
-            )
+            .pressScale(interactionSource)
             .clickable(
                 enabled = enabled,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
                 onClickLabel = "Select ${preset.label} theme",
                 role = Role.RadioButton,
                 onClick = onSelect
@@ -656,51 +638,43 @@ private fun PillThemeRow(
                 }
             }
             .alpha(if (enabled) 1f else 0.4f)
+            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = FluenceSpacing.Base,
-                    vertical = FluenceSpacing.Base
+                .size(20.dp)
+                .border(
+                    1.dp,
+                    if (selected) colors.textPrimary else colors.inputBorder,
+                    CircleShape
                 ),
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .border(
-                        1.dp,
-                        if (selected) colors.textPrimary else colors.inputBorder,
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(colors.textPrimary)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = preset.label,
-                    color = colors.textPrimary,
-                    style = FluenceTypography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                Text(
-                    text = preset.description,
-                    color = colors.textSecondary,
-                    style = FluenceTypography.bodySmall
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(colors.textPrimary)
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = preset.label,
+                color = colors.textPrimary,
+                style = FluenceTypography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+            Text(
+                text = preset.description,
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall
+            )
         }
     }
 }
@@ -724,20 +698,15 @@ private fun CollapsedStyleRow(
     enabled: Boolean = true,
 ) {
     val colors = PrecisionTheme.colors
-    Surface(
-        color = colors.panel,
-        shape = FluenceShapes.Medium,
-        shadowElevation = 0.dp,
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base)
-            .border(
-                1.dp,
-                if (selected) colors.textPrimary else colors.outlineSubtle,
-                FluenceShapes.Medium
-            )
+            .pressScale(interactionSource)
             .clickable(
                 enabled = enabled,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
                 onClickLabel = "Select $title collapsed style",
                 role = Role.RadioButton,
                 onClick = onSelect
@@ -751,55 +720,47 @@ private fun CollapsedStyleRow(
                 }
             }
             .alpha(if (enabled) 1f else 0.4f)
+            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = FluenceSpacing.Base,
-                    vertical = FluenceSpacing.Base
+                .size(20.dp)
+                .border(
+                    1.dp,
+                    if (selected) colors.textPrimary else colors.inputBorder,
+                    CircleShape
                 ),
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .border(
-                        1.dp,
-                        if (selected) colors.textPrimary else colors.inputBorder,
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(colors.textPrimary)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    style = FluenceTypography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                Text(
-                    text = description,
-                    color = colors.textSecondary,
-                    style = FluenceTypography.bodySmall
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(colors.textPrimary)
                 )
             }
+        }
+        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = colors.textPrimary,
+                style = FluenceTypography.titleMedium
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+            Text(
+                text = description,
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall
+            )
         }
     }
 }
 
 @Composable
-private fun BubblePreviewCard(
+private fun BubblePreviewContent(
     pillTheme: PillTheme,
     collapsedTheme: PillTheme,
     collapsedStyleName: String,
@@ -807,24 +768,12 @@ private fun BubblePreviewCard(
     glowOn: Boolean,
 ) {
     val colors = PrecisionTheme.colors
-    Surface(
-        color = colors.panel,
-        shape = FluenceShapes.Medium,
-        shadowElevation = 0.dp,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = FluenceSpacing.Base)
-            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+            .padding(horizontal = FluenceSpacing.Base, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = FluenceSpacing.Base,
-                    vertical = FluenceSpacing.Base
-                ),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
             Text(
                 text = "Preview",
                 color = colors.textPrimary,
@@ -836,7 +785,7 @@ private fun BubblePreviewCard(
                 color = colors.textSecondary,
                 style = FluenceTypography.bodySmall
             )
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -975,7 +924,6 @@ private fun BubblePreviewCard(
                 }
             }
         }
-    }
 }
 
 @Composable

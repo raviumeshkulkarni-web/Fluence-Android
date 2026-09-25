@@ -29,6 +29,8 @@ import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.offline.v2.MoonshineV2ModelManager
 import com.groq.voicetyper.offline.v2.MoonshineV2ModelType
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -140,78 +142,70 @@ fun OfflineConfigScreen(
         ) {
             SettingsTopBar(title = "Offline Transcription", onBack = onNavigateBack)
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+                        // Section 1: Offline Dictation
+            SettingsSectionHeader(
+                title = "Offline Dictation",
+                description = "On-device speech recognition without internet access"
+            )
+            SettingsJointCard {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .toggleable(
+                            value = offlineEnabled,
+                            role = Role.Switch,
+                            onValueChange = { checked ->
+                                val selectedModelReady = when (selectedEngineType) {
+                                    OfflineEngineType.SENSEVOICE -> modelReady
+                                    OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
+                                    OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
+                                }
+                                if (checked && !selectedModelReady) {
+                                    FeedbackBus.show("Download the selected model first.")
+                                } else {
+                                    offlineEnabled = checked
+                                    OfflinePreferences.setOfflineModeEnabled(context, checked)
+                                }
+                            }
+                        )
+                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Offline Mode",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.titleMedium,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Transcribe without internet.",
+                            color = colors.textSecondary,
+                            style = FluenceTypography.bodySmall
+                        )
+                    }
 
-            // Full-row toggle: the row owns touch and accessibility, the
-            // switch is display-only. The model-ready guard lives in the
-            // row handler so taps anywhere behave identically.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .toggleable(
-                        value = offlineEnabled,
-                        role = Role.Switch,
-                        onValueChange = { checked ->
-                            val selectedModelReady = when (selectedEngineType) {
-                                OfflineEngineType.SENSEVOICE -> modelReady
-                                OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
-                                OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
-                            }
-                            if (checked && !selectedModelReady) {
-                                FeedbackBus.show("Download the selected model first.")
-                            } else {
-                                offlineEnabled = checked
-                                OfflinePreferences.setOfflineModeEnabled(context, checked)
-                            }
-                        }
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Offline Mode",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.titleMedium,
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Transcribe without internet.",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodySmall
+                    Switch(
+                        checked = offlineEnabled,
+                        onCheckedChange = null,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
+                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            uncheckedThumbColor = colors.textPrimary,
+                            uncheckedTrackColor = colors.panel
+                        )
                     )
                 }
-
-                Switch(
-                    checked = offlineEnabled,
-                    onCheckedChange = null,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                        checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                        uncheckedThumbColor = colors.textPrimary,
-                        uncheckedTrackColor = colors.panel
-                    )
-                )
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // Model Selector
-            Text(
-                text = "Choose a model",
-                color = colors.textPrimary,
-                style = FluenceTypography.labelLarge
+            // Section 2: Recognition Model
+            SettingsSectionHeader(
+                title = "Recognition Model",
+                description = "Pick the model architecture that fits your dictation speed and accuracy needs"
             )
-            Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
-            Text(
-                text = "Pick the option that fits how you dictate. You can change this any time.",
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium
-            )
-            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-
-            Column(verticalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)) {
+            SettingsJointCard {
                 ModelOptionCard(
                     title = "Fast (English)",
                     description = "Quick, reliable English dictation for everyday use.",
@@ -225,6 +219,8 @@ fun OfflineConfigScreen(
                     }
                 )
 
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
                 ModelOptionCard(
                     title = "Fast (Multilingual)",
                     description = "Dictate in many languages with fast, on-device transcription.",
@@ -237,6 +233,8 @@ fun OfflineConfigScreen(
                         OfflinePreferences.setEngineType(context, OfflineEngineType.SENSEVOICE)
                     }
                 )
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
                 ModelOptionCard(
                     title = "Pro (English)",
@@ -252,98 +250,118 @@ fun OfflineConfigScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // Multilingual (SenseVoice) Model Status
-            ModelDownloadCard(
-                title = "Fast (Multilingual)",
-                sizeEstimate = "~239 MB",
-                isReady = modelReady,
-                isVerifying = modelVerifying,
-                isCorrupt = modelCorrupt,
-                diskSize = modelSize,
-                downloadState = downloadProgress.state.name,
-                bytesDownloaded = downloadProgress.bytesDownloaded,
-                totalBytes = downloadProgress.totalBytes,
-                errorMessage = downloadProgress.errorMessage,
-                onDownload = { coroutineScope.launch { ModelAssetManager.downloadModel(context) } },
-                onCancel = { ModelAssetManager.cancelDownload() },
-                onDelete = {
-                    coroutineScope.launch {
-                        ModelAssetManager.deleteModel(context)
-                        modelReady = false
-                        modelCorrupt = false
-                        modelSize = 0
-                        if (selectedEngineType == OfflineEngineType.SENSEVOICE) {
-                            offlineEnabled = false
-                            OfflinePreferences.setOfflineModeEnabled(context, false)
-                        }
-                        FeedbackBus.show("Fast (Multilingual) model deleted.")
-                    }
-                }
+            // Section 3: Model Packages
+            SettingsSectionHeader(
+                title = "Model Packages",
+                description = "Download and manage offline voice recognition models on this device"
             )
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // Fast (English) Model Status - v2 Small
-            ModelDownloadCard(
-                title = "Fast (English)",
-                sizeEstimate = "~142 MB",
-                isReady = v2SmallReady,
-                isVerifying = v2SmallVerifying,
-                isCorrupt = v2SmallCorrupt,
-                diskSize = v2SmallSize,
-                downloadState = v2SmallDownloadProgress.state.name,
-                bytesDownloaded = v2SmallDownloadProgress.bytesDownloaded,
-                totalBytes = v2SmallDownloadProgress.totalBytes,
-                errorMessage = v2SmallDownloadProgress.errorMessage,
-                onDownload = { coroutineScope.launch { MoonshineV2ModelManager.downloadModel(context, MoonshineV2ModelType.SMALL) } },
-                onCancel = { MoonshineV2ModelManager.cancelDownload(MoonshineV2ModelType.SMALL) },
-                onDelete = {
-                    coroutineScope.launch {
-                        MoonshineV2ModelManager.deleteModel(context, MoonshineV2ModelType.SMALL)
-                        v2SmallReady = false
-                        v2SmallCorrupt = false
-                        v2SmallSize = 0
-                        if (selectedEngineType == OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING) {
-                            offlineEnabled = false
-                            OfflinePreferences.setOfflineModeEnabled(context, false)
+            SettingsJointCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    ModelDownloadCard(
+                        title = "Fast (English)",
+                        sizeEstimate = "~142 MB",
+                        isReady = v2SmallReady,
+                        isVerifying = v2SmallVerifying,
+                        isCorrupt = v2SmallCorrupt,
+                        diskSize = v2SmallSize,
+                        downloadState = v2SmallDownloadProgress.state.name,
+                        bytesDownloaded = v2SmallDownloadProgress.bytesDownloaded,
+                        totalBytes = v2SmallDownloadProgress.totalBytes,
+                        errorMessage = v2SmallDownloadProgress.errorMessage,
+                        onDownload = { coroutineScope.launch { MoonshineV2ModelManager.downloadModel(context, MoonshineV2ModelType.SMALL) } },
+                        onCancel = { MoonshineV2ModelManager.cancelDownload(MoonshineV2ModelType.SMALL) },
+                        onDelete = {
+                            coroutineScope.launch {
+                                MoonshineV2ModelManager.deleteModel(context, MoonshineV2ModelType.SMALL)
+                                v2SmallReady = false
+                                v2SmallCorrupt = false
+                                v2SmallSize = 0
+                                if (selectedEngineType == OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING) {
+                                    offlineEnabled = false
+                                    OfflinePreferences.setOfflineModeEnabled(context, false)
+                                }
+                                FeedbackBus.show("Fast (English) model deleted.")
+                            }
                         }
-                        FeedbackBus.show("Fast (English) model deleted.")
-                    }
+                    )
                 }
-            )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            // Pro (English) Model Status - v2 Medium
-            ModelDownloadCard(
-                title = "Pro (English)",
-                sizeEstimate = "~269 MB",
-                isReady = v2MediumReady,
-                isVerifying = v2MediumVerifying,
-                isCorrupt = v2MediumCorrupt,
-                diskSize = v2MediumSize,
-                downloadState = v2MediumDownloadProgress.state.name,
-                bytesDownloaded = v2MediumDownloadProgress.bytesDownloaded,
-                totalBytes = v2MediumDownloadProgress.totalBytes,
-                errorMessage = v2MediumDownloadProgress.errorMessage,
-                onDownload = { coroutineScope.launch { MoonshineV2ModelManager.downloadModel(context, MoonshineV2ModelType.MEDIUM) } },
-                onCancel = { MoonshineV2ModelManager.cancelDownload(MoonshineV2ModelType.MEDIUM) },
-                onDelete = {
-                    coroutineScope.launch {
-                        MoonshineV2ModelManager.deleteModel(context, MoonshineV2ModelType.MEDIUM)
-                        v2MediumReady = false
-                        v2MediumCorrupt = false
-                        v2MediumSize = 0
-                        if (selectedEngineType == OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING) {
-                            offlineEnabled = false
-                            OfflinePreferences.setOfflineModeEnabled(context, false)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    ModelDownloadCard(
+                        title = "Fast (Multilingual)",
+                        sizeEstimate = "~239 MB",
+                        isReady = modelReady,
+                        isVerifying = modelVerifying,
+                        isCorrupt = modelCorrupt,
+                        diskSize = modelSize,
+                        downloadState = downloadProgress.state.name,
+                        bytesDownloaded = downloadProgress.bytesDownloaded,
+                        totalBytes = downloadProgress.totalBytes,
+                        errorMessage = downloadProgress.errorMessage,
+                        onDownload = { coroutineScope.launch { ModelAssetManager.downloadModel(context) } },
+                        onCancel = { ModelAssetManager.cancelDownload() },
+                        onDelete = {
+                            coroutineScope.launch {
+                                ModelAssetManager.deleteModel(context)
+                                modelReady = false
+                                modelCorrupt = false
+                                modelSize = 0
+                                if (selectedEngineType == OfflineEngineType.SENSEVOICE) {
+                                    offlineEnabled = false
+                                    OfflinePreferences.setOfflineModeEnabled(context, false)
+                                }
+                                FeedbackBus.show("Fast (Multilingual) model deleted.")
+                            }
                         }
-                        FeedbackBus.show("Pro (English) model deleted.")
-                    }
+                    )
                 }
-            )
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    ModelDownloadCard(
+                        title = "Pro (English)",
+                        sizeEstimate = "~269 MB",
+                        isReady = v2MediumReady,
+                        isVerifying = v2MediumVerifying,
+                        isCorrupt = v2MediumCorrupt,
+                        diskSize = v2MediumSize,
+                        downloadState = v2MediumDownloadProgress.state.name,
+                        bytesDownloaded = v2MediumDownloadProgress.bytesDownloaded,
+                        totalBytes = v2MediumDownloadProgress.totalBytes,
+                        errorMessage = v2MediumDownloadProgress.errorMessage,
+                        onDownload = { coroutineScope.launch { MoonshineV2ModelManager.downloadModel(context, MoonshineV2ModelType.MEDIUM) } },
+                        onCancel = { MoonshineV2ModelManager.cancelDownload(MoonshineV2ModelType.MEDIUM) },
+                        onDelete = {
+                            coroutineScope.launch {
+                                MoonshineV2ModelManager.deleteModel(context, MoonshineV2ModelType.MEDIUM)
+                                v2MediumReady = false
+                                v2MediumCorrupt = false
+                                v2MediumSize = 0
+                                if (selectedEngineType == OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING) {
+                                    offlineEnabled = false
+                                    OfflinePreferences.setOfflineModeEnabled(context, false)
+                                }
+                                FeedbackBus.show("Pro (English) model deleted.")
+                            }
+                        }
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Xxl))
         }
@@ -362,12 +380,10 @@ private fun ModelOptionCard(
 ) {
     val colors = PrecisionTheme.colors
     val interaction = remember { MutableInteractionSource() }
-    val borderColor = if (isSelected) colors.textPrimary else colors.outlineSubtle
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(colors.panel, FluenceShapes.Medium)
-            .border(if (isSelected) 2.dp else 1.dp, borderColor, FluenceShapes.Medium)
+            .background(if (isSelected) colors.textPrimary.copy(alpha = 0.06f) else androidx.compose.ui.graphics.Color.Transparent)
             .pressScale(interaction)
             .selectable(
                 selected = isSelected,
@@ -376,7 +392,7 @@ private fun ModelOptionCard(
                 role = Role.RadioButton,
                 onClick = onSelect
             )
-            .padding(14.dp),
+            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(

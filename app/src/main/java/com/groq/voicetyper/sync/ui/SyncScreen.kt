@@ -42,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.SyncManager
@@ -148,15 +150,12 @@ fun SyncScreen(
                 onBack = onNavigateBack
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // ── Account & Status Card ──────────────────────────────────────────
-            Surface(
-                color = colors.panel,
-                shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, colors.outlineSubtle),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+                        // Section 1: Account & Status
+            SettingsSectionHeader(
+                title = "Account & Status",
+                description = "Google Drive cloud backup status and account connection"
+            )
+            SettingsJointCard {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -203,8 +202,6 @@ fun SyncScreen(
                                             .size(8.dp)
                                             .clip(CircleShape)
                                             .background(if (status.lastError != null) colors.error else colors.success)
-                                            // Optical centering: font cap-height sits ~1dp above geometric center,
-                                            // without this offset the dot reads as floating above the label.
                                             .offset(y = 1.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -229,12 +226,16 @@ fun SyncScreen(
                             }
                         }
                     }
+                }
 
-                    if (status.signedIn) {
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                        HorizontalDivider(color = colors.outlineSubtle, thickness = 1.dp)
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                if (status.signedIn) {
+                    HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(FluenceSpacing.Base)
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -291,20 +292,17 @@ fun SyncScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // ── Automatic Sync Toggle (When Signed In) ───────────────────────────
-            if (status.signedIn) {
-                Surface(
-                    color = colors.panel,
-                    shape = FluenceShapes.Medium,
-                    border = BorderStroke(1.dp, colors.outlineSubtle),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+            // Section 2: Sync Settings
+            SettingsSectionHeader(
+                title = "Sync Settings",
+                description = if (status.signedIn) "Automatic background sync and manual sync triggers" else "Sign in to activate cloud backup and cross-device sync"
+            )
+            SettingsJointCard {
+                if (status.signedIn) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base),
+                            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -340,139 +338,141 @@ fun SyncScreen(
                             )
                         )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-            }
+                    HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            // ── Actions Section ────────────────────────────────────────────────
-            if (status.signedIn) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)
-                ) {
-                    // Sync Now Button
-                    Button(
-                        onClick = { manager.syncNow() },
-                        enabled = status.signedIn && status.syncEnabled && !status.running,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
-                            disabledContainerColor = colors.panelElevated,
-                            disabledContentColor = colors.textDisabled
-                        ),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .pressScale(remember { MutableInteractionSource() })
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer {
-                                    if (status.running && !motionPrefs.reducedMotion) rotationZ = rotationAngle
-                                }
-                        )
-                        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                        Text(
-                            text = if (status.running) "Syncing\u2026" else "Sync Now",
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-
-                    // Sign Out Button
-                    OutlinedButton(
-                        onClick = onSignOutClick,
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = colors.textSecondary
-                        ),
-                        border = BorderStroke(1.dp, colors.outlineSubtle),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier
-                            .height(48.dp)
-                            .pressScale(remember { MutableInteractionSource() })
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = colors.textSecondary
-                        )
-                        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                        Text(
-                            text = "Sign Out",
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                            color = colors.textSecondary
-                        )
-                    }
-                }
-                if (!status.syncEnabled) {
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                    Text(
-                        text = "Enable sync to use Sync now",
-                        color = colors.textTertiary,
-                        style = FluenceTypography.bodySmall
-                    )
-                }
-            } else {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    if (status.secureStorageUnavailable) {
-                        Text(
-                            text = "Sync is temporarily unavailable. Please restart the app.",
-                            color = colors.error,
-                            style = FluenceTypography.bodySmall,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                    Button(
-                        onClick = onSignInClick,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
-                        ),
-                        shape = FluenceShapes.Medium,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
-                            .pressScale(remember { MutableInteractionSource() })
+                            .padding(FluenceSpacing.Base)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudSync,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                        Text(
-                            text = "Sign in with Google",
-                            style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)
+                        ) {
+                            Button(
+                                onClick = { manager.syncNow() },
+                                enabled = status.signedIn && status.syncEnabled && !status.running,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                    contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
+                                    disabledContainerColor = colors.panelElevated,
+                                    disabledContentColor = colors.textDisabled
+                                ),
+                                shape = FluenceShapes.Medium,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .pressScale(remember { MutableInteractionSource() })
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .graphicsLayer {
+                                            if (status.running && !motionPrefs.reducedMotion) rotationZ = rotationAngle
+                                        }
+                                )
+                                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                                Text(
+                                    text = if (status.running) "Syncing\u2026" else "Sync Now",
+                                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = onSignOutClick,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = colors.textSecondary
+                                ),
+                                border = BorderStroke(1.dp, colors.outlineSubtle),
+                                shape = FluenceShapes.Medium,
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .pressScale(remember { MutableInteractionSource() })
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = colors.textSecondary
+                                )
+                                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                                Text(
+                                    text = "Sign Out",
+                                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
+                        if (!status.syncEnabled) {
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                            Text(
+                                text = "Enable sync to use Sync now",
+                                color = colors.textTertiary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        }
                     }
-                    if (signInError != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = signInError,
-                            color = colors.error,
-                            style = FluenceTypography.bodySmall,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(FluenceSpacing.Base)
+                    ) {
+                        if (status.secureStorageUnavailable) {
+                            Text(
+                                text = "Sync is temporarily unavailable. Please restart the app.",
+                                color = colors.error,
+                                style = FluenceTypography.bodySmall,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        Button(
+                            onClick = onSignInClick,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .pressScale(remember { MutableInteractionSource() })
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+                            Text(
+                                text = "Sign in with Google",
+                                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                        if (signInError != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = signInError,
+                                color = colors.error,
+                                style = FluenceTypography.bodySmall,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // ── Privacy & Security Note ────────────────────────────────────────
-            Surface(
-                color = colors.panelElevated,
-                shape = FluenceShapes.Medium,
-                border = BorderStroke(1.dp, colors.outlineSubtle),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            // Section 3: Privacy & Encryption
+            SettingsSectionHeader(
+                title = "Privacy & Encryption",
+                description = "Zero-knowledge encryption and personal data isolation"
+            )
+            SettingsJointCard {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

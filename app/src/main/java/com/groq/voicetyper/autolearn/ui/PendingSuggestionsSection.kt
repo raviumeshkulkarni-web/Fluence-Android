@@ -139,9 +139,8 @@ fun PendingSuggestionsSection(
                     )
                     if (index < pendingSuggestions.lastIndex) {
                         HorizontalDivider(
-                            color = colors.outlineSubtle,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                            color = colors.divider,
+                            thickness = 1.dp
                         )
                     }
                 }

@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.groq.voicetyper.BuildConfig
+import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import com.groq.voicetyper.update.UpdateState
@@ -40,35 +40,14 @@ fun AboutAndUpdateCard(
         "Never"
     }
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = colors.panelElevated),
-        shape = FluenceShapes.Medium,
+    SettingsJointCard(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(FluenceSpacing.Md)
+                .padding(FluenceSpacing.Base)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SystemUpdate,
-                    contentDescription = null,
-                    tint = colors.textPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                Text(
-                    text = "App Updates",
-                    color = colors.textPrimary,
-                    style = FluenceTypography.titleMedium
-                )
-            }
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-
             // Current Version
             Row(
                 modifier = Modifier.fillMaxWidth(),

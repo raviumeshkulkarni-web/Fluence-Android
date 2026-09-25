@@ -49,6 +49,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.cleanup.CleanupPreferences
 import com.groq.voicetyper.formatting.FormattingCategory
@@ -150,30 +152,32 @@ fun FormattingScreen(
             modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
         )
 
-        Text(
-            text = "Match dictation tone to the app. Off by default, transcripts stay exactly as spoken until you opt in.",
-            color = colors.textSecondary,
-            style = FluenceTypography.bodySmall,
-            textAlign = TextAlign.Start,
+        LazyColumn(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = FluenceSpacing.Base,
-                    end = FluenceSpacing.Base,
-                    bottom = FluenceSpacing.Sm
-                )
-        )
-
-        // Card fills the remaining viewport (Dictionary parity): toggle and
-        // bucket rows, then AI cleanup. No per-row cards, dividers separate.
-        Column(
-            modifier = Modifier
-                .weight(1f)
+                .fillMaxSize()
                 .padding(horizontal = FluenceSpacing.Base)
-                .background(colors.cardSurface, FluenceShapes.Medium)
         ) {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                item {
+            item {
+                Text(
+                    text = "Match dictation tone to the app. Off by default, transcripts stay exactly as spoken until you opt in.",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = FluenceSpacing.Sm)
+                )
+            }
+
+            // Section 1: Text Formatting
+            item {
+                SettingsSectionHeader(
+                    title = "Text Formatting",
+                    description = "Match dictation tone to the active application"
+                )
+            }
+            item {
+                SettingsJointCard {
                     ToggleRow(
                         title = "Text formatting",
                         description = if (masterEnabled) "On" else "Off · transcripts unchanged",
@@ -185,46 +189,41 @@ fun FormattingScreen(
                         }
                     )
                 }
-                item {
-                    HorizontalDivider(
-                        color = colors.outlineSubtle,
-                        thickness = 1.dp,
-                        modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
-                    )
-                }
-                item {
-                    FluenceSectionHeader(label = "STYLE BUCKETS")
-                }
-                items(bucketOrder, key = { it.name }) { category ->
-                    BucketRow(
-                        category = category,
-                        onClick = { onNavigateTo(Screen.BucketPicker(category.name)) }
-                    )
-                    if (category != bucketOrder.last()) {
-                        HorizontalDivider(
-                            color = colors.outlineSubtle,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+            }
+
+            // Section 2: Style Buckets
+            item {
+                SettingsSectionHeader(
+                    title = "Style Buckets",
+                    description = "Assign apps to tone categories. Unassigned apps follow the field type."
+                )
+            }
+            item {
+                SettingsJointCard {
+                    bucketOrder.forEachIndexed { index, category ->
+                        BucketRow(
+                            category = category,
+                            onClick = { onNavigateTo(Screen.BucketPicker(category.name)) }
                         )
+                        if (index < bucketOrder.lastIndex) {
+                            HorizontalDivider(
+                                color = colors.divider,
+                                thickness = 1.dp
+                            )
+                        }
                     }
                 }
-                item {
-                    Text(
-                        text = "Apps you haven't filed just follow the text field you're typing in.",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal = FluenceSpacing.Base,
-                                vertical = FluenceSpacing.Sm
-                            )
-                    )
-                }
-                item {
-                    FluenceSectionHeader(label = "AI CLEANUP")
-                }
-                item {
+            }
+
+            // Section 3: AI Cleanup
+            item {
+                SettingsSectionHeader(
+                    title = "AI Cleanup",
+                    description = "Clean transcripts with an AI model when online"
+                )
+            }
+            item {
+                SettingsJointCard {
                     ToggleRow(
                         title = "AI cleanup",
                         description = if (cleanupEnabled) "On · needs internet, skipped offline" else "Off",
@@ -235,23 +234,11 @@ fun FormattingScreen(
                             cleanupEnabled = enabled
                         }
                     )
-                }
-                item {
-                    Text(
-                        text = "Every app is cleaned automatically when this is on. Use styles below only to override specific apps.",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start = FluenceSpacing.Base,
-                                end = FluenceSpacing.Base,
-                                bottom = FluenceSpacing.Sm
-                            )
-                    )
-                }
-                if (cleanupEnabled) {
-                    item {
+                    if (cleanupEnabled) {
+                        HorizontalDivider(
+                            color = colors.divider,
+                            thickness = 1.dp
+                        )
                         val modelRowSource = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
@@ -288,54 +275,58 @@ fun FormattingScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
-                }
-                item {
-                    val stylesRowSource = remember { MutableInteractionSource() }
-                    val stylesSummary = if (customCount > 0) {
-                        "Auto for all apps · 3 built-in + $customCount custom"
-                    } else {
-                        "Auto for all apps · Proofread, Natural, Professional"
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pressScale(stylesRowSource)
-                            .clickable(
-                                interactionSource = stylesRowSource,
-                                indication = androidx.compose.foundation.LocalIndication.current,
-                                onClickLabel = "Open AI cleanup styles",
-                                role = Role.Button,
-                                onClick = { onNavigateTo(Screen.AiCleanupStyles) }
-                            )
-                            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
-                            .heightIn(min = 48.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "AI cleanup styles",
-                                color = colors.textPrimary,
-                                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = stylesSummary,
-                                color = colors.textSecondary,
-                                style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+
+                        HorizontalDivider(
+                            color = colors.divider,
+                            thickness = 1.dp
+                        )
+                        val stylesRowSource = remember { MutableInteractionSource() }
+                        val stylesSummary = if (customCount > 0) {
+                            "Auto for all apps · 3 built-in + $customCount custom"
+                        } else {
+                            "Auto for all apps · Proofread, Natural, Professional"
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pressScale(stylesRowSource)
+                                .clickable(
+                                    interactionSource = stylesRowSource,
+                                    indication = androidx.compose.foundation.LocalIndication.current,
+                                    onClickLabel = "Open AI cleanup styles",
+                                    role = Role.Button,
+                                    onClick = { onNavigateTo(Screen.AiCleanupStyles) }
+                                )
+                                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                                .heightIn(min = 48.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "AI cleanup styles",
+                                    color = colors.textPrimary,
+                                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stylesSummary,
+                                    color = colors.textSecondary,
+                                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = colors.textSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 }
-                item {
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
             }
         }
     }

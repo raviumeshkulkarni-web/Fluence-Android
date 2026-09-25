@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.GroqClient
 import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -131,7 +133,7 @@ fun AgentConfigScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = FluenceSpacing.Base)
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsTopBar(title = "AI Agent Mode", onBack = onNavigateBack)
@@ -146,322 +148,356 @@ fun AgentConfigScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            Text(
-                text = "Provider",
-                color = colors.textPrimary,
-            style = FluenceTypography.labelLarge
+            SettingsSectionHeader(
+                title = "Provider & Model",
+                description = "Select language model provider and model architecture"
             )
-            Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "groq" to "Groq",
-                    "mistral" to "Mistral",
-                    "custom" to "Custom"
-                ).forEach { (value, label) ->
-                    FilterChip(
-                        selected = selectedProvider == value,
-                        onClick = {
-                            selectedProvider = value
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        label = { Text(label, style = FluenceTypography.bodySmall) },
-                        leadingIcon = {
-                            if (value != "custom") {
-                                ProviderLogo(providerId = value, size = 18.dp)
-                            }
-                        },
-                        shape = FluenceShapes.ExtraSmall,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                            selectedLabelColor = colors.textPrimary,
-                            containerColor = colors.buttonSecondary,
-                            labelColor = colors.textSecondary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            borderColor = colors.outlineSubtle,
-                            selectedBorderColor = colors.textPrimary.copy(alpha = 0.25f),
-                            enabled = true,
-                            selected = selectedProvider == value
-                        )
+            SettingsJointCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    Text(
+                        text = "Provider",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelLarge
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "groq" to "Groq",
+                            "mistral" to "Mistral",
+                            "custom" to "Custom"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = selectedProvider == value,
+                                onClick = {
+                                    selectedProvider = value
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(label, style = FluenceTypography.bodySmall) },
+                                leadingIcon = {
+                                    if (value != "custom") {
+                                        ProviderLogo(providerId = value, size = 18.dp)
+                                    }
+                                },
+                                shape = FluenceShapes.ExtraSmall,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                                    selectedLabelColor = colors.textPrimary,
+                                    containerColor = colors.buttonSecondary,
+                                    labelColor = colors.textSecondary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = colors.inputBorder,
+                                    selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                    enabled = true,
+                                    selected = selectedProvider == value
+                                )
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    Text(
+                        text = "Model",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (selectedProvider == "custom") {
+                        OutlinedTextField(
+                            value = model,
+                            onValueChange = { model = it },
+                            placeholder = { Text("e.g. llama-3.3-70b-versatile", color = colors.textSecondary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary,
+                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                unfocusedBorderColor = colors.inputBorder,
+                                focusedContainerColor = colors.inputBg,
+                                unfocusedContainerColor = colors.inputBg,
+                                cursorColor = colors.textPrimary
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "Base URL",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.labelLarge
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = customBaseUrl,
+                            onValueChange = { customBaseUrl = it },
+                            placeholder = { Text("e.g. https://api.example.com", color = colors.textSecondary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary,
+                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                unfocusedBorderColor = colors.inputBorder,
+                                focusedContainerColor = colors.inputBg,
+                                unfocusedContainerColor = colors.inputBg,
+                                cursorColor = colors.textPrimary
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    } else {
+                        if (isFetchingModels) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
+                            }
+                        } else {
+                            var showModelDropdown by remember { mutableStateOf(false) }
+
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showModelDropdown = true }
+                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                        .background(colors.inputBg, FluenceShapes.Medium)
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = model.ifBlank { "Select a model" },
+                                        color = if (model.isBlank()) colors.textDisabled else colors.textPrimary,
+                                        style = FluenceTypography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Icon(
+                                        imageVector = FluenceIcons.ChevronDown,
+                                        contentDescription = "Select model",
+                                        tint = colors.textSecondary
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showModelDropdown,
+                                    onDismissRequest = { showModelDropdown = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 280.dp)
+                                        .background(colors.dialog, FluenceShapes.Medium)
+                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                ) {
+                                    fetchedModels.forEach { m ->
+                                        val isSelected = m == model
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = m,
+                                                    color = colors.textPrimary,
+                                                    style = FluenceTypography.bodyLarge
+                                                )
+                                            },
+                                            colors = MenuDefaults.itemColors(
+                                                textColor = colors.textPrimary,
+                                                leadingIconColor = colors.textSecondary,
+                                                trailingIconColor = colors.textSecondary
+                                            ),
+                                            modifier = if (isSelected) Modifier
+                                                .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                            else Modifier,
+                                            onClick = {
+                                                model = m
+                                                showModelDropdown = false
+                                                testResult = null
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        modelFetchError?.let { err ->
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = err, color = colors.error, style = FluenceTypography.labelMedium)
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "API Key",
-                color = colors.textPrimary,
-            style = FluenceTypography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Stored securely on this device.",
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = {
-                    apiKey = it
-                },
-                placeholder = { Text("Enter your API key", color = colors.textSecondary) },
-                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = colors.textPrimary,
-                    unfocusedTextColor = colors.textPrimary,
-                    focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                    unfocusedBorderColor = colors.outlineSubtle,
-                    focusedContainerColor = colors.inputBg,
-                    unfocusedContainerColor = colors.inputBg,
-                    cursorColor = colors.textPrimary
-                ),
-                shape = FluenceShapes.Medium,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    TextButton(onClick = { showPassword = !showPassword }) {
-                        Text(
-                            text = if (showPassword) "Hide" else "Show",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.labelMedium
-                        )
-                    }
-                }
+            SettingsSectionHeader(
+                title = "Authentication & Endpoint",
+                description = "API keys and endpoint configuration"
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            SettingsJointCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    Text(
+                        text = "API Key",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Stored securely on this device.",
+                        color = colors.textSecondary,
+                        style = FluenceTypography.labelMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "Model",
-                color = colors.textPrimary,
-            style = FluenceTypography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (selectedProvider == "custom") {
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
-                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = colors.textSecondary) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
-                        focusedContainerColor = colors.inputBg,
-                        unfocusedContainerColor = colors.inputBg,
-                        cursorColor = colors.textPrimary
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Base URL",
-                    color = colors.textPrimary,
-                    style = FluenceTypography.labelLarge
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = customBaseUrl,
-                    onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("e.g. https://api.example.com", color = colors.textSecondary) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
-                        focusedContainerColor = colors.inputBg,
-                        unfocusedContainerColor = colors.inputBg,
-                        cursorColor = colors.textPrimary
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            } else {
-                if (isFetchingModels) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
-                    }
-                } else {
-                    var showModelDropdown by remember { mutableStateOf(false) }
-
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                        .clickable { showModelDropdown = true }
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                                .background(colors.inputBg, FluenceShapes.Medium)
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = model.ifBlank { "Select a model" },
-                                color = if (model.isBlank()) colors.textDisabled else colors.textPrimary,
-                                style = FluenceTypography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Icon(
-                                imageVector = FluenceIcons.ChevronDown,
-                                contentDescription = "Select model",
-                                tint = colors.textSecondary
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showModelDropdown,
-                            onDismissRequest = { showModelDropdown = false },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 280.dp)
-                                .background(colors.dialog, FluenceShapes.Medium)
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                        ) {
-                            fetchedModels.forEach { m ->
-                                val isSelected = m == model
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = m,
-                                            color = colors.textPrimary,
-                                            style = FluenceTypography.bodyLarge
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(
-                                        textColor = colors.textPrimary,
-                                        leadingIconColor = colors.textSecondary,
-                                        trailingIconColor = colors.textSecondary
-                                    ),
-                                    modifier = if (isSelected) Modifier
-                                        .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                    else Modifier,
-                                    onClick = {
-                                        model = m
-                                        showModelDropdown = false
-                                        testResult = null
-                                    }
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = {
+                            apiKey = it
+                        },
+                        placeholder = { Text("Enter your API key", color = colors.textSecondary) },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary,
+                            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                            unfocusedBorderColor = colors.inputBorder,
+                            focusedContainerColor = colors.inputBg,
+                            unfocusedContainerColor = colors.inputBg,
+                            cursorColor = colors.textPrimary
+                        ),
+                        shape = FluenceShapes.Medium,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        trailingIcon = {
+                            TextButton(onClick = { showPassword = !showPassword }) {
+                                Text(
+                                    text = if (showPassword) "Hide" else "Show",
+                                    color = colors.textSecondary,
+                                    style = FluenceTypography.labelMedium
                                 )
                             }
                         }
-                    }
+                    )
                 }
 
-                modelFetchError?.let { err ->
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = err, color = colors.error, style = FluenceTypography.labelMedium)
-                }
-            }
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                            FeedbackBus.show("Base URL must use HTTPS.")
-                            return@Button
-                        }
-                        try {
-                            SecurityUtils.saveProviderApiKey(context, "llm", selectedProvider, apiKey)
-                            SecurityUtils.saveLlmPreset(context, selectedProvider)
-                            SecurityUtils.saveLlmModel(context, selectedProvider, model)
-                            if (selectedProvider == "custom") {
-                                SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
-                            }
-                            FeedbackBus.show("Settings saved")
-                        } catch (e: IllegalArgumentException) {
-                            FeedbackBus.show(e.message ?: "Base URL must use https://")
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
                 ) {
-                    Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
-                }
-
-                Button(
-                    onClick = {
-                        if (apiKey.isBlank()) {
-                            FeedbackBus.show("Please enter an API key.")
-                            return@Button
-                        }
-                        if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                            FeedbackBus.show("Base URL must use HTTPS.")
-                            return@Button
-                        }
-                        isTesting = true
-                        testResult = null
-                        coroutineScope.launch {
-                            val baseUrl = currentBaseUrl()
-                            val testUrl = "${baseUrl.trimEnd('/')}/v1/models"
-                            val result = withContext(Dispatchers.IO) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                    FeedbackBus.show("Base URL must use HTTPS.")
+                                    return@Button
+                                }
                                 try {
-                                    val client = OkHttpClient()
-                                    val request = Request.Builder()
-                                        .url(testUrl)
-                                        .header("Authorization", "Bearer $apiKey")
-                                        .build()
-                                    client.newCall(request).execute().use { response ->
-                                        if (response.isSuccessful) {
-                                            true to "Connection successful!"
-                                        } else {
-                                            false to "Verification failed (HTTP ${response.code})."
+                                    SecurityUtils.saveProviderApiKey(context, "llm", selectedProvider, apiKey)
+                                    SecurityUtils.saveLlmPreset(context, selectedProvider)
+                                    SecurityUtils.saveLlmModel(context, selectedProvider, model)
+                                    if (selectedProvider == "custom") {
+                                        SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
+                                    }
+                                    FeedbackBus.show("Settings saved")
+                                } catch (e: IllegalArgumentException) {
+                                    FeedbackBus.show(e.message ?: "Base URL must use https://")
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+                        ) {
+                            Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (apiKey.isBlank()) {
+                                    FeedbackBus.show("Please enter an API key.")
+                                    return@Button
+                                }
+                                if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                    FeedbackBus.show("Base URL must use HTTPS.")
+                                    return@Button
+                                }
+                                isTesting = true
+                                testResult = null
+                                coroutineScope.launch {
+                                    val baseUrl = currentBaseUrl()
+                                    val testUrl = "${baseUrl.trimEnd('/')}/v1/models"
+                                    val result = withContext(Dispatchers.IO) {
+                                        try {
+                                            val client = OkHttpClient()
+                                            val request = Request.Builder()
+                                                .url(testUrl)
+                                                .header("Authorization", "Bearer $apiKey")
+                                                .build()
+                                            client.newCall(request).execute().use { response ->
+                                                if (response.isSuccessful) {
+                                                    true to "Connection successful!"
+                                                } else {
+                                                    false to "Verification failed (HTTP ${response.code})."
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            false to "Connection error. Please check your network and settings."
                                         }
                                     }
-                                } catch (e: Exception) {
-                                    false to "Connection error. Please check your network and settings."
+                                    isTesting = false
+                                    testResult = result
                                 }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
+                            enabled = !isTesting
+                        ) {
+                            if (isTesting) {
+                                CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                            } else {
+                                Text(text = "Test Connection", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                             }
-                            isTesting = false
-                            testResult = result
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
-                    enabled = !isTesting
-                ) {
-                    if (isTesting) {
-                        CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
-                    } else {
-                        Text(text = "Test Connection", color = colors.textPrimary, style = FluenceTypography.labelLarge)
+                    }
+
+                    testResult?.let { result ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = result.second,
+                            color = if (result.first) colors.success else colors.error,
+                            style = FluenceTypography.bodySmall
+                        )
                     }
                 }
-            }
-
-            testResult?.let { result ->
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = result.second,
-                    color = if (result.first) colors.success else colors.error,
-                    style = FluenceTypography.bodySmall
-                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))

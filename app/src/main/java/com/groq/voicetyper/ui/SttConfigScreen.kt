@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.GroqClient
 import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -67,8 +69,8 @@ private fun ApiKeySection(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = colors.textPrimary,
             unfocusedTextColor = colors.textPrimary,
-            focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-            unfocusedBorderColor = colors.outlineSubtle,
+            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+            unfocusedBorderColor = colors.inputBorder,
             focusedContainerColor = colors.inputBg,
             unfocusedContainerColor = colors.inputBg,
             cursorColor = colors.textPrimary
@@ -266,525 +268,564 @@ fun SttConfigScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = FluenceSpacing.Base)
                 .verticalScroll(rememberScrollState())
         ) {
             SettingsTopBar(title = "AI Transcription", onBack = onNavigateBack)
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-            // Provider
-            Text(
-                text = "Provider",
-                color = colors.textPrimary,
-    style = FluenceTypography.labelLarge
+                        // Section 1: Provider & Language
+            SettingsSectionHeader(
+                title = "Provider & Language",
+                description = "Speech recognition engine and transcription language"
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("groq" to "Groq", "mistral" to "Mistral", "custom" to "Custom").forEach { (id, label) ->
-                    FilterChip(
-                        selected = selectedProvider == id,
-                        onClick = {
-                            selectedProvider = id
-                            testResult = null
-                            SecurityUtils.saveSttPreset(context, id)
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        label = { Text(label, style = FluenceTypography.bodySmall) },
-                        leadingIcon = {
-                            if (id != "custom") {
-                                ProviderLogo(providerId = id, size = 18.dp)
-                            }
-                        },
-                        shape = FluenceShapes.ExtraSmall,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                            selectedLabelColor = colors.textPrimary,
-                            containerColor = colors.buttonSecondary,
-                            labelColor = colors.textSecondary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            borderColor = colors.outlineSubtle,
-                            selectedBorderColor = colors.textPrimary.copy(alpha = 0.30f),
-                            enabled = true,
-                            selected = selectedProvider == id
-                        )
+            SettingsJointCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    Text(
+                        text = "Provider",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelLarge
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("groq" to "Groq", "mistral" to "Mistral", "custom" to "Custom").forEach { (id, label) ->
+                            FilterChip(
+                                selected = selectedProvider == id,
+                                onClick = {
+                                    selectedProvider = id
+                                    testResult = null
+                                    SecurityUtils.saveSttPreset(context, id)
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(label, style = FluenceTypography.bodySmall) },
+                                leadingIcon = {
+                                    if (id != "custom") {
+                                        ProviderLogo(providerId = id, size = 18.dp)
+                                    }
+                                },
+                                shape = FluenceShapes.ExtraSmall,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                                    selectedLabelColor = colors.textPrimary,
+                                    containerColor = colors.buttonSecondary,
+                                    labelColor = colors.textSecondary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = colors.inputBorder,
+                                    selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                    enabled = true,
+                                    selected = selectedProvider == id
+                                )
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    Text(
+                        text = "Language",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Leave as Auto-detect for automatic language detection.",
+                        color = colors.textSecondary,
+                        style = FluenceTypography.labelMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var showLanguageDropdown by remember { mutableStateOf(false) }
+                    val currentLanguageLabel = languages.find { it.first == selectedLanguage }?.second ?: "Auto-detect"
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(role = Role.Button, onClickLabel = "Select language") { showLanguageDropdown = true }
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                .background(colors.inputBg, FluenceShapes.Medium)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = currentLanguageLabel,
+                                color = colors.textPrimary,
+                                style = FluenceTypography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Box {
+                                Icon(
+                                    imageVector = FluenceIcons.ChevronDown,
+                                    contentDescription = "Select language",
+                                    tint = colors.textSecondary
+                                )
+                                DropdownMenu(
+                                    expanded = showLanguageDropdown,
+                                    onDismissRequest = { showLanguageDropdown = false },
+                                    modifier = Modifier
+                                        .width(220.dp)
+                                        .heightIn(max = 280.dp)
+                                        .background(colors.dialog, FluenceShapes.Medium)
+                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                ) {
+                                    languages.forEach { (code, name) ->
+                                        val isSelected = code == selectedLanguage
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = name,
+                                                    color = colors.textPrimary,
+                                                    style = FluenceTypography.bodyLarge
+                                                )
+                                            },
+                                            colors = MenuDefaults.itemColors(
+                                                textColor = colors.textPrimary,
+                                                leadingIconColor = colors.textSecondary,
+                                                trailingIconColor = colors.textSecondary
+                                            ),
+                                            modifier = if (isSelected) Modifier
+                                                .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                            else Modifier,
+                                            onClick = {
+                                                selectedLanguage = code
+                                                SecurityUtils.saveSttLanguage(context, code ?: "")
+                                                showLanguageDropdown = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // Language
-            Text(
-                text = "Language",
-                color = colors.textPrimary,
-    style = FluenceTypography.labelLarge
+            // Section 2: Model & Mode
+            SettingsSectionHeader(
+                title = "Model & Mode",
+                description = "Speech recognition model and real-time streaming preferences"
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Leave as Auto-detect for automatic language detection.",
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            var showLanguageDropdown by remember { mutableStateOf(false) }
-            val currentLanguageLabel = languages.find { it.first == selectedLanguage }?.second ?: "Auto-detect"
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Row(
+            SettingsJointCard {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button, onClickLabel = "Select language") { showLanguageDropdown = true }
-                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                        .background(colors.inputBg, FluenceShapes.Medium)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(FluenceSpacing.Base)
                 ) {
                     Text(
-                        text = currentLanguageLabel,
+                        text = "Transcription Model",
                         color = colors.textPrimary,
-                        style = FluenceTypography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        style = FluenceTypography.labelLarge
                     )
-                    Box {
-                        Icon(
-                            imageVector = FluenceIcons.ChevronDown,
-                            contentDescription = "Select language",
-                            tint = colors.textSecondary
-                        )
-                        DropdownMenu(
-                            expanded = showLanguageDropdown,
-                            onDismissRequest = { showLanguageDropdown = false },
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Select speech recognition model for this provider.",
+                        color = colors.textSecondary,
+                        style = FluenceTypography.labelMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (isFetchingModels) {
+                        Row(
                             modifier = Modifier
-                                .width(220.dp)
-                                .heightIn(max = 280.dp)
-                                .background(colors.dialog, FluenceShapes.Medium)
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            languages.forEach { (code, name) ->
-                                val isSelected = code == selectedLanguage
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = name,
-                                            color = colors.textPrimary,
-                                            style = FluenceTypography.bodyLarge
-                                        )
-                                    },
-                                    colors = MenuDefaults.itemColors(
-                                        textColor = colors.textPrimary,
-                                        leadingIconColor = colors.textSecondary,
-                                        trailingIconColor = colors.textSecondary
-                                    ),
-                                    modifier = if (isSelected) Modifier
-                                        .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                    else Modifier,
-                                    onClick = {
-                                        selectedLanguage = code
-                                        SecurityUtils.saveSttLanguage(context, code ?: "")
-                                        showLanguageDropdown = false
-                                    }
+                            CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Fetching models\u2026", color = colors.textSecondary, style = FluenceTypography.bodySmall)
+                        }
+                    } else {
+                        var showModelDropdown by remember { mutableStateOf(false) }
+                        val availableModels = remember(fetchedModels, selectedProvider, selectedModel) {
+                            if (fetchedModels.isNotEmpty()) fetchedModels
+                            else if (selectedModel.isNotBlank()) listOf(selectedModel)
+                            else listOf(SecurityUtils.getSttModel(context, selectedProvider))
+                        }
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(role = Role.Button, onClickLabel = "Select model") { showModelDropdown = true }
+                                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                    .background(colors.inputBg, FluenceShapes.Medium)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
+                                    color = colors.textPrimary,
+                                    style = FluenceTypography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Icon(
+                                    imageVector = FluenceIcons.ChevronDown,
+                                    contentDescription = "Select model",
+                                    tint = colors.textSecondary
                                 )
                             }
+                            DropdownMenu(
+                                expanded = showModelDropdown,
+                                onDismissRequest = { showModelDropdown = false },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 280.dp)
+                                    .background(colors.dialog, FluenceShapes.Medium)
+                                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                            ) {
+                                availableModels.forEach { m ->
+                                    val isSelected = m == selectedModel
+                                    DropdownMenuItem(
+                                        text = { Text(text = m, color = colors.textPrimary) },
+                                        colors = MenuDefaults.itemColors(
+                                            textColor = colors.textPrimary,
+                                            leadingIconColor = colors.textSecondary,
+                                            trailingIconColor = colors.textSecondary
+                                        ),
+                                        modifier = if (isSelected) Modifier
+                                            .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                        else Modifier,
+                                        onClick = {
+                                            selectedModel = m
+                                            SecurityUtils.saveSttModel(context, selectedProvider, m)
+                                            showModelDropdown = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
+                HorizontalDivider(color = colors.divider, thickness = 1.dp)
 
-            // Transcription Model
-            Text(
-                text = "Transcription Model",
-                color = colors.textPrimary,
-    style = FluenceTypography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Select speech recognition model for this provider.",
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isFetchingModels) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                        .padding(FluenceSpacing.Base)
                 ) {
-                    CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
-                }
-            } else {
-                var showModelDropdown by remember { mutableStateOf(false) }
-                val availableModels = remember(fetchedModels, selectedProvider, selectedModel) {
-                    if (fetchedModels.isNotEmpty()) fetchedModels
-                    else if (selectedModel.isNotBlank()) listOf(selectedModel)
-                    else listOf(SecurityUtils.getSttModel(context, selectedProvider))
-                }
+                    var isStreamingEnabled by remember { mutableStateOf(SecurityUtils.isStreamingEnabled(context)) }
+                    val isStreamingSupported = selectedProvider == "mistral" || selectedProvider == "custom"
 
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(role = Role.Button, onClickLabel = "Select model") { showModelDropdown = true }
-                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                            .background(colors.inputBg, FluenceShapes.Medium)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                        text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
+                    Text(
+                        text = "Transcription Mode",
                         color = colors.textPrimary,
-                        style = FluenceTypography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Icon(
-                            imageVector = FluenceIcons.ChevronDown,
-                            contentDescription = "Select model",
-                            tint = colors.textSecondary
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showModelDropdown,
-                        onDismissRequest = { showModelDropdown = false },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 280.dp)
-                            .background(colors.dialog, FluenceShapes.Medium)
-                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                    ) {
-                        availableModels.forEach { m ->
-                            val isSelected = m == selectedModel
-                            DropdownMenuItem(
-                                text = { Text(text = m, color = colors.textPrimary) },
-                                colors = MenuDefaults.itemColors(
-                                    textColor = colors.textPrimary,
-                                    leadingIconColor = colors.textSecondary,
-                                    trailingIconColor = colors.textSecondary
-                                ),
-                                modifier = if (isSelected) Modifier
-                                    .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                else Modifier,
-                                onClick = {
-                                    selectedModel = m
-                                    SecurityUtils.saveSttModel(context, selectedProvider, m)
-                                    showModelDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            var isStreamingEnabled by remember { mutableStateOf(SecurityUtils.isStreamingEnabled(context)) }
-            val isStreamingSupported = selectedProvider == "mistral" || selectedProvider == "custom"
-
-            // Transcription Mode
-            Text(
-                text = "Transcription Mode",
-                color = colors.textPrimary,
-    style = FluenceTypography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = if (isStreamingSupported) {
-                    "Choose between standard post-recording upload or live real-time streaming dictation. Agent Mode works with both — it is independent of the transcription mode."
-                } else {
-                    "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
-                },
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = !isStreamingEnabled || !isStreamingSupported,
-                    onClick = {
-                        isStreamingEnabled = false
-                        SecurityUtils.saveStreamingEnabled(context, false)
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    label = { Text("Standard", style = FluenceTypography.bodySmall) },
-                    shape = FluenceShapes.ExtraSmall,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                        selectedLabelColor = colors.textPrimary,
-                        containerColor = colors.buttonSecondary,
-                        labelColor = colors.textSecondary
+                        style = FluenceTypography.labelLarge
                     )
-                )
-
-                FilterChip(
-                    selected = isStreamingEnabled && isStreamingSupported,
-                    enabled = isStreamingSupported,
-                    onClick = {
-                        isStreamingEnabled = true
-                        SecurityUtils.saveStreamingEnabled(context, true)
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    label = { Text("Real-time Streaming", style = FluenceTypography.bodySmall) },
-                    shape = FluenceShapes.ExtraSmall,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                        selectedLabelColor = colors.textPrimary,
-                        containerColor = colors.buttonSecondary,
-                        labelColor = colors.textSecondary,
-                        disabledContainerColor = colors.buttonSecondary.copy(alpha = 0.4f),
-                        disabledLabelColor = colors.textDisabled
-                    )
-                )
-            }
-
-            if (isStreamingEnabled && isStreamingSupported) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Notice: Real-time streaming mode transmits encrypted audio continuously while speaking. Cancelling stops further transmission, but audio already transmitted is processed by the cloud provider.",
-                    color = colors.textSecondary.copy(alpha = 0.8f),
-                    style = FluenceTypography.labelSmall,
-                )
-                if (selectedProvider == "custom") {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Custom streaming requires a Mistral-compatible realtime transcription endpoint (e.g. a server exposing /v1/audio/transcriptions/realtime).",
-                        color = colors.textSecondary.copy(alpha = 0.8f),
-                        style = FluenceTypography.labelSmall,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
-
-            // API Key section
-            if (selectedProvider == "groq") {
-
-                ApiKeySection(
-                    label = "Groq API Key",
-                    placeholder = "gsk_...",
-                    apiKey = apiKey,
-                    onApiKeyChange = { apiKey = it.trim() },
-                    showPassword = showPassword,
-                    onTogglePassword = { showPassword = !showPassword },
-                    onSave = {
-                        SecurityUtils.saveProviderApiKey(context, "stt", "groq", apiKey)
-                        FeedbackBus.show("API Key saved")
-                    },
-                    onTest = {
-                        if (apiKey.isBlank()) {
-                            FeedbackBus.show("Please enter a key to test.")
-                            return@ApiKeySection
-                        }
-                        isTesting = true
-                        testResult = null
-                        coroutineScope.launch {
-                            val (success, message) = verifyApiKey(apiKey, "groq")
-                            isTesting = false
-                            testResult = success to message
-                        }
-                    },
-                    isTesting = isTesting,
-                    testResult = testResult
-                )
-            }
-
-            if (selectedProvider == "mistral") {
-                ApiKeySection(
-                    label = "Mistral API Key",
-                    placeholder = "9A...",
-                    apiKey = mistralApiKey,
-                    onApiKeyChange = { mistralApiKey = it.trim() },
-                    showPassword = showPassword,
-                    onTogglePassword = { showPassword = !showPassword },
-                    onSave = {
-                        SecurityUtils.saveProviderApiKey(context, "stt", "mistral", mistralApiKey)
-                        FeedbackBus.show("Mistral API Key saved")
-                    },
-                    onTest = {
-                        if (mistralApiKey.isBlank()) {
-                            FeedbackBus.show("Please enter a key to test.")
-                            return@ApiKeySection
-                        }
-                        isTesting = true
-                        testResult = null
-                        coroutineScope.launch {
-                            val (success, message) = verifyApiKey(mistralApiKey, "mistral")
-                            isTesting = false
-                            testResult = success to message
-                        }
-                    },
-                    isTesting = isTesting,
-                    testResult = testResult
-                )
-            }
-
-            if (selectedProvider == "custom") {
-                Text(
-                    text = "API Key",
-                    color = colors.textPrimary,
-                    style = FluenceTypography.labelLarge
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Stored securely on this device.",
-                    color = colors.textSecondary,
-                    style = FluenceTypography.labelMedium,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = customApiKey,
-                    onValueChange = { customApiKey = it.trim() },
-                    placeholder = { Text("API Key", color = colors.textSecondary) },
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
-                        focusedContainerColor = colors.inputBg,
-                        unfocusedContainerColor = colors.inputBg,
-                        cursorColor = colors.textPrimary
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    trailingIcon = {
-                        TextButton(onClick = { showPassword = !showPassword }) {
-                            Text(
-                                text = if (showPassword) "Hide" else "Show",
-                                color = colors.textSecondary,
-                                style = FluenceTypography.labelMedium
-                            )
-                        }
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-                OutlinedTextField(
-                    value = customBaseUrl,
-                    onValueChange = { customBaseUrl = it },
-                    placeholder = { Text("https://api.example.com/v1", color = colors.textSecondary) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
-                        focusedContainerColor = colors.inputBg,
-                        unfocusedContainerColor = colors.inputBg,
-                        cursorColor = colors.textPrimary
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Base URL", color = colors.textSecondary) }
-                )
-
-                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-                OutlinedTextField(
-                    value = customModel,
-                    onValueChange = { customModel = it.trim() },
-                    placeholder = { Text("whisper-large-v3", color = colors.textSecondary) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
-                        focusedContainerColor = colors.inputBg,
-                        unfocusedContainerColor = colors.inputBg,
-                        cursorColor = colors.textPrimary
-                    ),
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("Model", color = colors.textSecondary) }
-                )
-
-                Spacer(modifier = Modifier.height(FluenceSpacing.Base))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                                FeedbackBus.show("Base URL must use HTTPS.")
-                                return@Button
-                            }
-                            try {
-                                SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
-                                SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
-                                SecurityUtils.saveSttModel(context, "custom", customModel)
-                                FeedbackBus.show("Settings saved")
-                            } catch (e: IllegalArgumentException) {
-                                FeedbackBus.show(e.message ?: "Base URL must use https://")
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
-                    ) {
-                        Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (customApiKey.isBlank() || customBaseUrl.isBlank()) {
-                                FeedbackBus.show("Please enter API Key and Base URL.")
-                                return@Button
-                            }
-                            if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
-                                FeedbackBus.show("Base URL must use HTTPS.")
-                                return@Button
-                            }
-                            isTesting = true
-                            testResult = null
-                            coroutineScope.launch {
-                                val (success, message) = verifyApiKey(customApiKey, "custom", customBaseUrl)
-                                isTesting = false
-                                testResult = success to message
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
-                        enabled = !isTesting
-                    ) {
-                        if (isTesting) {
-                            CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                        text = if (isStreamingSupported) {
+                            "Choose between standard post-recording upload or live real-time streaming dictation. Agent Mode works with both \u2014 it is independent of the transcription mode."
                         } else {
-                            Text(text = "Test Connection", color = colors.textPrimary)
+                            "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
+                        },
+                        color = colors.textSecondary,
+                        style = FluenceTypography.labelMedium,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = !isStreamingEnabled || !isStreamingSupported,
+                            onClick = {
+                                isStreamingEnabled = false
+                                SecurityUtils.saveStreamingEnabled(context, false)
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            label = { Text("Standard", style = FluenceTypography.bodySmall) },
+                            shape = FluenceShapes.ExtraSmall,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                                selectedLabelColor = colors.textPrimary,
+                                containerColor = colors.buttonSecondary,
+                                labelColor = colors.textSecondary
+                            )
+                        )
+
+                        FilterChip(
+                            selected = isStreamingEnabled && isStreamingSupported,
+                            enabled = isStreamingSupported,
+                            onClick = {
+                                isStreamingEnabled = true
+                                SecurityUtils.saveStreamingEnabled(context, true)
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            label = { Text("Real-time Streaming", style = FluenceTypography.bodySmall) },
+                            shape = FluenceShapes.ExtraSmall,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                                selectedLabelColor = colors.textPrimary,
+                                containerColor = colors.buttonSecondary,
+                                labelColor = colors.textSecondary,
+                                disabledContainerColor = colors.buttonSecondary.copy(alpha = 0.4f),
+                                disabledLabelColor = colors.textDisabled
+                            )
+                        )
+                    }
+
+                    if (isStreamingEnabled && isStreamingSupported) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Notice: Real-time streaming mode transmits encrypted audio continuously while speaking. Cancelling stops further transmission, but audio already transmitted is processed by the cloud provider.",
+                            color = colors.textSecondary.copy(alpha = 0.8f),
+                            style = FluenceTypography.labelSmall,
+                        )
+                        if (selectedProvider == "custom") {
+                            Text(
+                                text = "Custom streaming requires a Mistral-compatible realtime transcription endpoint (e.g. a server exposing /v1/audio/transcriptions/realtime).",
+                                color = colors.textSecondary.copy(alpha = 0.8f),
+                                style = FluenceTypography.labelSmall,
+                            )
                         }
                     }
                 }
+            }
 
-                testResult?.let { result ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = result.second,
-                        color = if (result.first) colors.success else colors.error,
-                        style = FluenceTypography.bodySmall,
-                    )
+            // Section 3: Credentials & Connection
+            SettingsSectionHeader(
+                title = "Credentials & Connection",
+                description = "Authentication keys and API endpoint configuration"
+            )
+            SettingsJointCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(FluenceSpacing.Base)
+                ) {
+                    if (selectedProvider == "groq") {
+                        ApiKeySection(
+                            label = "Groq API Key",
+                            placeholder = "gsk_...",
+                            apiKey = apiKey,
+                            onApiKeyChange = { apiKey = it.trim() },
+                            showPassword = showPassword,
+                            onTogglePassword = { showPassword = !showPassword },
+                            onSave = {
+                                SecurityUtils.saveProviderApiKey(context, "stt", "groq", apiKey)
+                                FeedbackBus.show("API Key saved")
+                            },
+                            onTest = {
+                                if (apiKey.isBlank()) {
+                                    FeedbackBus.show("Please enter a key to test.")
+                                    return@ApiKeySection
+                                }
+                                isTesting = true
+                                testResult = null
+                                coroutineScope.launch {
+                                    val (success, message) = verifyApiKey(apiKey, "groq")
+                                    isTesting = false
+                                    testResult = success to message
+                                }
+                            },
+                            isTesting = isTesting,
+                            testResult = testResult
+                        )
+                    }
+
+                    if (selectedProvider == "mistral") {
+                        ApiKeySection(
+                            label = "Mistral API Key",
+                            placeholder = "9A...",
+                            apiKey = mistralApiKey,
+                            onApiKeyChange = { mistralApiKey = it.trim() },
+                            showPassword = showPassword,
+                            onTogglePassword = { showPassword = !showPassword },
+                            onSave = {
+                                SecurityUtils.saveProviderApiKey(context, "stt", "mistral", mistralApiKey)
+                                FeedbackBus.show("Mistral API Key saved")
+                            },
+                            onTest = {
+                                if (mistralApiKey.isBlank()) {
+                                    FeedbackBus.show("Please enter a key to test.")
+                                    return@ApiKeySection
+                                }
+                                isTesting = true
+                                testResult = null
+                                coroutineScope.launch {
+                                    val (success, message) = verifyApiKey(mistralApiKey, "mistral")
+                                    isTesting = false
+                                    testResult = success to message
+                                }
+                            },
+                            isTesting = isTesting,
+                            testResult = testResult
+                        )
+                    }
+
+                    if (selectedProvider == "custom") {
+                        Text(
+                            text = "API Key",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.labelLarge
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Stored securely on this device.",
+                            color = colors.textSecondary,
+                            style = FluenceTypography.labelMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = customApiKey,
+                            onValueChange = { customApiKey = it.trim() },
+                            placeholder = { Text("API Key", color = colors.textSecondary) },
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary,
+                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                unfocusedBorderColor = colors.inputBorder,
+                                focusedContainerColor = colors.inputBg,
+                                unfocusedContainerColor = colors.inputBg,
+                                cursorColor = colors.textPrimary
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            trailingIcon = {
+                                TextButton(onClick = { showPassword = !showPassword }) {
+                                    Text(
+                                        text = if (showPassword) "Hide" else "Show",
+                                        color = colors.textSecondary,
+                                        style = FluenceTypography.labelMedium
+                                    )
+                                }
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+
+                        OutlinedTextField(
+                            value = customBaseUrl,
+                            onValueChange = { customBaseUrl = it },
+                            placeholder = { Text("https://api.example.com/v1", color = colors.textSecondary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary,
+                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                unfocusedBorderColor = colors.inputBorder,
+                                focusedContainerColor = colors.inputBg,
+                                unfocusedContainerColor = colors.inputBg,
+                                cursorColor = colors.textPrimary
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Base URL", color = colors.textSecondary) }
+                        )
+
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+
+                        OutlinedTextField(
+                            value = customModel,
+                            onValueChange = { customModel = it.trim() },
+                            placeholder = { Text("whisper-large-v3", color = colors.textSecondary) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = colors.textPrimary,
+                                unfocusedTextColor = colors.textPrimary,
+                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                unfocusedBorderColor = colors.inputBorder,
+                                focusedContainerColor = colors.inputBg,
+                                unfocusedContainerColor = colors.inputBg,
+                                cursorColor = colors.textPrimary
+                            ),
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Model", color = colors.textSecondary) }
+                        )
+
+                        Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                        FeedbackBus.show("Base URL must use HTTPS.")
+                                        return@Button
+                                    }
+                                    try {
+                                        SecurityUtils.saveProviderApiKey(context, "stt", "custom", customApiKey)
+                                        SecurityUtils.saveSttBaseUrl(context, "custom", customBaseUrl)
+                                        SecurityUtils.saveSttModel(context, "custom", customModel)
+                                        FeedbackBus.show("Settings saved")
+                                    } catch (e: IllegalArgumentException) {
+                                        FeedbackBus.show(e.message ?: "Base URL must use https://")
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                                shape = FluenceShapes.Medium,
+                                modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+                            ) {
+                                Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (customApiKey.isBlank() || customBaseUrl.isBlank()) {
+                                        FeedbackBus.show("Please enter API Key and Base URL.")
+                                        return@Button
+                                    }
+                                    if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
+                                        FeedbackBus.show("Base URL must use HTTPS.")
+                                        return@Button
+                                    }
+                                    isTesting = true
+                                    testResult = null
+                                    coroutineScope.launch {
+                                        val (success, message) = verifyApiKey(customApiKey, "custom", customBaseUrl)
+                                        isTesting = false
+                                        testResult = success to message
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                                shape = FluenceShapes.Medium,
+                                modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
+                                enabled = !isTesting
+                            ) {
+                                if (isTesting) {
+                                    CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
+                                } else {
+                                    Text(text = "Test Connection", color = colors.textPrimary)
+                                }
+                            }
+                        }
+
+                        testResult?.let { result ->
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = result.second,
+                                color = if (result.first) colors.success else colors.error,
+                                style = FluenceTypography.bodySmall,
+                            )
+                        }
+                    }
                 }
             }
 

@@ -97,7 +97,7 @@ fun FluenceDrawer(
 
         // Divider separating top section and bottom section
         HorizontalDivider(
-            color = colors.outlineSubtle,
+            color = colors.divider,
             thickness = 1.dp,
             modifier = Modifier.padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
         )

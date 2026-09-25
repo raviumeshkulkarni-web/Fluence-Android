@@ -35,6 +35,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -291,6 +292,113 @@ fun FluenceSectionHeader(
             }
         }
     }
+}
+
+// ── Settings Section Header ───────────────────────────────────────────────
+// Section header rendered OUTSIDE cards, matching the official Windows /
+// Codex design system. High-contrast, clear hierarchy, with optional
+// right-aligned action button.
+// ────────────────────────────────────────────────────────────────────────────
+@Composable
+fun SettingsSectionHeader(
+    title: String,
+    description: String? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val colors = PrecisionTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 20.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = colors.textPrimary,
+                style = FluenceTypography.labelLarge.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    letterSpacing = (-0.2).sp
+                )
+            )
+            if (description != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall.copy(
+                        fontSize = 12.5.sp,
+                        lineHeight = 16.sp
+                    )
+                )
+            }
+        }
+        if (actionLabel != null && onAction != null) {
+            Spacer(modifier = Modifier.width(FluenceSpacing.Md))
+            val actionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .heightIn(min = 36.dp)
+                    .pressScale(actionSource)
+                    .clip(FluenceShapes.Small)
+                    .background(colors.panel)
+                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Small)
+                    .clickable(
+                        interactionSource = actionSource,
+                        indication = androidx.compose.foundation.LocalIndication.current,
+                        onClickLabel = actionLabel,
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClick = onAction
+                    )
+                    .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = actionLabel,
+                    color = colors.textPrimary,
+                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+            }
+        }
+    }
+}
+
+// ── Settings Joint Card ──────────────────────────────────────────────────
+// Container card matching the Android v1.28.0 settings-card surface architecture:
+// rounded corners (12dp), colors.panel (#1E1E1E) background, colors.outlineSubtle
+// 1dp stroke, and clearly visible dividers separating joined rows inside.
+// Decoupled from CardSurface (#141414) so the dashboard stays strictly intact.
+// ────────────────────────────────────────────────────────────────────────────
+@Composable
+fun SettingsJointCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = PrecisionTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(FluenceShapes.Medium)
+            .background(colors.panel)
+            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium),
+        content = content
+    )
+}
+
+// ── Settings Divider ─────────────────────────────────────────────────────
+// Full-width internal divider for SettingsJointCard with calibrated contrast
+// (colors.divider) so row separators are clearly visible across displays.
+// ────────────────────────────────────────────────────────────────────────────
+@Composable
+fun SettingsDivider(modifier: Modifier = Modifier) {
+    androidx.compose.material3.HorizontalDivider(
+        color = PrecisionTheme.colors.divider,
+        thickness = 1.dp,
+        modifier = modifier
+    )
 }
 
 // ── Transient feedback (Material Snackbar) ────────────────────────────────

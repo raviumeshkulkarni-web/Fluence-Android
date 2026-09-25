@@ -41,6 +41,8 @@ import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsJointCard
+import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
@@ -154,52 +156,52 @@ fun DictionaryScreen(
                 )
             }
 
-            Text(
-                text = "Teach Fluence the words it gets wrong: names, terms, spellings. Each one is fixed automatically right after you dictate.",
-                color = colors.textSecondary,
-                style = FluenceTypography.bodySmall,
-                textAlign = TextAlign.Start,
+            LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = FluenceSpacing.Base,
-                        end = FluenceSpacing.Base,
-                        bottom = FluenceSpacing.Sm
-                    )
-            )
-
-            if (!isEnabled) {
-                Surface(
-                    color = colors.panelElevated,
-                    shape = FluenceShapes.Medium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.N6)
-                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                ) {
+                    .fillMaxSize()
+                    .padding(horizontal = FluenceSpacing.Base)
+            ) {
+                item {
                     Text(
-                        text = "Custom Dictionary is paused. Your replacements won't apply until you turn it back on.",
+                        text = "Teach Fluence the words it gets wrong: names, terms, spellings. Each one is fixed automatically right after you dictate.",
                         color = colors.textSecondary,
                         style = FluenceTypography.bodySmall,
-                        modifier = Modifier.padding(FluenceSpacing.Md)
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = FluenceSpacing.Sm)
                     )
                 }
-            }
 
-            // Card fills the remaining viewport (Windows parity): Correction
-            // Learning rows, Word Corrections table rows, then Suggested
-            // Corrections — no per-row cards, dividers do the separating.
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = FluenceSpacing.Base)
-                    .background(colors.cardSurface, FluenceShapes.Medium)
-            ) {
-                LazyColumn(modifier = Modifier.weight(1f)) {
+                if (!isEnabled) {
                     item {
-                        FluenceSectionHeader(label = "CORRECTION LEARNING")
+                        Surface(
+                            color = colors.panelElevated,
+                            shape = FluenceShapes.Medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = FluenceSpacing.Sm)
+                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                        ) {
+                            Text(
+                                text = "Custom Dictionary is paused. Your replacements won't apply until you turn it back on.",
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall,
+                                modifier = Modifier.padding(FluenceSpacing.Md)
+                            )
+                        }
                     }
-                    item {
+                }
+
+                // Section 1: Correction Learning
+                item {
+                    SettingsSectionHeader(
+                        title = "Correction Learning",
+                        description = "Configure automatic learning and dictionary suggestions"
+                    )
+                }
+                item {
+                    SettingsJointCard {
                         LearningRow(
                             title = "Dictionary Enabled",
                             description = "Replacements apply during transcription",
@@ -210,15 +212,10 @@ fun DictionaryScreen(
                                 DictionaryPreferences.setDictionaryEnabled(context, checked)
                             }
                         )
-                    }
-                    item {
                         HorizontalDivider(
-                            color = colors.outlineSubtle,
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
+                            color = colors.divider,
+                            thickness = 1.dp
                         )
-                    }
-                    item {
                         LearningRow(
                             title = "Auto-Learn Corrections",
                             description = "Suggest transcription corrections based on detected patterns",
@@ -230,18 +227,23 @@ fun DictionaryScreen(
                             }
                         )
                     }
-                    item {
-                        FluenceSectionHeader(
-                            label = "WORD CORRECTIONS",
-                            actionLabel = "+ Add",
-                            onAction = {
-                                entryToEdit = null
-                                showDialog = true
-                            }
-                        )
-                    }
-                    if (visibleEntries.isEmpty()) {
-                        item {
+                }
+
+                // Section 2: Word Corrections
+                item {
+                    SettingsSectionHeader(
+                        title = "Word Corrections",
+                        description = "Custom word replacements applied during transcription",
+                        actionLabel = "+ Add",
+                        onAction = {
+                            entryToEdit = null
+                            showDialog = true
+                        }
+                    )
+                }
+                item {
+                    SettingsJointCard {
+                        if (visibleEntries.isEmpty()) {
                             FluenceEmptyState(
                                 icon = FluenceIcons.BookOpen,
                                 title = "No dictionary entries yet",
@@ -253,50 +255,54 @@ fun DictionaryScreen(
                                 },
                                 modifier = Modifier.padding(vertical = FluenceSpacing.Xxl)
                             )
-                        }
-                    } else {
-                        itemsIndexed(
-                            items = visibleEntries,
-                            key = { _, entry -> entry.id }
-                        ) { index, entry ->
-                            DictionaryEntryRow(
-                                entry = entry,
-                                isSelected = entry.id in selectedIds,
-                                isMultiSelect = isMultiSelect,
-                                onToggleSelect = {
-                                    selectedIds = if (entry.id in selectedIds) {
-                                        selectedIds - entry.id
-                                    } else {
-                                        selectedIds + entry.id
+                        } else {
+                            visibleEntries.forEachIndexed { index, entry ->
+                                DictionaryEntryRow(
+                                    entry = entry,
+                                    isSelected = entry.id in selectedIds,
+                                    isMultiSelect = isMultiSelect,
+                                    onToggleSelect = {
+                                        selectedIds = if (entry.id in selectedIds) {
+                                            selectedIds - entry.id
+                                        } else {
+                                            selectedIds + entry.id
+                                        }
+                                    },
+                                    onEdit = {
+                                        entryToEdit = entry
+                                        showDialog = true
+                                    },
+                                    onDelete = {
+                                        pendingDeleteIds = listOf(entry.id)
+                                        showDeleteDialog = true
                                     }
-                                },
-                                onEdit = {
-                                    entryToEdit = entry
-                                    showDialog = true
-                                },
-                                onDelete = {
-                                    pendingDeleteIds = listOf(entry.id)
-                                    showDeleteDialog = true
-                                }
-                            )
-                            if (index < visibleEntries.lastIndex) {
-                                HorizontalDivider(
-                                    color = colors.outlineSubtle,
-                                    thickness = 1.dp,
-                                    modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
                                 )
+                                if (index < visibleEntries.lastIndex) {
+                                    HorizontalDivider(
+                                        color = colors.divider,
+                                        thickness = 1.dp
+                                    )
+                                }
                             }
                         }
                     }
-                    item {
-                        FluenceSectionHeader(label = "SUGGESTED CORRECTIONS")
-                    }
-                    item {
+                }
+
+                // Section 3: Suggested Corrections
+                item {
+                    SettingsSectionHeader(
+                        title = "Suggested Corrections",
+                        description = "Review and accept phrases detected from recent edits"
+                    )
+                }
+                item {
+                    SettingsJointCard {
                         PendingSuggestionsSection()
                     }
-                    item {
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
                 }
             }
         }
@@ -581,8 +587,8 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,
@@ -604,8 +610,8 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan.copy(alpha = 0.55f) else colors.textSecondary,
-                        unfocusedBorderColor = colors.outlineSubtle,
+                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
                         focusedTextColor = colors.textPrimary,
