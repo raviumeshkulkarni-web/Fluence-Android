@@ -110,6 +110,12 @@ class StreamingAudioCapture {
         var failure: String? = null
         try {
             record.startRecording()
+        } catch (e: SecurityException) {
+            // Mic revoked between permission check and start (runs on the
+            // capture thread, so callers can't catch it). Route into the
+            // normal failure path instead of killing the thread.
+            Log.e(TAG, "Microphone permission revoked before capture start", e)
+            failure = "Microphone permission was revoked. Please grant it and try again."
         } catch (e: IllegalStateException) {
             Log.e(TAG, "Failed to start AudioRecord recording state", e)
             failure = "Could not start the audio capture: ${e.localizedMessage ?: "AudioRecord state error"}"

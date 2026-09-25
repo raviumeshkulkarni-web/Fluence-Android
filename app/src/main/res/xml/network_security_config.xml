@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Defense-in-depth: ban cleartext traffic app-wide so API keys, voice
+     audio, and transcripts can never travel over plain HTTP/ws, even if a
+     stored custom endpoint or a future dependency regresses to http://.
+     Mirrors the platform default (API 28+) explicitly so the guarantee does
+     not depend on it. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

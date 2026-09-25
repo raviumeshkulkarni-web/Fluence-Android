@@ -364,7 +364,9 @@ class MoonshineV2StreamingTranscriber(
         }
 
         val finalText = getCumulativeText().trim()
-        Log.d(TAG, "Emitting final transcript: $finalText")
+        // Privacy: never log transcript content (it may hold passwords/PII
+        // and logcat is captured in user-shared bug reports). Length only.
+        Log.d(TAG, "Emitting final transcript (${finalText.length} chars)")
         eventChannel.trySend(StreamingTranscriptEvent.Final(finalText))
     }
 
