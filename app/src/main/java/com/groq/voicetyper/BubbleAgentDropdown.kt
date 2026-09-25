@@ -126,7 +126,8 @@ fun AgentDropdownOverlay(
     androidx.compose.runtime.LaunchedEffect(Unit) { mounted = true }
     val mountAlpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (mounted) 1f else 0f,
-        animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+        animationSpec = if (animated) tween(durationMillis = 250, easing = FastOutSlowInEasing)
+        else snap(),
         label = "dropdownMount"
     )
     var expanded by remember { mutableStateOf(false) }

@@ -134,6 +134,7 @@ private fun UpdateAvailableDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                val updateNowInteraction = remember { MutableInteractionSource() }
                 Button(
                     onClick = onUpdate,
                     colors = ButtonDefaults.buttonColors(
@@ -141,9 +142,10 @@ private fun UpdateAvailableDialog(
                         contentColor = colors.textPrimary
                     ),
                     shape = FluenceShapes.Medium,
+                    interactionSource = updateNowInteraction,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pressScale(remember { MutableInteractionSource() })
+                        .pressScale(updateNowInteraction)
                 ) {
                     Text("Update Now", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                 }
@@ -229,11 +231,13 @@ private fun UpdateDownloadingDialog(
 
                 Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
 
+                val cancelDownloadInteraction = remember { MutableInteractionSource() }
                 OutlinedButton(
                     onClick = onCancel,
                     shape = FluenceShapes.Medium,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.textSecondary),
-                    modifier = Modifier.pressScale(remember { MutableInteractionSource() })
+                    interactionSource = cancelDownloadInteraction,
+                    modifier = Modifier.pressScale(cancelDownloadInteraction)
                 ) {
                     Text("Cancel Download", style = FluenceTypography.labelLarge)
                 }
@@ -298,6 +302,7 @@ private fun UpdateReadyToInstallDialog(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 if (canInstallPackages) {
+                    val installNowInteraction = remember { MutableInteractionSource() }
                     Button(
                         onClick = onInstall,
                         colors = ButtonDefaults.buttonColors(
@@ -305,13 +310,15 @@ private fun UpdateReadyToInstallDialog(
                             contentColor = colors.textPrimary
                         ),
                         shape = FluenceShapes.Medium,
+                        interactionSource = installNowInteraction,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .pressScale(remember { MutableInteractionSource() })
+                            .pressScale(installNowInteraction)
                     ) {
                         Text("Install Now", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
                 } else {
+                    val grantPermissionInteraction = remember { MutableInteractionSource() }
                     Button(
                         onClick = onRequestPermission,
                         colors = ButtonDefaults.buttonColors(
@@ -319,9 +326,10 @@ private fun UpdateReadyToInstallDialog(
                             contentColor = colors.textPrimary
                         ),
                         shape = FluenceShapes.Medium,
+                        interactionSource = grantPermissionInteraction,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .pressScale(remember { MutableInteractionSource() })
+                            .pressScale(grantPermissionInteraction)
                     ) {
                         Text("Grant Permission", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }

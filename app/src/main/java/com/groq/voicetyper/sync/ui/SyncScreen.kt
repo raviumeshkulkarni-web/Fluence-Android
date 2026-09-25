@@ -360,6 +360,7 @@ fun SyncScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)
                         ) {
+                            val syncNowInteraction = remember { MutableInteractionSource() }
                             Button(
                                 onClick = { manager.syncNow() },
                                 enabled = status.signedIn && status.syncEnabled && !status.running,
@@ -370,10 +371,11 @@ fun SyncScreen(
                                     disabledContentColor = colors.textDisabled
                                 ),
                                 shape = FluenceShapes.Medium,
+                                interactionSource = syncNowInteraction,
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
-                                    .pressScale(remember { MutableInteractionSource() })
+                                    .pressScale(syncNowInteraction)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Sync,
@@ -391,6 +393,7 @@ fun SyncScreen(
                                 )
                             }
 
+                            val signOutInteraction = remember { MutableInteractionSource() }
                             OutlinedButton(
                                 onClick = onSignOutClick,
                                 colors = ButtonDefaults.outlinedButtonColors(
@@ -399,9 +402,10 @@ fun SyncScreen(
                                 ),
                                 border = BorderStroke(1.dp, colors.outlineSubtle),
                                 shape = FluenceShapes.Medium,
+                                interactionSource = signOutInteraction,
                                 modifier = Modifier
                                     .height(48.dp)
-                                    .pressScale(remember { MutableInteractionSource() })
+                                    .pressScale(signOutInteraction)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Logout,
@@ -441,6 +445,7 @@ fun SyncScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
+                        val signInInteraction = remember { MutableInteractionSource() }
                         Button(
                             onClick = onSignInClick,
                             colors = ButtonDefaults.buttonColors(
@@ -448,10 +453,11 @@ fun SyncScreen(
                                 contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
                             ),
                             shape = FluenceShapes.Medium,
+                            interactionSource = signInInteraction,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(52.dp)
-                                .pressScale(remember { MutableInteractionSource() })
+                                .pressScale(signInInteraction)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CloudSync,

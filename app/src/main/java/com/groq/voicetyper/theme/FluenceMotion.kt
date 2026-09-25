@@ -7,7 +7,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 
@@ -60,7 +62,23 @@ fun isSystemReducedMotion(context: Context): Boolean =
 @Composable
 fun rememberReducedMotion(): Boolean {
     val context = LocalContext.current
-    return remember { isSystemReducedMotion(context) }
+    var reduced by remember { androidx.compose.runtime.mutableStateOf(isSystemReducedMotion(context)) }
+    androidx.compose.runtime.DisposableEffect(context) {
+        val uri = Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+        val observer = object : android.database.ContentObserver(
+            android.os.Handler(android.os.Looper.getMainLooper())
+        ) {
+            override fun onChange(selfChange: Boolean) {
+                reduced = isSystemReducedMotion(context)
+            }
+        }
+        context.contentResolver.registerContentObserver(uri, false, observer)
+        reduced = isSystemReducedMotion(context)
+        onDispose {
+            context.contentResolver.unregisterContentObserver(observer)
+        }
+    }
+    return reduced
 }
 
 // ── Pre-built animation specs ───────────────────────────────────────────────

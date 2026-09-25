@@ -189,6 +189,7 @@ fun AboutAndUpdateCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Check for Updates Button
+            val checkUpdatesInteraction = remember { MutableInteractionSource() }
             Button(
                 onClick = { viewModel.checkForUpdates(force = true) },
                 enabled = state !is UpdateState.Checking && state !is UpdateState.Downloading,
@@ -197,9 +198,10 @@ fun AboutAndUpdateCard(
                     contentColor = colors.textPrimary
                 ),
                 shape = FluenceShapes.Medium,
+                interactionSource = checkUpdatesInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .pressScale(remember { MutableInteractionSource() })
+                    .pressScale(checkUpdatesInteraction)
             ) {
                 if (state is UpdateState.Checking) {
                     CircularProgressIndicator(

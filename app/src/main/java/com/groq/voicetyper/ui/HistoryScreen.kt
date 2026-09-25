@@ -316,9 +316,11 @@ fun HistoryScreen(
                     // Permanent sidebar is already visible in expanded windows —
                     // no hamburger; the title row keeps its own padding rhythm.
                     if (showDrawerButton) {
+                        val drawerInteraction = remember { MutableInteractionSource() }
                         IconButton(
                             onClick = onOpenDrawer,
-                            modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
+                            interactionSource = drawerInteraction,
+                            modifier = Modifier.size(48.dp).pressScale(drawerInteraction)
                         ) {
                             Icon(FluenceIcons.Menu, "Open menu", tint = colors.textSecondary, modifier = Modifier.size(24.dp))
                         }
@@ -786,9 +788,13 @@ private fun HistoryTranscriptRow(
                 )
             }
             if (isSelected) {
+                // Top offset matches the content column's top padding so the
+                // tick centers on the first (meta) line; sizes stay on the
+                // spacing scale (N18 tick + Md gap).
                 Box(
                     modifier = Modifier
-                        .size(18.dp)
+                        .padding(top = FluenceSpacing.Md)
+                        .size(FluenceSpacing.N18)
                         .clip(CircleShape)
                         .background(colors.textPrimary),
                     contentAlignment = Alignment.Center
@@ -796,6 +802,10 @@ private fun HistoryTranscriptRow(
                     Icon(FluenceIcons.Check, null, tint = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas, modifier = Modifier.size(12.dp))
                 }
                 Spacer(modifier = Modifier.width(FluenceSpacing.Md))
+            } else if (isMultiSelect) {
+                // Reserve the tick slot on unselected rows so entering
+                // selection never shifts laid-out content sideways.
+                Spacer(modifier = Modifier.width(FluenceSpacing.N18 + FluenceSpacing.Md))
             }
             Column(
                 modifier = Modifier

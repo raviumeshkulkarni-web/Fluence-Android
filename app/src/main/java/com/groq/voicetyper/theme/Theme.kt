@@ -13,8 +13,12 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -369,13 +373,31 @@ fun FluenceTranscribeTheme(
     }
 
     val context = LocalContext.current
-    val motionPrefs = remember {
-        // Reduced-motion signal (see isSystemReducedMotion): the system
-        // "remove animations" accessibility toggle zeroes
-        // ANIMATOR_DURATION_SCALE (TalkBack must NOT flip this flag — touch
-        // exploration is a different need). DESIGN_SYSTEM.md: reduced-motion
-        // preferences must be respected everywhere.
-        MotionPreferences(reducedMotion = isSystemReducedMotion(context))
+    // Reduced-motion signal (see isSystemReducedMotion): the system
+    // "remove animations" accessibility toggle zeroes
+    // ANIMATOR_DURATION_SCALE (TalkBack must NOT flip this flag — touch
+    // exploration is a different need). DESIGN_SYSTEM.md: reduced-motion
+    // preferences must be respected everywhere. Observed live so toggling
+    // the system setting applies without an app restart.
+    var reducedMotionState by remember { mutableStateOf(isSystemReducedMotion(context)) }
+    DisposableEffect(context) {
+        val uri = Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+        val observer = object : android.database.ContentObserver(
+            android.os.Handler(android.os.Looper.getMainLooper())
+        ) {
+            override fun onChange(selfChange: Boolean) {
+                reducedMotionState = isSystemReducedMotion(context)
+            }
+        }
+        context.contentResolver.registerContentObserver(uri, false, observer)
+        // Re-read on (re)subscribe in case the setting changed while unobserved.
+        reducedMotionState = isSystemReducedMotion(context)
+        onDispose {
+            context.contentResolver.unregisterContentObserver(observer)
+        }
+    }
+    val motionPrefs = remember(reducedMotionState) {
+        MotionPreferences(reducedMotion = reducedMotionState)
     }
 
     CompositionLocalProvider(

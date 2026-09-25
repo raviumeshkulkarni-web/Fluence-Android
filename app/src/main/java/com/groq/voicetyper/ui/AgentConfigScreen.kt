@@ -424,6 +424,7 @@ fun AgentConfigScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val agentSaveInteraction = remember { MutableInteractionSource() }
                         Button(
                             onClick = {
                                 if (selectedProvider == "custom" && !customBaseUrl.startsWith("https://", ignoreCase = true)) {
@@ -444,11 +445,13 @@ fun AgentConfigScreen(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                             shape = FluenceShapes.Medium,
-                            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+                            interactionSource = agentSaveInteraction,
+                            modifier = Modifier.weight(1f).pressScale(agentSaveInteraction)
                         ) {
                             Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                         }
 
+                        val agentTestInteraction = remember { MutableInteractionSource() }
                         Button(
                             onClick = {
                                 if (apiKey.isBlank()) {
@@ -488,7 +491,8 @@ fun AgentConfigScreen(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                             shape = FluenceShapes.Medium,
-                            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
+                            interactionSource = agentTestInteraction,
+                            modifier = Modifier.weight(1f).pressScale(agentTestInteraction),
                             enabled = !isTesting
                         ) {
                             if (isTesting) {

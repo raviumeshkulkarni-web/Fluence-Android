@@ -164,7 +164,10 @@ fun FluenceNavHost(
     @Composable
     fun DrawerContent() {
         // Single app-wide feedback host: one Fluence Snackbar, overlaid
-        // above every destination, inset-aware (nav bars + IME).
+        // above every destination, inset-aware (nav bars + IME). It is a
+        // sibling of AnimatedContent (not its content) so it never slides
+        // with screens, never duplicates during transitions, and its
+        // SnackbarHostState survives navigation.
         Box(modifier = Modifier.fillMaxSize()) {
             AnimatedContent(
             targetState = current,
@@ -286,6 +289,7 @@ fun FluenceNavHost(
                     onNavigateBack = { navigateBack() }
                 )
             }
+        }
             FluenceFeedbackHost(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -294,7 +298,6 @@ fun FluenceNavHost(
                     .imePadding()
                     .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Md)
             )
-        }
         }
     }
 

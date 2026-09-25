@@ -461,9 +461,11 @@ private fun HomeHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showDrawerButton) {
+            val homeDrawerInteraction = remember { MutableInteractionSource() }
             IconButton(
                 onClick = onOpenDrawer,
-                modifier = Modifier.size(48.dp).pressScale(remember { MutableInteractionSource() })
+                interactionSource = homeDrawerInteraction,
+                modifier = Modifier.size(48.dp).pressScale(homeDrawerInteraction)
             ) {
                 Icon(FluenceIcons.Menu, "Open menu", tint = colors.textSecondary, modifier = Modifier.size(24.dp))
             }

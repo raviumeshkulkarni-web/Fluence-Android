@@ -96,20 +96,24 @@ private fun ApiKeySection(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val saveInteraction = remember { MutableInteractionSource() }
         Button(
             onClick = onSave,
             colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
             shape = FluenceShapes.Medium,
-            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+            interactionSource = saveInteraction,
+            modifier = Modifier.weight(1f).pressScale(saveInteraction)
         ) {
             Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
         }
 
+        val testInteraction = remember { MutableInteractionSource() }
         Button(
             onClick = onTest,
             colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
             shape = FluenceShapes.Medium,
-            modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
+            interactionSource = testInteraction,
+            modifier = Modifier.weight(1f).pressScale(testInteraction),
             enabled = !isTesting
         ) {
             if (isTesting) {
@@ -791,6 +795,7 @@ fun SttConfigScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            val customSaveInteraction = remember { MutableInteractionSource() }
                             Button(
                                 onClick = {
                                     if (!customBaseUrl.startsWith("https://", ignoreCase = true)) {
@@ -808,11 +813,13 @@ fun SttConfigScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                                 shape = FluenceShapes.Medium,
-                                modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() })
+                                interactionSource = customSaveInteraction,
+                                modifier = Modifier.weight(1f).pressScale(customSaveInteraction)
                             ) {
                                 Text(text = "Save", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                             }
 
+                            val customTestInteraction = remember { MutableInteractionSource() }
                             Button(
                                 onClick = {
                                     if (customApiKey.isBlank() || customBaseUrl.isBlank()) {
@@ -833,7 +840,8 @@ fun SttConfigScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
                                 shape = FluenceShapes.Medium,
-                                modifier = Modifier.weight(1f).pressScale(remember { MutableInteractionSource() }),
+                                interactionSource = customTestInteraction,
+                                modifier = Modifier.weight(1f).pressScale(customTestInteraction),
                                 enabled = !isTesting
                             ) {
                                 if (isTesting) {

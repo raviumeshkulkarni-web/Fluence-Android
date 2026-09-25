@@ -77,11 +77,14 @@ fun AboutScreen(
                 description = "Open source licenses and data safety notices"
             )
             SettingsJointCard {
+                val licensesInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .pressScale(remember { androidx.compose.foundation.interaction.MutableInteractionSource() })
+                        .pressScale(licensesInteraction)
                         .clickable(
+                            interactionSource = licensesInteraction,
+                            indication = androidx.compose.foundation.LocalIndication.current,
                             role = Role.Button,
                             onClickLabel = "Open source licenses",
                             onClick = {

@@ -193,11 +193,13 @@ fun AiStylePickerScreen(
                 },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
+                        val clearSearchInteraction = remember { MutableInteractionSource() }
                         IconButton(
                             onClick = { searchQuery = "" },
+                            interactionSource = clearSearchInteraction,
                             modifier = Modifier
                                 .size(FluenceSpacing.Xxl)
-                                .pressScale(remember { MutableInteractionSource() })
+                                .pressScale(clearSearchInteraction)
                         ) {
                             Icon(
                                 imageVector = FluenceIcons.X,

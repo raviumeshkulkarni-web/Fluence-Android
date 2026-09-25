@@ -242,6 +242,7 @@ fun FloatingBubbleUI(
     )
     val cornerRadius by animateDpAsState(
         targetValue = if (isExpanded) 32.dp else 28.dp,
+        animationSpec = animSpec,
         label = "cornerRadius"
     )
 

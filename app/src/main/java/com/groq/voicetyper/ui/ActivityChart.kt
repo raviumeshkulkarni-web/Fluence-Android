@@ -548,7 +548,7 @@ fun ActivityChartCard(
                 )
             } else {
                 Crossfade(
-                    targetState = series,
+                    targetState = series to metric,
                     animationSpec = tween(
                         durationMillis = FluenceMotion.durationStructural,
                         easing = FastOutSlowInEasing
@@ -556,9 +556,9 @@ fun ActivityChartCard(
                     label = "range_switch",
                 ) { fading ->
                     FluenceActivityChart(
-                        series = fading,
-                        range = fading.range,
-                        metric = metric,
+                        series = fading.first,
+                        range = fading.first.range,
+                        metric = fading.second,
                         modifier = Modifier.fillMaxWidth(),
                         plotHeight = plotHeight,
                     )
@@ -595,13 +595,14 @@ fun FluenceActivityChart(
     val chipShadowPaint = remember { android.graphics.Paint() }
     val chipShadowPath = remember { android.graphics.Path() }
 
-    // Draw-on replay: every new series draws its line 0→1 over the
-    // structural tier while the crossfade blends the containers. Animatable (not
-    // animateFloatAsState) is required — it starts at 0 by construction,
-    // whereas animateFloatAsState starts at its target and never travels
-    // on a fresh composition. Reduced motion snaps to the finished line.
-    val revealAnim = remember(series) { Animatable(0f) }
-    LaunchedEffect(series) {
+    // Draw-on replay: every new series or metric draws its line 0→1 over
+    // the structural tier while the crossfade blends the containers.
+    // Animatable (not animateFloatAsState) is required — it starts at 0 by
+    // construction, whereas animateFloatAsState starts at its target and
+    // never travels on a fresh composition. Reduced motion snaps to the
+    // finished line.
+    val revealAnim = remember(series, metric) { Animatable(0f) }
+    LaunchedEffect(series, metric) {
         if (reducedMotion) revealAnim.snapTo(1f)
         else revealAnim.animateTo(
             1f,
