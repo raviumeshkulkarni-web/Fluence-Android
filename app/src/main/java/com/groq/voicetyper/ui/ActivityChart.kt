@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -164,12 +163,15 @@ fun trendForRange(
     return TrendInfo(current - prior, span)
 }
 
+// File-private: HistoryScreen.kt declares a same-named constant in this
+// package, so widening this one to internal would collide. ActivityInsights.kt
+// keeps its own copy rather than reaching across files for it.
 private const val DAY_MS = 86_400_000L
-private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
+internal val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
-private fun dayStartUtc(nowMs: Long): Long = nowMs - (nowMs % DAY_MS)
+internal fun dayStartUtc(nowMs: Long): Long = nowMs - (nowMs % DAY_MS)
 
-private fun dayMsOfKey(key: String): Long? = try {
+internal fun dayMsOfKey(key: String): Long? = try {
     val cal = Calendar.getInstance(UTC)
     cal.set(
         key.substring(0, 4).toInt(),
@@ -447,7 +449,7 @@ fun ActivityMetricSelector(
 @Composable
 fun ActivityChartCard(
     range: ChartRange,
-    onRangeChange: (ChartRange) -> Unit,
+    metric: ChartMetric,
     series: ActivitySeries,
     modifier: Modifier = Modifier,
     plotHeight: Dp = ChartPlotMinHeight,
@@ -461,58 +463,17 @@ fun ActivityChartCard(
             .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             .padding(FluenceSpacing.Lg),
     ) {
-        val context = LocalContext.current
-        // Metric choice persists across restarts (Windows localStorage parity).
-        val prefs = remember {
-            context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
-        }
-        var metricName by remember {
-            mutableStateOf(
-                prefs.getString("chart_metric", ChartMetric.SESSIONS.name)
-                    ?: ChartMetric.SESSIONS.name
-            )
-        }
-        val metric = ChartMetric.valueOf(metricName)
         val density = LocalDensity.current
-        // Card chrome above the plot (header + selector). Measured so Home can
-        // size the plot to fill the remaining viewport. Heights here never
-        // depend on the plot, so this converges after layout without looping.
+        // No title here: "Activity" is hoisted into the dashboard's pinned
+        // control stack so it can head the range and metric selectors it
+        // scopes. That leaves this card as pure plot, which is why the card
+        // chrome is only the vertical padding.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { onChromeHeight(with(density) { it.height.toDp() }) },
         ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Windows CardTitle treatment: 14px semibold uppercase secondary.
-            // The source string stays semantic ("Activity"); only the rendered
-            // text is uppercased so accessibility services keep the real word.
-            Text(
-                text = "Activity".uppercase(Locale.US),
-                color = colors.textSecondary,
-                style = FluenceTypography.labelLarge.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.56.sp,
-                ),
-            )
-        }
-        Spacer(modifier = Modifier.height(FluenceSpacing.Md))
-        ActivityRangeSelector(
-            selected = range,
-            onSelect = onRangeChange,
-        )
         Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-        ActivityMetricSelector(
-            selected = metric,
-            onSelect = {
-                prefs.edit().putString("chart_metric", it.name).apply()
-                metricName = it.name
-            },
-        )
-        Spacer(modifier = Modifier.height(FluenceSpacing.Lg))
         }
         if (series.totalSessions == 0L) {
             Column(
@@ -672,26 +633,16 @@ fun FluenceActivityChart(
             .fillMaxWidth()
             .height(plotHeight + PlotLabelHeight)
             .onSizeChanged { canvasWidthPx = it.width.toFloat() }
+            // Tap selects a point; horizontal page swipes are left to the
+            // dashboard pager on purpose. The chart used to scrub-select on
+            // drag, but with the pager owning left/right motion, a drag that
+            // starts on the plot must turn the page — a tap never conflicts
+            // with a swipe, so tap-to-inspect is the interaction that survives.
             .pointerInput(series, canvasWidthPx) {
                 detectTapGestures(onTap = { offset ->
                     val index = nearestIndex(offset.x)
                     if (index >= 0) selectedIndex = index
                 })
-            }
-            .pointerInput(series, canvasWidthPx) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        val index = nearestIndex(offset.x)
-                        if (index >= 0) selectedIndex = index
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        val index = nearestIndex(change.position.x)
-                        if (index >= 0) selectedIndex = index
-                        change.consume()
-                    },
-                    onDragEnd = {},
-                    onDragCancel = {},
-                )
             }
             .semantics(mergeDescendants = true) {
                 contentDescription = description

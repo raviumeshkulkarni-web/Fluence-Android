@@ -14,7 +14,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.LocalIndication
@@ -23,6 +22,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +43,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -121,6 +127,10 @@ private fun formatDictationShort(ms: Long): String {
 
 private fun formatSessions(n: Long): String = String.format(Locale.US, "%,d", n)
 
+// HorizontalPager is still marked experimental in Compose Foundation 1.6.
+// Opting in here rather than in build.gradle keeps the flag next to the only
+// code that needs it.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onOpenDrawer: () -> Unit,
@@ -219,6 +229,37 @@ fun HomeScreen(
 
     var chartRangeName by rememberSaveable { mutableStateOf(ChartRange.D7.name) }
     val chartRange = ChartRange.valueOf(chartRangeName)
+    // Metric is owned here (not inside ActivityChartCard) so the two insight
+    // cards below follow the SAME toggle instead of forking a second one —
+    // Windows parity, where one toggle drives every chart on the dashboard.
+    // Seeded from the same pref key the chart writes, so persistence survives.
+    var chartMetricName by rememberSaveable {
+        mutableStateOf(
+            context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("chart_metric", ChartMetric.SESSIONS.name)
+                ?: ChartMetric.SESSIONS.name,
+        )
+    }
+    val chartMetric = ChartMetric.valueOf(chartMetricName)
+    // Paged dashboard: summary (KPIs + Today), trend chart, weekday donut.
+    // Each page owns the full remaining viewport, so nothing competes for
+    // height and the plot can finally fill a whole page.
+    val pagerState = rememberPagerState { DashboardPageCount }
+    val weekdaySeries = remember(unifiedDailyStats, chartRange) {
+        buildWeekdaySeries(unifiedDailyStats, chartRange)
+    }
+    val todayRing = remember(unifiedDailyStats, chartMetric) {
+        buildTodayRing(unifiedDailyStats, chartMetric)
+    }
+    val trend = remember(unifiedDailyStats, chartRange) {
+        trendForRange(unifiedDailyStats, chartRange)
+    }
+    val scopeLabel = when (chartRange) {
+        ChartRange.D7 -> "in last 7 days"
+        ChartRange.D30 -> "in last 30 days"
+        ChartRange.D90 -> "in last 90 days"
+        ChartRange.ALL -> "all time"
+    }
     // Model quick-switcher sheet (local overlay, not a nav destination, so
     // the back stack is untouched). Selection writes the same `stt_model_*`
     // pref SttConfig edits; the banner refreshes underneath on dismiss.
@@ -248,43 +289,23 @@ fun HomeScreen(
                 setThemeMode(themePrefs, next)
             }
         )
-        BoxWithConstraints(
+        // ── Pinned control stack ────────────────────────────────────────────
+        // Everything the user might want to change mid-scroll lives here, in
+        // one block above the scrolling region, in priority order: model
+        // selector, online/offline, range, metric. Two reasons it is pinned
+        // rather than inside the Activity card: (1) with the weekday donut and
+        // Today ring below the fold, a control buried in the chart forced a
+        // scroll-to-top round trip on every range change; (2) the banner and
+        // mode toggle used to sit inside the measured block, so their height
+        // was subtracted from the viewport twice and the plot came out short.
+        // Sitting above the BoxWithConstraints means maxHeight already
+        // excludes them, so the fill-remaining-viewport maths just got more
+        // accurate as a side effect.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .padding(horizontal = FluenceSpacing.Base),
         ) {
-            val viewportHeight = maxHeight
-            val density = LocalDensity.current
-            var aboveHeight by remember { mutableStateOf<Dp?>(null) }
-            var chromeHeight by remember { mutableStateOf<Dp?>(null) }
-            val measuredAbove = aboveHeight
-            val measuredChrome = chromeHeight
-            // Fill the remaining viewport with the plot, clamped to sane
-            // bounds. The card's own vertical padding is subtracted too —
-            // without it the card bottom (x-axis labels) always sits 48dp
-            // below the fold. A small breathing margin keeps the card edge
-            // visibly clear of the fold on phones. Below the minimum the
-            // existing scroll takes over; above the maximum (tablets) the
-            // card keeps its composure.
-            val chartPlotHeight = if (measuredAbove != null && measuredChrome != null) {
-                (viewportHeight - measuredAbove - measuredChrome - ActivityChartCardVerticalPadding - ChartFoldBreathingRoom)
-                    .coerceIn(ChartPlotMinHeight, ChartPlotMaxHeight)
-            } else {
-                ChartPlotMinHeight
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = FluenceSpacing.Base)
-            ) {
-            // Fixed content above the chart card. Measured so the plot can
-            // consume exactly the remaining viewport height.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { aboveHeight = with(density) { it.height.toDp() } }
-            ) {
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             HomeStatusBanner(
                 isKeyboardActive = isKeyboardActive,
@@ -294,13 +315,12 @@ fun HomeScreen(
                 onOpenKeyboardSettings = {
                     context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
                 },
-                onOpenModelSwitcher = { showModelSheet = true }
+                onOpenModelSwitcher = { showModelSheet = true },
             )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-            // Online/offline quick switch, right below the status bar. The
-            // banner above always shows the active side. Offline is guarded
-            // the same way as the Offline settings screen: without a
-            // downloaded engine model the switch stays put and explains why.
+            // Online/offline quick switch. Offline is guarded the same way as
+            // the Offline settings screen: without a downloaded engine model
+            // the switch stays put and explains why.
             val modeOptions = remember {
                 listOf(
                     SegmentChoice(label = "Online", accessibilityLabel = "Use online transcription"),
@@ -322,98 +342,110 @@ fun HomeScreen(
                         OfflinePreferences.setOfflineModeEnabled(context, false)
                         isOffline = false
                     }
-                }
+                },
             )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-
-            val allStepsDone = isKeyboardActive && isMicGranted && isApiKeySet && hasTranscriptions
-            val reducedMotion = LocalMotionPreferences.current.reducedMotion
-            AnimatedVisibility(
-                visible = !onboardingDismissed && !allStepsDone,
-                enter = if (reducedMotion) EnterTransition.None
-                else fadeIn(tween(FluenceMotion.durationStructural)) +
-                    expandVertically(tween(FluenceMotion.durationStructural)),
-                exit = if (reducedMotion) ExitTransition.None
-                else fadeOut(tween(FluenceMotion.durationStructural)) +
-                    shrinkVertically(tween(FluenceMotion.durationStructural)),
+            // Heading sits between the two control groups on purpose: it scopes
+            // the range and metric selectors beneath it, so "Activity" reads as
+            // the thing those controls change. The chart card no longer repeats
+            // it. Windows keeps the same three controls inside one card; a phone
+            // needs them pinned, and this is the mobile equivalent.
+            Text(
+                text = "Activity".uppercase(Locale.US),
+                color = colors.textSecondary,
+                style = FluenceTypography.labelLarge.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.56.sp,
+                ),
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+            DashboardScopeBar(
+                range = chartRange,
+                onRangeChange = { chartRangeName = it.name },
+                metric = chartMetric,
+                onMetricChange = { next ->
+                    chartMetricName = next.name
+                    context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("chart_metric", next.name)
+                        .apply()
+                },
+            )
+            // Breathing room before the pager: the metric control and the first
+            // card must read as separate beats, not one continuous slab. Base
+            // (16dp) matches the page gutters outside it, so the gap equals the
+            // margins rather than fighting them.
+            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+        }
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            // Each pager page owns the full remaining viewport, so the plot no
+            // longer competes with a KPI grid stacked above it. The old
+            // fill-the-leftovers maths is replaced by "fill the page"; the cap
+            // is raised past the old 320dp ceiling because a whole page is
+            // genuinely available now, and a short screen still clamps down to
+            // the same minimum.
+            val pageHeight = maxHeight
+            val chartPlotHeight = (pageHeight - ActivityChartCardVerticalPadding - ChartFoldBreathingRoom)
+                .coerceIn(ChartPlotMinHeight, PagedChartMaxHeight)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = FluenceSpacing.Base),
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    FirstRunOnboardingCard(
-                    isKeyboardActive = isKeyboardActive,
-                    isMicGranted = isMicGranted,
-                    isApiKeySet = isApiKeySet,
-                    hasTranscriptions = hasTranscriptions,
-                    onRequestPermission = onRequestPermission,
-                    onNavigateToSettings = { context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
-                    onNavigateToSttConfig = onNavigateToSttConfig,
-                    onDismiss = {
-                        context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
-                            .edit().putBoolean("onboarding_dismissed", true).apply()
-                        onboardingDismissed = true
-                    }
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f),
+            ) { page ->
+                when (page) {
+                    0 -> DashboardSummaryPage(
+                        hasData = unifiedDailyStats.isNotEmpty(),
+                        hasTranscriptions = hasTranscriptions,
+                        isKeyboardActive = isKeyboardActive,
+                        isMicGranted = isMicGranted,
+                        isApiKeySet = isApiKeySet,
+                        onboardingDismissed = onboardingDismissed,
+                        onDismissOnboarding = {
+                            context.getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
+                                .edit().putBoolean("onboarding_dismissed", true).apply()
+                            onboardingDismissed = true
+                        },
+                        onRequestPermission = onRequestPermission,
+                        onNavigateToSettings = {
+                            context.startActivity(android.content.Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                        },
+                        onNavigateToSttConfig = onNavigateToSttConfig,
+                        series = activitySeries,
+                        trend = trend,
+                        scopeLabel = scopeLabel,
+                        ring = todayRing,
+                        metric = chartMetric,
                     )
-                    Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                }
-            }
 
-            // Dashboard body: stat cards, then the chart card fills the rest.
-            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                val trend = remember(unifiedDailyStats, chartRange) {
-                    trendForRange(unifiedDailyStats, chartRange)
-                }
-                DashboardHeroStats(
-                    series = activitySeries,
-                    scopeLabel = when (chartRange) {
-                        ChartRange.D7 -> "in last 7 days"
-                        ChartRange.D30 -> "in last 30 days"
-                        ChartRange.D90 -> "in last 90 days"
-                        ChartRange.ALL -> "all time"
-                    },
-                    trend = trend,
-                )
-                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-            }
-                // Ledger-gated, never History-gated: synced contributions must
-                // not show an empty dashboard (Windows shows the same ledger).
-                if (unifiedDailyStats.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(colors.cardSurface, FluenceShapes.Medium)
-                            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
-                            .padding(FluenceSpacing.Xl),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            FluenceIcons.Mic,
-                            contentDescription = null,
-                            tint = colors.textTertiary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-                        Text(
-                            "Your dashboard will come alive here",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
-                        Text(
-                            "Start dictating to see your weekly activity",
-                            color = colors.textTertiary,
-                            style = FluenceTypography.labelSmall
-                        )
-                    }
-                } else {
-                    ActivityChartCard(
+                    1 -> ActivityChartCard(
                         range = chartRange,
-                        onRangeChange = { chartRangeName = it.name },
+                        metric = chartMetric,
                         series = activitySeries,
                         plotHeight = chartPlotHeight,
-                        onChromeHeight = { chromeHeight = it },
+                    )
+
+                    else -> WeekdayDonutCard(
+                        series = weekdaySeries,
+                        metric = chartMetric,
+                        range = chartRange,
                     )
                 }
             }
-        }
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            PageDots(
+                page = pagerState.currentPage,
+                count = pagerState.pageCount,
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            }
         }
         // Model quick-switcher: local overlay, dismissed before any
         // navigation so the sheet never lingers over the next screen.
@@ -442,6 +474,182 @@ fun HomeScreen(
                     refreshStatus()
                 }
             )
+        }
+    }
+}
+}
+
+/**
+ * Sticky range + metric scope for the whole dashboard. Deliberately a plain
+ * two-row block on the canvas rather than a raised surface: Home's header
+ * comment commits to reading as "one continuous canvas", and an elevation
+ * change here would break that. It stays legible because it never scrolls away.
+ */
+@Composable
+private fun DashboardScopeBar(
+    range: ChartRange,
+    onRangeChange: (ChartRange) -> Unit,
+    metric: ChartMetric,
+    onMetricChange: (ChartMetric) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = PrecisionTheme.colors
+    Column(modifier = modifier.fillMaxWidth()) {
+        ActivityRangeSelector(
+            selected = range,
+            onSelect = onRangeChange,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+        ActivityMetricSelector(
+            selected = metric,
+            onSelect = onMetricChange,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** Pages in the dashboard pager: summary, trend chart, weekday donut. */
+private const val DashboardPageCount = 3
+
+/**
+ * A whole page is genuinely available now, so the old 320dp ceiling (tuned
+ * when the plot shared a scroll with the KPI grid) no longer applies. Capped
+ * anyway so the curve does not get comically tall on a tablet.
+ */
+private val PagedChartMaxHeight = 620.dp
+
+/**
+ * Pager page 1: first-run onboarding (when it is still relevant), the KPI
+ * grid, and the Today momentum ring. The two analytics blocks are similar
+ * enough in height to share a page, which is what keeps the donut free to
+ * have a page of its own.
+ */
+@Composable
+private fun DashboardSummaryPage(
+    hasData: Boolean,
+    hasTranscriptions: Boolean,
+    isKeyboardActive: Boolean,
+    isMicGranted: Boolean,
+    isApiKeySet: Boolean,
+    onboardingDismissed: Boolean,
+    onDismissOnboarding: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSttConfig: () -> Unit,
+    series: ActivitySeries,
+    trend: TrendInfo?,
+    scopeLabel: String,
+    ring: TodayRing,
+    metric: ChartMetric,
+) {
+    val colors = PrecisionTheme.colors
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Safety net for short viewports (landscape phones): a page that
+            // outgrows the viewport scrolls instead of clipping. On a phone in
+            // portrait nothing here scrolls, so the pager owns the gesture.
+            .verticalScroll(rememberScrollState()),
+    ) {
+        val allStepsDone = isKeyboardActive && isMicGranted && isApiKeySet && hasTranscriptions
+        AnimatedVisibility(
+            visible = !onboardingDismissed && !allStepsDone,
+            enter = if (reducedMotion) EnterTransition.None
+            else fadeIn(tween(FluenceMotion.durationStructural)) +
+                expandVertically(tween(FluenceMotion.durationStructural)),
+            exit = if (reducedMotion) ExitTransition.None
+            else fadeOut(tween(FluenceMotion.durationStructural)) +
+                shrinkVertically(tween(FluenceMotion.durationStructural)),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                FirstRunOnboardingCard(
+                    isKeyboardActive = isKeyboardActive,
+                    isMicGranted = isMicGranted,
+                    isApiKeySet = isApiKeySet,
+                    hasTranscriptions = hasTranscriptions,
+                    onRequestPermission = onRequestPermission,
+                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToSttConfig = onNavigateToSttConfig,
+                    onDismiss = { onDismissOnboarding() },
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+        if (hasData) {
+            DashboardHeroStats(
+                series = series,
+                scopeLabel = scopeLabel,
+                trend = trend,
+            )
+            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            TodayRingCard(ring = ring, metric = metric)
+        } else {
+            // Ledger-gated, never History-gated: synced contributions must not
+            // show an empty dashboard (Windows reads the same ledger).
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.cardSurface, FluenceShapes.Medium)
+                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+                    .padding(FluenceSpacing.Xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    FluenceIcons.Mic,
+                    contentDescription = null,
+                    tint = colors.textTertiary,
+                    modifier = Modifier.size(32.dp),
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                Text(
+                    "Your dashboard will come alive here",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+                Text(
+                    "Start dictating to see your weekly activity",
+                    color = colors.textTertiary,
+                    style = FluenceTypography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Three-dot page indicator. Drawn rather than composed: no dependency, and it
+ * matches the hand-rolled Canvas language the charts already use. The active
+ * dot widens into a pill so the state is not carried by fill alone.
+ */
+@Composable
+private fun PageDots(page: Int, count: Int, modifier: Modifier = Modifier) {
+    val colors = PrecisionTheme.colors
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(16.dp)
+            .semantics { contentDescription = "Page ${page + 1} of $count" },
+    ) {
+        val dotSize = 6.dp.toPx()
+        val gap = 10.dp.toPx()
+        val activeWidth = 20.dp.toPx()
+        val totalWidth = activeWidth + (count - 1) * (dotSize + gap) - gap
+        var x = (size.width - totalWidth) / 2f
+        val cy = size.height / 2f
+        repeat(count) { index ->
+            val w = if (index == page) activeWidth else dotSize
+            drawRoundRect(
+                color = if (index == page) colors.chartDuoMid else colors.outlineSubtle,
+                topLeft = Offset(x, cy - dotSize / 2f),
+                size = Size(w, dotSize),
+                cornerRadius = CornerRadius(dotSize / 2f),
+            )
+            x += w + gap
         }
     }
 }
