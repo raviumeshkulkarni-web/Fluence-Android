@@ -3,6 +3,7 @@ package com.groq.voicetyper.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.Configuration
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import com.groq.voicetyper.FeedbackBus
@@ -47,6 +48,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -301,11 +303,80 @@ fun HomeScreen(
         // Sitting above the BoxWithConstraints means maxHeight already
         // excludes them, so the fill-remaining-viewport maths just got more
         // accurate as a side effect.
+        // Landscape turns the pinned stack sideways. A landscape viewport is
+        // ~360dp tall, so the portrait stack (banner + toggle + heading +
+        // scope bar ≈ 260dp) would leave the pager ~100dp. One 48dp strip
+        // holding all three segmented controls costs ~64dp with spacers and
+        // leaves every page usable; banner and heading hide (model switching
+        // stays one tap away in Settings, status in portrait). The range
+        // control holds the long "Last 30 days" labels, so it takes a double
+        // share plus a half — 1/2.5/1 keeps every segment near 160dp even
+        // with the landscape drawer stealing a third of the width, and the
+        // shorter mode/metric labels still clear easily in their quarters.
+        // LocalConfiguration recomposes on rotation — no listener, no state.
+        val isLandscape =
+            LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        // Hoisted so portrait and landscape are the same controls with the
+        // same handlers, never two implementations drifting apart.
+        // Online/offline quick switch. Offline is guarded the same way as
+        // the Offline settings screen: without a downloaded engine model
+        // the switch stays put and explains why.
+        val modeOptions = remember {
+            listOf(
+                SegmentChoice(label = "Online", accessibilityLabel = "Use online transcription"),
+                SegmentChoice(label = "Offline", accessibilityLabel = "Use offline transcription")
+            )
+        }
+        val onModeSelect: (Int) -> Unit = { index ->
+            if (index == 1) {
+                if (isOfflineEngineReady(context)) {
+                    OfflinePreferences.setOfflineModeEnabled(context, true)
+                    isOffline = true
+                } else {
+                    FeedbackBus.show("Download the offline model first.")
+                }
+            } else {
+                OfflinePreferences.setOfflineModeEnabled(context, false)
+                isOffline = false
+            }
+        }
+        val onRangeSelect: (ChartRange) -> Unit = { chartRangeName = it.name }
+        val onMetricSelect: (ChartMetric) -> Unit = { next ->
+            chartMetricName = next.name
+            context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("chart_metric", next.name)
+                .apply()
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = FluenceSpacing.Base),
         ) {
+            if (isLandscape) {
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FluenceSegmentedControl(
+                        options = modeOptions,
+                        selectedIndex = if (isOffline) 1 else 0,
+                        onSelect = onModeSelect,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    ActivityRangeSelector(
+                        selected = chartRange,
+                        onSelect = onRangeSelect,
+                        modifier = Modifier.weight(2.5f),
+                    )
+                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    ActivityMetricSelector(
+                        selected = chartMetric,
+                        onSelect = onMetricSelect,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+            } else {
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             HomeStatusBanner(
                 isKeyboardActive = isKeyboardActive,
@@ -318,32 +389,35 @@ fun HomeScreen(
                 onOpenModelSwitcher = { showModelSheet = true },
             )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-            // Online/offline quick switch. Offline is guarded the same way as
-            // the Offline settings screen: without a downloaded engine model
-            // the switch stays put and explains why.
-            val modeOptions = remember {
-                listOf(
-                    SegmentChoice(label = "Online", accessibilityLabel = "Use online transcription"),
-                    SegmentChoice(label = "Offline", accessibilityLabel = "Use offline transcription")
+            // One card like the status banner above it: the same cardSurface /
+            // cardBorder / Medium chrome and min-48dp row, label in the
+            // banner's lead-text size (labelLarge — the previous labelMedium
+            // read too small next to it), switch taking the other half.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.cardSurface, FluenceShapes.Medium)
+                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+                    .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Xs)
+                    .heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Transcription mode",
+                    color = colors.textSecondary,
+                    style = FluenceTypography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                FluenceSegmentedControl(
+                    options = modeOptions,
+                    selectedIndex = if (isOffline) 1 else 0,
+                    onSelect = onModeSelect,
+                    modifier = Modifier.weight(1f),
                 )
             }
-            FluenceSegmentedControl(
-                options = modeOptions,
-                selectedIndex = if (isOffline) 1 else 0,
-                onSelect = { index ->
-                    if (index == 1) {
-                        if (isOfflineEngineReady(context)) {
-                            OfflinePreferences.setOfflineModeEnabled(context, true)
-                            isOffline = true
-                        } else {
-                            FeedbackBus.show("Download the offline model first.")
-                        }
-                    } else {
-                        OfflinePreferences.setOfflineModeEnabled(context, false)
-                        isOffline = false
-                    }
-                },
-            )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             // Heading sits between the two control groups on purpose: it scopes
             // the range and metric selectors beneath it, so "Activity" reads as
@@ -361,21 +435,16 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
             DashboardScopeBar(
                 range = chartRange,
-                onRangeChange = { chartRangeName = it.name },
+                onRangeChange = onRangeSelect,
                 metric = chartMetric,
-                onMetricChange = { next ->
-                    chartMetricName = next.name
-                    context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
-                        .edit()
-                        .putString("chart_metric", next.name)
-                        .apply()
-                },
+                onMetricChange = onMetricSelect,
             )
             // Breathing room before the pager: the metric control and the first
             // card must read as separate beats, not one continuous slab. Base
             // (16dp) matches the page gutters outside it, so the gap equals the
             // margins rather than fighting them.
             Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+            }
         }
         BoxWithConstraints(
             modifier = Modifier
@@ -432,11 +501,20 @@ fun HomeScreen(
                         plotHeight = chartPlotHeight,
                     )
 
-                    else -> WeekdayDonutCard(
-                        series = weekdaySeries,
-                        metric = chartMetric,
-                        range = chartRange,
-                    )
+                    // Same safety net as page 0: the donut plus seven legend
+                    // rows is the tallest page, so on a short viewport it
+                    // scrolls instead of silently clipping the Sunday row.
+                    else -> Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        WeekdayDonutCard(
+                            series = weekdaySeries,
+                            metric = chartMetric,
+                            range = chartRange,
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))

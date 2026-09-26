@@ -9,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -20,7 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -47,6 +47,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.history.StatsCalculator
@@ -494,7 +495,6 @@ fun WeekdayDonutCard(
         WeekdayLegend(
             series = series,
             metric = metric,
-            fills = fills,
             total = total,
             selected = selected,
             onSelect = { selected = if (it == selected) -1 else it },
@@ -512,13 +512,59 @@ fun WeekdayDonutCard(
 private fun WeekdayLegend(
     series: List<WeekdayPoint>,
     metric: ChartMetric,
-    fills: List<Color>,
     total: Long,
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
     val colors = PrecisionTheme.colors
-    Column(modifier = Modifier.fillMaxWidth()) {
+    // Windows table-card treatment: one bordered table, a banded header, and
+    // hairline dividers between rows (never after the last, Windows parity).
+    // Column shares mirror the Windows 22/38/40 split. No slice-colour dots:
+    // Windows carries the row-to-slice mapping through selection alone, and
+    // dots would break the flush left edge the header sets. Selection stays
+    // full-bleed panelElevated. Cell inset is Md — the nearest token above
+    // the Windows 10px cell padding, giving both edges breathing room.
+    val valueNoun = if (metric == ChartMetric.WORDS) "Words" else "Sessions"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(FluenceShapes.Small)
+            .border(1.dp, colors.cardBorder, FluenceShapes.Small),
+    ) {
+        // Header shares the rows' 48dp rhythm (the Android minimum touch
+        // height — Windows head and body cells use the same 7px vertical
+        // padding) and the same Md horizontal inset, so all three columns
+        // rule straight down to both borders.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .background(colors.panel)
+                .padding(horizontal = FluenceSpacing.Md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Day",
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                modifier = Modifier.weight(0.22f),
+            )
+            Text(
+                text = valueNoun,
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(0.38f),
+            )
+            Text(
+                text = "Share",
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(0.40f),
+            )
+        }
+        HorizontalDivider(thickness = 1.dp, color = colors.divider)
         series.forEachIndexed { i, point ->
             val value = weekdayValueOf(point, metric)
             val share = if (total > 0L) Math.round(value * 100.0 / total) else 0
@@ -526,42 +572,39 @@ private fun WeekdayLegend(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .background(
-                        if (active) colors.panelElevated else Color.Transparent,
-                        FluenceShapes.ExtraSmall,
-                    )
+                    .heightIn(min = 48.dp)
+                    .background(if (active) colors.panelElevated else Color.Transparent)
                     .clickable { onSelect(i) }
-                    .padding(horizontal = FluenceSpacing.Sm)
+                    .padding(horizontal = FluenceSpacing.Md)
                     .semantics(mergeDescendants = true) {
                         contentDescription = "${point.full}, ${formatInt(value)} " +
                             "${weekdayValueUnit(metric, value)}, $share percent"
                     },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(fills.getOrElse(i) { colors.chartDuoMid }, CircleShape),
-                )
-                Spacer(modifier = Modifier.width(FluenceSpacing.Md))
                 Text(
                     text = point.short,
                     color = colors.textSecondary,
                     style = FluenceTypography.bodySmall,
+                    modifier = Modifier.weight(0.22f),
                 )
-                Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = formatInt(value),
                     color = colors.textPrimary,
                     style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont),
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(0.38f),
                 )
-                Spacer(modifier = Modifier.width(FluenceSpacing.Base))
                 Text(
                     text = "$share%",
                     color = colors.textSecondary,
                     style = FluenceTypography.bodySmall.copy(fontFamily = GeistMonoFont),
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(0.40f),
                 )
+            }
+            if (i < series.lastIndex) {
+                HorizontalDivider(thickness = 1.dp, color = colors.divider)
             }
         }
     }
