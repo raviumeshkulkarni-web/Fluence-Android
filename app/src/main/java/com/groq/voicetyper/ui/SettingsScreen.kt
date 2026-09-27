@@ -46,6 +46,7 @@ import com.groq.voicetyper.AudioFocusMode
 import com.groq.voicetyper.AudioFocusPreferences
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -192,23 +193,23 @@ fun SettingsScreen(
                 SettingsNavRow(
                     icon = FluenceIcons.Mic,
                     title = "AI Transcription",
-                    summary = "$providerLabel \u00b7 ${sttModel.value}",
+                    summary = "$providerLabel · ${sttModel.value}",
                     onClick = { onNavigateTo(Screen.SttConfig) }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Default.AutoAwesome,
                     title = "AI Agent Mode",
-                    summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
+                    summary = "$llmProviderLabel · ${llmModel.value}",
                     onClick = { onNavigateTo(Screen.AgentConfig) }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Default.PhoneAndroid,
                     title = "Offline Transcription",
                     summary = when {
-                        offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
-                        modelReady.value -> "Model installed \u00b7 Disabled"
+                        offlineEnabled.value && modelReady.value -> "Active · Model ready"
+                        modelReady.value -> "Model installed · Disabled"
                         else -> "Model not installed"
                     },
                     onClick = { onNavigateTo(Screen.OfflineConfig) }
@@ -227,25 +228,25 @@ fun SettingsScreen(
                     summary = "Microphone, overlay, accessibility, battery",
                     onClick = { onNavigateTo(Screen.Permissions) }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Default.Lock,
                     title = "Privacy & App Exclusions",
                     summary = when (excludedAppCount.value) {
                         0 -> "Disabled"
-                        1 -> "Active \u00b7 1 app excluded"
-                        else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
+                        1 -> "Active · 1 app excluded"
+                        else -> "Active · ${excludedAppCount.value} apps excluded"
                     },
                     onClick = { onNavigateTo(Screen.PrivacyExclusions) }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 SettingsNavRow(
                     icon = FluenceIcons.RefreshCw,
                     title = "Google Drive Sync",
-                    summary = "Cloud backup \u00b7 Cross-device sync",
+                    summary = "Cloud backup · Cross-device sync",
                     onClick = { onNavigateTo(Screen.SyncConfig) }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 SettingsNavRow(
                     icon = Icons.Default.Circle,
                     title = "Floating Bubble",
@@ -371,7 +372,7 @@ fun SettingsScreen(
                     }
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 // Appearance row
                 val appearancePressSource = remember { MutableInteractionSource() }

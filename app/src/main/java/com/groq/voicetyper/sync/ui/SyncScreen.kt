@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -230,7 +231,7 @@ fun SyncScreen(
                 }
 
                 if (status.signedIn) {
-                    HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                    SettingsDivider()
 
                     Column(
                         modifier = Modifier
@@ -349,7 +350,7 @@ fun SyncScreen(
                         )
                     }
 
-                    HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                    SettingsDivider()
 
                     Column(
                         modifier = Modifier

@@ -8,8 +8,8 @@ import androidx.compose.ui.graphics.Color
 // ────────────────────────────────────────────────────────────────────────────
 
 // ── Surface Hierarchy ───────────────────────────────────────────────────────
-val Canvas         = Color(0xFF121212)
-val AppBackground  = Color(0xFF0D0D0D) // spec/Windows app background; Canvas untouched
+val Canvas         = Color(0xFF0D0D0D) // Windows --color-canvas parity (#0D0D0D)
+val AppBackground  = Color(0xFF0D0D0D) // spec/Windows app background
 val Sidebar        = Color(0xFF141414)
 val Panel          = Color(0xFF1E1E1E)
 val PanelElevated  = Color(0xFF262626)
@@ -30,11 +30,31 @@ val CardBorder     = Color(0x0DFFFFFF)
 // ── Form Input Border ───────────────────────────────────────────────────────
 val InputBorderDark = Color(0xFF484848) // Crisp 1dp outline on InputBg/Panel surfaces
 
+// ── Focus Indicator ─────────────────────────────────────────────────────────
+// Windows `--color-focus-ring` parity: the single functional accent, used
+// only as the focus ring. Solid BrandCyan measures 10.47:1 on Canvas and
+// 10.87:1 on AppBackground, so the indicator clears WCAG 1.4.11 (3:1) on
+// every surface tier. A low-alpha wash does not: the Windows 20%-white ring
+// measured 1.79-1.91:1 against every dark surface and only 1.34:1
+// focus-vs-unfocused on the 14dp checkbox and radio. Accent use #1 of the
+// DESIGN_SYSTEM.md closed list is "Focus rings", so this is the sanctioned
+// application of BrandCyan, not a new colour.
+val FocusRing      = Color(0xFF0BD6E3)
+
 // ── Text Hierarchy ──────────────────────────────────────────────────────────
 val TextPrimary    = Color(0xFFE2E2E2)
 val TextSecondary  = Color(0xFFA0A0A0)
 val TextTertiary   = Color(0xFF8E8E8E) // ≥4.5:1 on Canvas/Panel/PanelElevated (WCAG AA)
 val TextDisabled   = Color(0xFF4A4A4A)
+
+// Link text on a surface. Windows `--color-text-link` parity. This was
+// BrandAmethyst, which measures 3.65:1 on AppBackground and 3.52:1 on
+// Canvas and therefore failed WCAG AA (4.5:1) on all seven dark surfaces —
+// the closed-list entry it was satisfying ("link-style text") was written for
+// a link BUTTON LABEL sitting on a chip, not for bare link text on a surface.
+// #B197FC measures 8.05:1 on AppBackground and is the value Windows already
+// ships. The light counterpart is LightTextLink (#6D28D9, 6.23:1 on white).
+val TextLink       = Color(0xFFB197FC)
 
 // ── Accent ──────────────────────────────────────────────────────────────────
 val BrandAmethyst  = Color(0xFF8B45D8)

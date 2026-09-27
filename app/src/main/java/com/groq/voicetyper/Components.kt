@@ -107,7 +107,6 @@ fun ProviderLogo(
     modifier: Modifier = Modifier,
     size: Dp = 24.dp
 ) {
-    val colors = PrecisionTheme.colors
     val drawableRes = when (providerId) {
         "openai"    -> R.drawable.ic_provider_openai
         "anthropic" -> R.drawable.ic_provider_anthropic
@@ -345,7 +344,7 @@ fun SettingsSectionHeader(
             val actionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
-                    .heightIn(min = 36.dp)
+                    .heightIn(min = 44.dp)
                     .pressScale(actionSource)
                     .clip(FluenceShapes.Small)
                     .background(colors.panel)
@@ -371,9 +370,9 @@ fun SettingsSectionHeader(
 }
 
 // ── Settings Joint Card ──────────────────────────────────────────────────
-// Container card matching the Android v1.28.0 settings-card surface architecture:
-// rounded corners (12dp), colors.panel (#1E1E1E) background, colors.outlineSubtle
-// 1dp stroke, and clearly visible dividers separating joined rows inside.
+// Container card matching modern Android surface architecture:
+// rounded corners (12dp), colors.panel background, borderless surface,
+// with canvas-tone separators cleanly breaking joined rows inside.
 // Decoupled from CardSurface (#141414) so the dashboard stays strictly intact.
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
@@ -386,21 +385,30 @@ fun SettingsJointCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(FluenceShapes.Medium)
-            .background(colors.panel)
-            .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium),
+            .background(if (colors.isLight) colors.cardSurface else colors.panel)
+            .then(
+                if (colors.isLight) Modifier.border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+                else Modifier
+            ),
         content = content
     )
 }
 
 // ── Settings Divider ─────────────────────────────────────────────────────
-// Full-width internal divider for SettingsJointCard with calibrated contrast
-// (colors.divider) so row separators are clearly visible across displays.
+// Full-width internal separator for SettingsJointCard. In dark mode, uses
+// canvas tone (colors.canvas) to create a clean, borderless negative-space
+// slit between joined rows. In light mode, uses structural divider tone
+// (colors.divider) on the white card surface (Windows parity).
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
-fun SettingsDivider(modifier: Modifier = Modifier) {
+fun SettingsDivider(
+    modifier: Modifier = Modifier,
+    thickness: Dp = 1.dp
+) {
+    val colors = PrecisionTheme.colors
     androidx.compose.material3.HorizontalDivider(
-        color = PrecisionTheme.colors.divider,
-        thickness = 1.dp,
+        color = if (colors.isLight) colors.divider else colors.canvas,
+        thickness = thickness,
         modifier = modifier
     )
 }

@@ -71,6 +71,7 @@ import com.groq.voicetyper.ClassicCollapsedOrb
 import com.groq.voicetyper.FloatingBubblePreferences
 import com.groq.voicetyper.PillTheme
 import com.groq.voicetyper.R
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -282,7 +283,7 @@ fun BubbleSettingsScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 val imeInteraction = remember { MutableInteractionSource() }
                 Row(
@@ -332,7 +333,7 @@ fun BubbleSettingsScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 BubblePreviewContent(
                     pillTheme = pillTheme,
@@ -428,7 +429,7 @@ fun BubbleSettingsScreen(
                         )
                     }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 CollapsedStyleRow(
                     title = "Classic",
                     description = "Amethyst glow, equalizer mark",
@@ -442,7 +443,7 @@ fun BubbleSettingsScreen(
                         )
                     }
                 )
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
                 CollapsedStyleRow(
                     title = "Minimal",
                     description = "Waveform mark, no color",
@@ -476,7 +477,7 @@ fun BubbleSettingsScreen(
                         }
                     )
                     if (index < PillTheme.entries.size - 1) {
-                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                        SettingsDivider()
                     }
                 }
             }
@@ -539,7 +540,7 @@ fun BubbleSettingsScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier

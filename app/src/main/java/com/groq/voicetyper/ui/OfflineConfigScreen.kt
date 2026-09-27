@@ -29,6 +29,7 @@ import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.offline.v2.MoonshineV2ModelManager
 import com.groq.voicetyper.offline.v2.MoonshineV2ModelType
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -220,7 +221,7 @@ fun OfflineConfigScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 ModelOptionCard(
                     title = "Fast (Multilingual)",
@@ -235,7 +236,7 @@ fun OfflineConfigScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 ModelOptionCard(
                     title = "Pro (English)",
@@ -291,7 +292,7 @@ fun OfflineConfigScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier
@@ -327,7 +328,7 @@ fun OfflineConfigScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier

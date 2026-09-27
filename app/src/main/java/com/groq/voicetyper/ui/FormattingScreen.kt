@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -206,10 +207,7 @@ fun FormattingScreen(
                             onClick = { onNavigateTo(Screen.BucketPicker(category.name)) }
                         )
                         if (index < bucketOrder.lastIndex) {
-                            HorizontalDivider(
-                                color = colors.divider,
-                                thickness = 1.dp
-                            )
+                            SettingsDivider()
                         }
                     }
                 }
@@ -235,10 +233,7 @@ fun FormattingScreen(
                         }
                     )
                     if (cleanupEnabled) {
-                        HorizontalDivider(
-                            color = colors.divider,
-                            thickness = 1.dp
-                        )
+                        SettingsDivider()
                         val modelRowSource = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
@@ -276,10 +271,7 @@ fun FormattingScreen(
                             )
                         }
 
-                        HorizontalDivider(
-                            color = colors.divider,
-                            thickness = 1.dp
-                        )
+                        SettingsDivider()
                         val stylesRowSource = remember { MutableInteractionSource() }
                         val stylesSummary = if (customCount > 0) {
                             "Auto for all apps · 3 built-in + $customCount custom"

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.GroqClient
 import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -332,7 +333,7 @@ fun SttConfigScreen(
                     }
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier
@@ -535,7 +536,7 @@ fun SttConfigScreen(
                     }
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier

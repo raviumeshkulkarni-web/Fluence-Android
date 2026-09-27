@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -114,7 +115,7 @@ fun AboutScreen(
                     )
                 }
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 Column(
                     modifier = Modifier

@@ -106,6 +106,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Pre-Compose launch window. The XML theme paints the dark app
+        // background so cold start no longer flashes the platform default
+        // grey. When the user is on a light surface - either an explicit
+        // "light" mode or "system" while the OS is in day mode - swap to the
+        // light overlay BEFORE setContent so the launch window and the first
+        // composed frame agree. This only reads the existing preference and
+        // the current OS night state, then repaints the window; the theme the
+        // composable tree resolves is still driven by the listener below.
+        run {
+            val prefs = getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
+            val nightMask = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            val light = when (getThemeMode(prefs)) {
+                ThemeModeLight -> true
+                ThemeModeSystem -> nightMask != android.content.res.Configuration.UI_MODE_NIGHT_YES
+                else -> false
+            }
+            if (light) {
+                setTheme(R.style.Theme_GroqVoiceTyper_Light)
+            }
+        }
+
         enableEdgeToEdge()
 
         deepLinkToSettings = intent.getBooleanExtra(EXTRA_DEEP_LINK_SETTINGS, false)

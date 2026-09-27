@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.formatting.AppAwareFormatter
@@ -242,8 +243,11 @@ fun BucketPickerScreen(
                     .weight(1f)
                     .padding(horizontal = FluenceSpacing.Base)
                     .clip(FluenceShapes.Medium)
-                    .background(colors.cardSurface)
-                    .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+                    .background(if (colors.isLight) colors.cardSurface else colors.panel)
+                    .then(
+                        if (colors.isLight) Modifier.border(1.dp, colors.cardBorder, FluenceShapes.Medium)
+                        else Modifier
+                    )
             ) {
                 when {
                     isLoading -> {
@@ -296,7 +300,7 @@ fun BucketPickerScreen(
                                         onOverridesChange = { overrides = it }
                                     )
                                     if (index < included.size - 1 || rest.isNotEmpty()) {
-                                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                                        SettingsDivider()
                                     }
                                 }
                             }
@@ -318,7 +322,7 @@ fun BucketPickerScreen(
                                         onOverridesChange = { overrides = it }
                                     )
                                     if (index < rest.size - 1) {
-                                        HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                                        SettingsDivider()
                                     }
                                 }
                             }

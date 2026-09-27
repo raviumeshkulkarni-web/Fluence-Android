@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.FluenceAccessibilityService
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -196,7 +197,7 @@ fun PermissionsScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 PermissionRow(
                     icon = Icons.Default.Mic,
@@ -212,7 +213,7 @@ fun PermissionsScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 PermissionRow(
                     icon = Icons.Default.PictureInPicture,
@@ -232,7 +233,7 @@ fun PermissionsScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 PermissionRow(
                     icon = Icons.Default.Accessibility,
@@ -250,7 +251,7 @@ fun PermissionsScreen(
                     }
                 )
 
-                HorizontalDivider(color = colors.divider, thickness = 1.dp)
+                SettingsDivider()
 
                 PermissionRow(
                     icon = Icons.Default.BatteryAlert,

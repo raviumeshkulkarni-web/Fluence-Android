@@ -26,8 +26,14 @@ import androidx.compose.ui.platform.LocalContext
 // ── Precision Colors — full surface ladder + text hierarchy + accent + semantic ──
 // DESIGN_SYSTEM.md. Maps directly to semantic token names. `isLight` selects
 // the Windows [data-theme="light"] twin values; dark (default) is frozen.
-// textLink: dark renders BrandAmethyst per the closed-list link-text rule
-// (no dedicated dark link token exists); light renders #6D28D9 (Windows parity).
+// textLink: dark renders TextLink #B197FC, the Windows --color-text-link
+// value (8.05:1 on AppBackground). It previously rendered BrandAmethyst,
+// which fails WCAG AA at 3.65:1 / 3.52:1 on the two darkest surfaces and
+// below 4.5:1 on all seven; light renders #6D28D9 (Windows parity).
+// focusRing: solid functional accent, the only sanctioned accent use here
+// ("Focus rings", closed-list entry 1). Windows --color-focus-ring parity.
+// sunken: AppBackground #0D0D0D, giving the ladder a real floor below Canvas.
+// It previously collapsed onto Canvas, so no surface was darker than the page.
 // charcoal: light-mode primary-button + toggle-ON fill (#3F3F46); in dark it
 // mirrors textPrimary because dark reserves white for primary buttons.
 // chartDuo*: activity-chart ramp — muted trio in dark, deepened stops in light.
@@ -61,6 +67,7 @@ data class PrecisionColors(
     val brandAmethyst: Color,
     val brandCyan: Color,
     val charcoal: Color,
+    val focusRing: Color,
     val chartDuoStart: Color,
     val chartDuoMid: Color,
     val chartDuoEnd: Color,
@@ -71,41 +78,48 @@ data class PrecisionColors(
     val errorText: Color,
 )
 
-val LocalPrecisionColors = staticCompositionLocalOf {
-    PrecisionColors(
-        appBackground = AppBackground,
-        canvas = Canvas,
-        sidebar = Sidebar,
-        panel = Panel,
-        panelElevated = PanelElevated,
-        dialog = DialogSurface,
-        dialogElevated = DialogElevated,
-        outlineSubtle = OutlineSubtle,
-        divider = DividerVisible,
-        cardSurface = CardSurface,
-        cardBorder = CardBorder,
-        inputBg = InputBg,
-        buttonSecondary = ButtonSecondary,
-        buttonSubtle = ButtonSubtle,
-        inputBorder = InputBorderDark,
-        sunken = Canvas,
-        textPrimary = TextPrimary,
-        textSecondary = TextSecondary,
-        textTertiary = TextTertiary,
-        textDisabled = TextDisabled,
-        textLink = BrandAmethyst,
-        brandAmethyst = BrandAmethyst,
-        brandCyan = BrandCyan,
-        charcoal = TextPrimary,
-        chartDuoStart = ChartDuoStart,
-        chartDuoMid = ChartDuoMid,
-        chartDuoEnd = ChartDuoEnd,
-        success = Success,
-        warning = Warning,
-        error = Error,
-        errorText = ErrorText,
-    )
-}
+// The dark instance is built once and shared, exactly like the light instance
+// below. It used to be duplicated field-for-field between the
+// LocalPrecisionColors default and the inline `if (darkTheme)` branch, so
+// every FluenceTranscribeTheme recomposition allocated a fresh
+// PrecisionColors and defeated the @Immutable skip contract for all
+// LocalPrecisionColors readers. Values are unchanged.
+private val FluenceDarkPrecisionColors = PrecisionColors(
+    appBackground = AppBackground,
+    canvas = Canvas,
+    sidebar = Sidebar,
+    panel = Panel,
+    panelElevated = PanelElevated,
+    dialog = DialogSurface,
+    dialogElevated = DialogElevated,
+    outlineSubtle = OutlineSubtle,
+    divider = DividerVisible,
+    cardSurface = CardSurface,
+    cardBorder = CardBorder,
+    inputBg = InputBg,
+    buttonSecondary = ButtonSecondary,
+    buttonSubtle = ButtonSubtle,
+    inputBorder = InputBorderDark,
+    sunken = AppBackground,
+    textPrimary = TextPrimary,
+    textSecondary = TextSecondary,
+    textTertiary = TextTertiary,
+    textDisabled = TextDisabled,
+    textLink = TextLink,
+    brandAmethyst = BrandAmethyst,
+    brandCyan = BrandCyan,
+    charcoal = TextPrimary,
+    focusRing = FocusRing,
+    chartDuoStart = ChartDuoStart,
+    chartDuoMid = ChartDuoMid,
+    chartDuoEnd = ChartDuoEnd,
+    success = Success,
+    warning = Warning,
+    error = Error,
+    errorText = ErrorText,
+)
+
+val LocalPrecisionColors = staticCompositionLocalOf { FluenceDarkPrecisionColors }
 
 // ── Convenience accessor ────────────────────────────────────────────────────
 object PrecisionTheme {
@@ -244,6 +258,7 @@ private val FluenceLightPrecisionColors = PrecisionColors(
     brandAmethyst = BrandAmethyst,
     brandCyan = LightBrandCyan,
     charcoal = Charcoal,
+    focusRing = LightBrandCyan,
     chartDuoStart = LightChartDuoStart,
     chartDuoMid = LightChartDuoMid,
     chartDuoEnd = LightChartDuoEnd,
@@ -322,39 +337,7 @@ fun FluenceTranscribeTheme(
     content: @Composable () -> Unit
 ) {
     val precisionColors = if (darkTheme) {
-        PrecisionColors(
-            appBackground = AppBackground,
-            canvas = Canvas,
-            sidebar = Sidebar,
-            panel = Panel,
-            panelElevated = PanelElevated,
-            dialog = DialogSurface,
-            dialogElevated = DialogElevated,
-            outlineSubtle = OutlineSubtle,
-            divider = if (darkTheme) DividerVisible else LightOutlineSubtle,
-            cardSurface = CardSurface,
-            cardBorder = CardBorder,
-            inputBg = InputBg,
-            buttonSecondary = ButtonSecondary,
-            buttonSubtle = ButtonSubtle,
-            inputBorder = if (darkTheme) InputBorderDark else LightInputBorder,
-            sunken = Canvas,
-            textPrimary = TextPrimary,
-            textSecondary = TextSecondary,
-            textTertiary = TextTertiary,
-            textDisabled = TextDisabled,
-            textLink = BrandAmethyst,
-            brandAmethyst = BrandAmethyst,
-            brandCyan = BrandCyan,
-            charcoal = TextPrimary,
-            chartDuoStart = ChartDuoStart,
-            chartDuoMid = ChartDuoMid,
-            chartDuoEnd = ChartDuoEnd,
-            success = Success,
-            warning = Warning,
-            error = Error,
-            errorText = ErrorText,
-        )
+        FluenceDarkPrecisionColors
     } else {
         FluenceLightPrecisionColors
     }

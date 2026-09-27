@@ -1,9 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      Launch-window background. android:Theme.Material has no
+      windowBackground of its own that matches the app surface, so the
+      system drew its default grey for the whole of Compose startup before
+      the first frame. This pins the pre-Compose window to the same neutral
+      black the app paints (Color.kt AppBackground, the same value as the
+      Windows surface-sunken token, #0D0D0D), so cold start no longer
+      flashes a mismatched colour.
+
+      Dark is the default theme mode (Theme.kt ThemeModeDark), so the base
+      block carries the dark value. Users on a light surface get
+      Theme.GroqVoiceTyper.Light applied by MainActivity before
+      setContent, which swaps the window background for the light value.
+    -->
     <style name="Theme.GroqVoiceTyper" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowBackground">#0D0D0D</item>
+    </style>
+
+    <!--
+      Light-mode launch window, applied at runtime when the effective
+      surface is light (Color.kt LightAppBackground #EFF0F3, the same value
+      PrecisionColors.appBackground resolves to in light). Bar icon polarity
+      flips with it so the pre-Compose frame matches the composed frame.
+    -->
+    <style name="Theme.GroqVoiceTyper.Light" parent="Theme.GroqVoiceTyper">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">#EFF0F3</item>
     </style>
 </resources>

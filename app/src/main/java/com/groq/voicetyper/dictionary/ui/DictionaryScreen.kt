@@ -41,6 +41,7 @@ import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -181,7 +182,6 @@ fun DictionaryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = FluenceSpacing.Sm)
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                         ) {
                             Text(
                                 text = "Custom Dictionary is paused. Your replacements won't apply until you turn it back on.",
@@ -212,10 +212,7 @@ fun DictionaryScreen(
                                 DictionaryPreferences.setDictionaryEnabled(context, checked)
                             }
                         )
-                        HorizontalDivider(
-                            color = colors.divider,
-                            thickness = 1.dp
-                        )
+                        SettingsDivider()
                         LearningRow(
                             title = "Auto-Learn Corrections",
                             description = "Suggest transcription corrections based on detected patterns",
@@ -278,10 +275,7 @@ fun DictionaryScreen(
                                     }
                                 )
                                 if (index < visibleEntries.lastIndex) {
-                                    HorizontalDivider(
-                                        color = colors.divider,
-                                        thickness = 1.dp
-                                    )
+                                    SettingsDivider()
                                 }
                             }
                         }

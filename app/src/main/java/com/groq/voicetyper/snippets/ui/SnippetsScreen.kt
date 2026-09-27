@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.FluenceSectionHeader
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -167,7 +168,6 @@ fun SnippetsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = FluenceSpacing.Sm)
-                                .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                         ) {
                             Text(
                                 text = "Text Expansion is paused. Your triggers won't expand until you turn it back on.",
@@ -290,10 +290,7 @@ fun SnippetsScreen(
                                     }
                                 )
                                 if (index < snippets.lastIndex) {
-                                    HorizontalDivider(
-                                        color = colors.divider,
-                                        thickness = 1.dp
-                                    )
+                                    SettingsDivider()
                                 }
                             }
                         }

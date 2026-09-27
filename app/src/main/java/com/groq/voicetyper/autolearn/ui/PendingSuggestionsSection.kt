@@ -10,6 +10,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.autolearn.SuggestionRepository
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
 import com.groq.voicetyper.theme.*
@@ -138,10 +139,7 @@ fun PendingSuggestionsSection(
                         }
                     )
                     if (index < pendingSuggestions.lastIndex) {
-                        HorizontalDivider(
-                            color = colors.divider,
-                            thickness = 1.dp
-                        )
+                        SettingsDivider()
                     }
                 }
             }

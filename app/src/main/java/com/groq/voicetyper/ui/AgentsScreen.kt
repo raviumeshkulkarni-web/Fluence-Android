@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
@@ -281,10 +282,7 @@ fun AgentsScreen(
                                 }
                             )
                             if (index < customs.lastIndex) {
-                                HorizontalDivider(
-                                    color = colors.divider,
-                                    thickness = 1.dp
-                                )
+                                SettingsDivider()
                             }
                         }
                     }
