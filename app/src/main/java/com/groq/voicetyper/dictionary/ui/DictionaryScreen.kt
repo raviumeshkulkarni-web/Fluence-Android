@@ -182,6 +182,11 @@ fun DictionaryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = FluenceSpacing.Sm)
+                                .border(
+                                    1.dp,
+                                    if (colors.isLight) colors.cardBorder else colors.outlineSubtle,
+                                    FluenceShapes.Medium
+                                )
                         ) {
                             Text(
                                 text = "Custom Dictionary is paused. Your replacements won't apply until you turn it back on.",

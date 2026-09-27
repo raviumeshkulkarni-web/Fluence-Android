@@ -386,30 +386,31 @@ fun SettingsJointCard(
             .fillMaxWidth()
             .clip(FluenceShapes.Medium)
             .background(if (colors.isLight) colors.cardSurface else colors.panel)
-            .then(
-                if (colors.isLight) Modifier.border(1.dp, colors.cardBorder, FluenceShapes.Medium)
-                else Modifier
+            .border(
+                1.dp,
+                if (colors.isLight) colors.cardBorder else colors.outlineSubtle,
+                FluenceShapes.Medium
             ),
         content = content
     )
 }
 
 // ── Settings Divider ─────────────────────────────────────────────────────
-// Full-width internal separator for SettingsJointCard. In dark mode, uses
-// canvas tone (colors.canvas) to create a clean, borderless negative-space
-// slit between joined rows. In light mode, uses structural divider tone
-// (colors.divider) on the white card surface (Windows parity).
+// Inset internal separator for SettingsJointCard. Padded horizontally by
+// FluenceSpacing.Base (16dp) so it cleanly divides rows without touching the
+// card's outer border strokes (matching Windows inset separator behavior).
 // ────────────────────────────────────────────────────────────────────────────
 @Composable
 fun SettingsDivider(
     modifier: Modifier = Modifier,
-    thickness: Dp = 1.dp
+    thickness: Dp = 1.dp,
+    inset: Dp = FluenceSpacing.Base
 ) {
     val colors = PrecisionTheme.colors
     androidx.compose.material3.HorizontalDivider(
-        color = if (colors.isLight) colors.divider else colors.canvas,
+        color = colors.divider,
         thickness = thickness,
-        modifier = modifier
+        modifier = modifier.padding(horizontal = inset)
     )
 }
 

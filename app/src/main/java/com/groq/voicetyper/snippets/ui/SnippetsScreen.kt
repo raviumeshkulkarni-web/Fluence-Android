@@ -168,6 +168,11 @@ fun SnippetsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = FluenceSpacing.Sm)
+                                .border(
+                                    1.dp,
+                                    if (colors.isLight) colors.cardBorder else colors.outlineSubtle,
+                                    FluenceShapes.Medium
+                                )
                         ) {
                             Text(
                                 text = "Text Expansion is paused. Your triggers won't expand until you turn it back on.",

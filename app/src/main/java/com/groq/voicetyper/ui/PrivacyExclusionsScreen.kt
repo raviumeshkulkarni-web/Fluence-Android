@@ -247,9 +247,10 @@ fun PrivacyExclusionsScreen(
                     .padding(horizontal = FluenceSpacing.Base)
                     .clip(FluenceShapes.Medium)
                     .background(if (colors.isLight) colors.cardSurface else colors.panel)
-                    .then(
-                        if (colors.isLight) Modifier.border(1.dp, colors.cardBorder, FluenceShapes.Medium)
-                        else Modifier
+                    .border(
+                        1.dp,
+                        if (colors.isLight) colors.cardBorder else colors.outlineSubtle,
+                        FluenceShapes.Medium
                     )
             ) {
                 when {
