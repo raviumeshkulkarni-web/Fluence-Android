@@ -199,7 +199,7 @@ object SnippetPreferences {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
         }.getOrNull()
 
-    private fun belongsToCurrentAccount(snippet: Snippet, hash: String?): Boolean =
+    internal fun belongsToCurrentAccount(snippet: Snippet, hash: String?): Boolean =
         snippet.syncAccount == null || snippet.syncAccount == hash
 
     private fun write(context: Context, snippets: List<Snippet>) {

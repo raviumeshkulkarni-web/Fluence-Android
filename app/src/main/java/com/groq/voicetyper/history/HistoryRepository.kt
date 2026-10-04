@@ -6,7 +6,9 @@ import androidx.room.withTransaction
 import com.groq.voicetyper.sync.SyncAccounts
 import com.groq.voicetyper.sync.stats.DayCounters
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -66,14 +68,34 @@ object HistoryRepository {
                         it.day to DayCounters(words = it.wordCount, count = it.count, chars = it.chars, ms = it.dictationMs)
                     }
                 }
-            } else {
-                // Room's invalidation tracker re-emits whenever stat_sync
-                // changes (dictation commit or sync apply), so fresh local
-                // dictations and remote contributions appear automatically.
-                statSyncDao.observeByAccount(hash).map { rows ->
-                    aggregateAccountEvents(rows)
-                }
-            }
+} else {
+    // Room's invalidation tracker re-emits whenever stat_sync
+    // changes (dictation commit or sync apply), so fresh local
+    // dictations and remote contributions appear automatically.
+    //
+    // Seed-on-read: stat_sync is normally seeded by the sync pass, so an
+    // install upgraded from a build predating this ledger had real history
+    // but no stat_sync rows, and the dashboard's trailing average rendered the
+    // genuine "No baseline yet" empty state like a new user. Reuse the SAME
+    // idempotent backfill (deterministic event ids + insertIgnore), so this
+    // converges with the sync-pass path instead of duplicating it.
+    // Account-scoped: rows are stamped with THIS account's hash and read back
+    // through observeByAccount, so no other account can observe them. Signed
+    // out takes the branch above and is untouched. Failures are swallowed so
+    // the dashboard degrades to its previous behaviour rather than erroring.
+    flow {
+      val ctx = appContext
+      if (ctx != null) {
+        runCatching {
+          com.groq.voicetyper.sync.v1.V1Stores.statStore(ctx)
+            .backfillIfNeeded(hash, com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(ctx))
+        }
+      }
+      emitAll(statSyncDao.observeByAccount(hash))
+    }.map { rows ->
+      aggregateAccountEvents(rows)
+    }
+  }
         } else {
             stats.getAll().map { list ->
                 list.associate {

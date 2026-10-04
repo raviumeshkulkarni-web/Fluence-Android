@@ -2,6 +2,8 @@ package com.groq.voicetyper.agent
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.groq.voicetyper.sync.SyncAccounts
+import com.groq.voicetyper.sync.v1.AccountScope
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -51,6 +53,99 @@ object AgentPreferences {
 
     fun isBuiltIn(agentId: String): Boolean = agentId == ID_BUILT_IN
 
+    // ─────────────────────────────────────────────────────────────────
+    // STAGE 6 — the single admission gate for the runtime read path
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * The account whose namespace local reads, writes and deletes use.
+     *
+     * This is deliberately ONE predicate for all three, not a split between
+     * "display identity" and "write identity": display, selection and execution
+     * must agree (the STAGE 6 headline invariant), and routing writes somewhere
+     * reads never look would recreate the invisible-record bug in reverse.
+     *
+     * The value is the best-known local identity: the verified email once a
+     * sync pass has proven it against the access token, otherwise the persisted
+     * sign-in email. `SyncAccounts.refresh` performs that fallback and never
+     * downgrades an already-verified identity, so calling it here is safe at any
+     * time — including on a cold start before any pass has run, and for a user
+     * who never enables sync at all.
+     *
+     * Two deliberate boundaries this does NOT cross:
+     *  - Uploads still demand live token verification independently (the sync
+     *    engine loads only the verified hash's file). A stale persisted email
+     *    can therefore only leave a record inert and invisible to other
+     *    accounts — never uploaded into the wrong partition, never executed
+     *    under the wrong identity, because admission uses this same hash
+     *    consistently.
+     *  - A positively absent sign-in (null) still yields the legacy store with
+     *    DEVICE_LOCAL semantics. Nothing about the signed-out path changes.
+     */
+    private fun localAccountHash(context: Context): String? {
+        if (SyncAccounts.cachedAccount == null) {
+            SyncAccounts.refresh(context)
+        }
+        return com.groq.voicetyper.sync.v1.AccountHash.of(SyncAccounts.cachedAccount)
+    }
+
+    /**
+     * Read the union of the active account's agents and the legacy device-local
+     * ones, and return only what runtime consumers may execute.
+     *
+     * STAGE 6: every consumer — [AgentsScreen], [FloatingBubbleService],
+     * [TranscriptionSessionManager], the formatting and AI-cleanup paths, the
+     * bubble dropdown — reaches agents through this function, so putting the
+     * admission filter here is what stops any of them from bypassing it.
+     *
+     * Unassigned (legacy) records are deliberately excluded: they carry an
+     * executable system prompt of unknown provenance, so they must not run
+     * under a signed-in identity. They are NOT deleted, and the legacy store is
+     * never written by the account module, so signing out brings them straight
+     * back. See [AccountScope.VisibleAgentsSnapshot.displayRecords] for the
+     * list-and-disable projection the UI should use instead of hiding them.
+     */
+    fun loadCustomAgents(context: Context): List<CustomAgent> {
+        return try {
+            val hash = localAccountHash(context)
+            val legacy = parseAgentsJson(
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(KEY_CUSTOM_AGENTS, "") ?: ""
+            ).map { CustomAgent(id = it.id, name = it.name, hint = it.hint) }
+
+            val union = AccountScope.unionAgentsFor(
+                legacy = legacy.map {
+                    AccountScope.VisibleAgent.Legacy(it.id, it.name, it.hint)
+                },
+                accountHash = hash,
+                context = context,
+            )
+            // `admittedAgents` has already applied the gate, so every record
+            // reaching here is executable. Both variants are returned: a signed
+            // -out device admits legacy records as DEVICE_LOCAL, and dropping
+            // them here would brick agents for users who are not signed in.
+            //
+            // Tombstones are excluded: a deleted agent must be neither listed
+            // nor resolvable, or deletion would be a lie until the next pass
+            // propagates it. Sync never reads this function — it uses the
+            // stores directly, where the tombstone survives — so excluding here
+            // cannot resurrect anything.
+            AccountScope.admittedAgents(union, hash).filterNot { record ->
+                record is AccountScope.VisibleAgent.Owned && record.deletedAt != null
+            }.map { record ->
+                CustomAgent(record.id, record.name, record.hint)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * STAGE 6: is this an executable, known agent?
+     *
+     * An unassigned legacy record is displayable but not known, so a saved
+     * default or selection pointing at one cannot cause it to run.
+     */
     fun isKnownAgent(context: Context, agentId: String): Boolean {
         if (agentId == ID_BUILT_IN) return true
         return loadCustomAgents(context).any { it.id == agentId }
@@ -99,17 +194,6 @@ object AgentPreferences {
 
     // ── Custom agents ──
 
-    fun loadCustomAgents(context: Context): List<CustomAgent> {
-        return try {
-            parseAgentsJson(
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .getString(KEY_CUSTOM_AGENTS, "") ?: ""
-            )
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     fun validateAgentName(context: Context, name: String, id: String? = null): String? {
         val cleanName = sanitizeName(name)
         if (cleanName.isEmpty()) return "Give your agent a name"
@@ -129,6 +213,18 @@ object AgentPreferences {
         val cleanHint = sanitizeHint(hint)
         if (cleanHint.isEmpty()) return null
         return try {
+            val hash = localAccountHash(context)
+            if (hash != null) {
+                // STAGE 6: a signed-in user creates agents under their OWN
+                // account. Writing to the legacy store instead would produce an
+                // UNASSIGNED record that admission then withholds from execution
+                // — the user would create an agent and immediately be unable to
+                // run it.
+                val targetId = if (id != null && !isBuiltIn(id)) id
+                else "agent:" + UUID.randomUUID().toString()
+                AccountScope.upsertAgent(context, hash, targetId, cleanName, cleanHint)
+                CustomAgent(id = targetId, name = cleanName, hint = cleanHint)
+            } else {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val current = loadCustomAgents(context).toMutableList()
             if (id != null && !isBuiltIn(id)) {
@@ -146,6 +242,7 @@ object AgentPreferences {
             current.add(created)
             writeCustomAgents(prefs, current)
             created
+            }
         } catch (_: Exception) {
             null
         }
@@ -155,13 +252,21 @@ object AgentPreferences {
         if (isBuiltIn(id)) return
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val remaining = loadCustomAgents(context).filter { it.id != id }
-            val editor = prefs.edit().putString(KEY_CUSTOM_AGENTS, serializeAgentsJson(remaining))
-            // A deleted default falls back to built-in.
-            if (prefs.getString(KEY_DEFAULT_AGENT, ID_BUILT_IN) == id) {
-                editor.putString(KEY_DEFAULT_AGENT, ID_BUILT_IN)
+            val hash = localAccountHash(context)
+            if (hash != null) {
+                // Remove from the account store. A legacy record of the same id is
+                // deliberately left alone: deleting it here would destroy
+                // device-local data that merely shadowed the account copy.
+                AccountScope.deleteAgent(context, hash, id)
+            } else {
+                val remaining = loadCustomAgents(context).filter { it.id != id }
+                prefs.edit().putString(KEY_CUSTOM_AGENTS, serializeAgentsJson(remaining)).apply()
             }
-            editor.apply()
+            // A deleted default falls back to built-in. The default id itself stays
+            // device-local (D1c) even when the agent it names is account-owned.
+            if (prefs.getString(KEY_DEFAULT_AGENT, ID_BUILT_IN) == id) {
+                prefs.edit().putString(KEY_DEFAULT_AGENT, ID_BUILT_IN).apply()
+            }
         } catch (_: Exception) {
         }
     }

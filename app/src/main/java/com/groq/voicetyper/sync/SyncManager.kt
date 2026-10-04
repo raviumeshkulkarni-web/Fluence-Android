@@ -10,6 +10,7 @@ import com.groq.voicetyper.sync.v1.AccountHash
 import com.groq.voicetyper.sync.v1.AccessTokenRefresher
 import com.groq.voicetyper.sync.v1.AppDataDriveStore
 import com.groq.voicetyper.sync.v1.DomainFile
+import com.groq.voicetyper.sync.v1.DriveIdentity
 import com.groq.voicetyper.sync.v1.SyncError
 import com.groq.voicetyper.sync.v1.SyncMetadata
 import com.groq.voicetyper.sync.v1.V1Stores
@@ -46,6 +47,25 @@ import kotlinx.coroutines.withTimeout
  * request arriving during an active pass queues behind the gate and runs
  * afterwards (single-flight with requeue).
  */
+/**
+ * Guards a running sync pass against an account switch that happens mid-pass.
+ *
+ * Drive partitions storage by the *token's* account, so a token minted after the
+ * active account changed belongs to a different account than the one this pass is
+ * syncing for. Continuing would write this pass's payload into the other
+ * account's `appDataFolder`. Refreshing under the pass's own account stays
+ * allowed, because tokens legitimately expire mid-pass.
+ */
+internal object PassAccountGuard {
+
+    /** Throws [SyncError.Retryable] unless [currentEmail] is still [passAccountEmail]. */
+    fun requireUnchanged(passAccountEmail: String?, currentEmail: String?) {
+        if (currentEmail != passAccountEmail) {
+            throw SyncError.Retryable("account changed mid-pass; aborting before credential use")
+        }
+    }
+}
+
 class SyncManager(
     private val context: Context,
     private val auth: SyncAuthSession,
@@ -127,6 +147,11 @@ class SyncManager(
     fun completeSignIn(accountEmail: String) {
         auth.completeSignIn(accountEmail)
         AccountHash.of(accountEmail)?.let { V1Stores.settingsStore(context).activateAccount(it) }
+        // A different account is signing in: any identity previously verified
+        // against the old token is now stale and must not survive. The refresh
+        // below re-establishes a provisional value from the persisted email; the
+        // following pass replaces it with the token-verified one.
+        SyncAccounts.clearAuthentication()
         // Refresh the ownership cache now (not only on next Activity create),
         // or isForeign would misclassify the previous account's rows.
         SyncAccounts.refresh(context)
@@ -139,6 +164,8 @@ class SyncManager(
     /** Sign out: clears encrypted storage and the status flow. */
     fun signOut() {
         auth.signOut()
+        // The verified identity belonged to the token that just went away.
+        SyncAccounts.clearAuthentication()
         SyncAccounts.refresh(context)
         scheduler.resetForAccountChange()
         refreshStatus()
@@ -169,8 +196,20 @@ class SyncManager(
             SyncPassGate.mutex.withLock {
                 auth.reloadFromStorage()
                 // A recovered keystore can restore a previously committed email
-                // mid-process — refresh ownership so rows aren't hidden as foreign.
-                if (auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
+                // mid-process, so refresh the ownership cache when the persisted
+                // email has moved.
+                //
+                // STAGE 1: this is now SKIPPED once an identity has been verified
+                // against the access token, because the verified value is
+                // authoritative and the persisted email is display-only. A
+                // persisted email that changes WITHOUT completeSignIn/signOut
+                // therefore leaves the ownership *indicator* stale until the next
+                // pass re-publishes. That is bounded and self-healing: SyncAccounts
+                // only drives UI classification and delete-path skipping, while
+                // the pass derives its own partition from the token and so cannot
+                // be misdirected. Deliberately NOT clearing tokenVerified here —
+                // doing so would let a display-only string demote a proven identity.
+                if (!SyncAccounts.tokenVerified && auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
                 if (!auth.isSignedIn()) {
                     scheduler.completePass(PassOutcomeKind.AUTH_REQUIRED)
                     publish()
@@ -227,8 +266,46 @@ class SyncManager(
             throw com.groq.voicetyper.sync.v1.SyncError.Retryable("token mint timeout")
         }
         val token = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
-        val accountHash = AccountHash.of(auth.accountEmail)
+        // STAGE 1 — the partition identity is derived from the TOKEN, not from a
+        // locally persisted string. Drive partitions appDataFolder by the account
+        // that owns the access token, so this is the only value that provably
+        // names the folder this pass is about to touch. The previous code derived
+        // the key from `auth.accountEmail` while the token was minted from
+        // `getLastSignedInAccount()` — two independent sources, deliberately
+        // allowed to drift, so a token for one account could be paired with
+        // another account's partition key. Fails CLOSED if the authenticated
+        // identity cannot be established; there is deliberately no fallback to a
+        // persisted value, because that fallback is the defect being removed.
+        // Fail CLOSED if the authenticated identity cannot be established, but do
+        // not misreport a transient Drive failure as an auth problem: a 5xx, 429
+        // or connectivity timeout must surface as RETRYABLE so the user is not
+        // prompted to sign in again for an account that was working fine.
+        val authenticatedEmail = when (val id = DriveIdentity.resolveAccountEmail(token)) {
+            is DriveIdentity.IdentityResult.Resolved -> id.email
+            is DriveIdentity.IdentityResult.Unauthorized -> throw SyncError.AuthRequired
+            is DriveIdentity.IdentityResult.Unavailable -> throw SyncError.Retryable(
+                "identity: ${id.reason}"
+            )
+        }
+        // Publish the token-proven identity as the process-wide ownership key, so
+        // repositories and UI evaluate `isForeign` against the same partition the
+        // pass is about to read and write — not against the persisted string.
+        SyncAccounts.publishAuthenticated(authenticatedEmail)
+        val accountHash = AccountHash.of(authenticatedEmail)
             ?: throw SyncError.AuthRequired
+        // The session email is retained ONLY to detect an account change
+        // mid-pass (sign-out / account switch). It is a display cache, not the
+        // sync identity: after a Google email rename it legitimately lags the
+        // token, so divergence is REPORTED rather than made fatal here. Rename
+        // and orphan-record behaviour is a separate, explicit decision.
+        val passSessionEmail = auth.accountEmail
+        if (passSessionEmail != null && AccountHash.of(passSessionEmail) != accountHash) {
+            android.util.Log.i(
+                "FluenceSync",
+                "session email differs from authenticated Drive identity; " +
+                    "using the token-bound identity for this pass"
+            )
+        }
         val drive = AppDataDriveStore(
             token,
             tokenRefresher = AccessTokenRefresher { staleToken ->
@@ -237,12 +314,55 @@ class SyncManager(
                 // silently. One bounded retry — a second rejection below is a
                 // genuine authorization problem (consent revoked, account
                 // removed) and surfaces as AuthRequired/RecoveryRequired.
+                //
+                // Refresh stays ALLOWED while this pass's own account is still
+                // active (tokens expire mid-pass legitimately). It is refused
+                // once the active account differs or is gone (sign-out clears
+                // accountEmail), because then a fresh token belongs to somebody
+                // else. Fail closed: abort this pass and let the next one run for
+                // the new account, rather than crossing accounts.
+                PassAccountGuard.requireUnchanged(passSessionEmail, auth.accountEmail)
                 auth.invalidateAccessToken()
                 runCatching { GoogleOAuth.clearDriveToken(context, staleToken) }
                 auth.refreshAccessTokenIfNeeded()
-                auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
+                // Re-check: the account can change while the mint is in flight.
+                PassAccountGuard.requireUnchanged(passSessionEmail, auth.accountEmail)
+                val refreshedToken = auth.accessTokenOrNull() ?: throw SyncError.AuthRequired
+                // STAGE 1 — verify the REFRESHED TOKEN's identity, not the session
+                // string. The guard above can only prove the persisted email did
+                // not change; it says nothing about WHICH Google account Play
+                // Services mints for. If the device's Play Services account was
+                // switched by another app or by system UI — without Fluence's
+                // own completeSignIn running — the guard passes and a token for a
+                // DIFFERENT account would be used to write this pass's
+                // H_account-keyed payload into that account's appDataFolder.
+                // Asking Drive who the new token belongs to closes that path; on
+                // mismatch abort as RETRYABLE so the next pass re-derives the
+                // identity from the new token and partitions correctly.
+                // Same classification as the pass entry: a transient Drive
+                // failure here must NOT be reported as an auth problem.
+                val refreshedIdentity = when (
+                    val r = DriveIdentity.resolveAccountEmailBlocking(refreshedToken)
+                ) {
+                    is DriveIdentity.IdentityResult.Resolved -> r.email
+                    is DriveIdentity.IdentityResult.Unauthorized -> throw SyncError.AuthRequired
+                    is DriveIdentity.IdentityResult.Unavailable ->
+                        throw SyncError.Retryable("refresh identity: ${r.reason}")
+                }
+                if (!refreshedIdentity.equals(authenticatedEmail, ignoreCase = true)) {
+                    android.util.Log.w(
+                        "FluenceSync",
+                        "refreshed token belongs to a different Drive account; aborting pass"
+                    )
+                    throw SyncError.Retryable("token identity changed mid-pass")
+                }
+                refreshedToken
             }
         )
+        // STAGE 3: bind the account partition to the token-derived identity
+        // established above. Agents/Styles read and write only inside
+        // `fluence/v1/acct-<accountHash>/`, and fail closed when this is null.
+        drive.accountHash = accountHash
         val deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context)
 
         // Per-account metadata: atomic NULL→stamped rows + maxSeen/backfillDone.
@@ -289,6 +409,12 @@ class SyncManager(
                     V1SyncEngine.syncStats(V1Stores.statStore(context), drive, accountHash, deviceId, maxSeenRef)
                 DomainFile.SETTINGS ->
                     V1SyncEngine.syncSettings(V1Stores.settingsStore(context), drive, accountHash, deviceId, maxSeenRef)
+                // Phase 6 additive domains — same engine, same LWW, same
+                // per-domain failure containment as every other domain above.
+                DomainFile.AGENTS ->
+                    V1SyncEngine.syncAgents(V1Stores.agentStore(context), drive, accountHash, deviceId, maxSeenRef)
+                DomainFile.STYLES ->
+                    V1SyncEngine.syncStyles(V1Stores.styleStore(context), drive, accountHash, deviceId, maxSeenRef)
             }
             if (result.skippedCorrupt) {
                 // A corrupt remote envelope could not be repaired this pass (no
@@ -345,7 +471,7 @@ class SyncManager(
      */
     fun refreshStatus() {
         auth.reloadFromStorage()
-        if (auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
+        if (!SyncAccounts.tokenVerified && auth.accountEmail != SyncAccounts.cachedAccount) SyncAccounts.refresh(context)
         refreshFlags()
     }
 

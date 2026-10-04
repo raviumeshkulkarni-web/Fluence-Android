@@ -46,6 +46,234 @@ object V1Stores {
     fun snippetStore(context: Context): PrefsSnippetV1Store =
         PrefsSnippetV1Store(context.applicationContext)
 
+    fun agentStore(context: Context): AccountAgentV1Store =
+        AccountAgentV1Store(context.applicationContext)
+
+    fun styleStore(context: Context): AccountStyleV1Store =
+        AccountStyleV1Store(context.applicationContext)
+
+    // Phase 6 STAGE 4: the `OwnershipIndex` that used to live here is REMOVED.
+    //
+    // It existed solely because the Agents/Styles Drive envelope was POOLED at
+    // `fluence/v1/agents.json`, where a downloaded record carried no owner and
+    // account A could adopt account B's agents into its own selectable and
+    // executable rows. STAGE 3 closes that at the path: each account reads and
+    // writes only `fluence/v1/acct-<hash>/{agents,styles}.json`, so provenance
+    // is established by location and no bookkeeping is required.
+    //
+    // Removing it also drops three defects it carried:
+    //   * it failed OPEN (`ownerOf(...) ?: return false`), so an unknown record
+    //     was treated as adoptable;
+    //   * it only observed claims made on the SAME device, so it could not
+    //     protect a fresh install at all;
+    //   * a record claimed under a pre-rename account hash stayed stranded after
+    //     an email rename (the same-device rename bug).
+    // Its two SharedPreferences files (`fluence_acct_ownership_agents` /
+    // `fluence_acct_ownership_styles`) are left on disk unread: they are inert,
+    // hold no user data beyond a hash, and deleting them on upgrade would be a
+    // data mutation with no benefit.
+    /**
+     * Phase 6 — Agents/Styles sync store adapters.
+     *
+     * These read the ACCOUNT's own records only (AccountScope.loadAgents /
+     * loadStyles), never the legacy union. Legacy records are unowned by design
+     * (D1a) and must never be silently adopted into an account, so syncing the
+     * union would leak unowned local data into a signed-in account's Drive file.
+     *
+     * `loadByAccount` returns the SYNC view, tombstones included: a tombstone that
+     * never reaches the merge is a delete that un-deletes itself next pass. The
+     * display projection (VisibleAgentsSnapshot.displayRecords) is a separate
+     * concern and is never used here.
+     *
+     * Records that have never been stamped (no syncId/updatedAt/deviceId) are
+     * stamped on first sync via [stampUnstamped], which is also what makes them
+     * dirty so they get uploaded. syncId is derived deterministically from the
+     * record's own id so re-stamping is idempotent and two devices holding the
+     * same record agree on its sync identity.
+     */
+    class AccountAgentV1Store(private val context: Context) : V1SyncEngine.AgentV1Store {
+
+        private fun stableSyncId(id: String): String =
+            java.util.UUID.nameUUIDFromBytes(("fluence-agent:" + id).toByteArray()).toString()
+
+        private fun AccountScope.AccountAgent.toLocal(hash: String, deviceId: String) =
+            V1SyncEngine.AgentLocal(
+                syncId = syncId ?: stableSyncId(id),
+                businessKey = id,
+                name = name,
+                hint = hint,
+                updatedAt = updatedAt ?: 0L,
+                deletedAt = deletedAt,
+                deviceId = deviceId ?: "",
+                accountHash = hash,
+                // The explicit flag is load-bearing; the metadata checks stay as
+                // a safety net so a row written before the flag existed still
+                // uploads exactly once instead of being stranded.
+                dirty = dirty || syncId == null || updatedAt == null,
+                everPushed = syncId != null
+            )
+
+        override suspend fun loadByAccount(hash: String): List<V1SyncEngine.AgentLocal> {
+            if (!AccountScope.validAccountHash(hash)) return emptyList()
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            return AccountScope.loadAgents(context, hash).map { it.toLocal(hash, deviceId) }
+        }
+
+        override suspend fun stampUnstamped(hash: String) {
+            if (!AccountScope.validAccountHash(hash)) return
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            val current = AccountScope.loadAgents(context, hash)
+            if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
+            // Monotonic clock, exactly as the older domains stamp: the floor is
+            // the account's own high-water mark, so two edits inside the same
+            // wall-clock millisecond still get DISTINCT, increasing revisions.
+            // With a raw `currentTimeMillis()` they collided, and LWW could not
+            // order them, so the second edit could lose to the first on a peer.
+            val highWater = current.maxOf { it.updatedAt ?: 0L }
+            val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
+            AccountScope.saveAgents(context, hash, current.map { rec ->
+                val stale = rec.updatedAt == null
+                rec.copy(
+                    syncId = rec.syncId ?: stableSyncId(rec.id),
+                    updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
+                    deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
+                )
+            })
+        }
+
+        override suspend fun hasDirty(hash: String): Boolean {
+            if (!AccountScope.validAccountHash(hash)) return false
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            return AccountScope.loadAgents(context, hash).any { it.toLocal(hash, deviceId).dirty }
+        }
+
+        override suspend fun applyMergedAndClearDirty(
+            hash: String,
+            deviceId: String,
+            merged: List<AgentRecord>
+        ) {
+            if (!AccountScope.validAccountHash(hash)) return
+            val existing = AccountScope.loadAgents(context, hash).associateBy { it.id }
+            // STAGE 3 makes account isolation STRUCTURAL, so no ownership filter
+            // is needed or wanted here.
+            //
+            // `merged` was read from `fluence/v1/acct-<hash>/agents.json`, a
+            // location only this account's devices can name. Provenance is
+            // therefore already established by the path itself.
+            //
+            // The removed `OwnershipIndex` existed only because the envelope used
+            // to be POOLED at `fluence/v1/agents.json`, where a downloaded record
+            // carried no owner and account A could adopt account B's agents into
+            // its own selectable, executable rows. That hole is closed at the
+            // path, not by bookkeeping. Keeping the index would have preserved
+            // its three defects for no benefit: it failed OPEN
+            // (`ownerOf(...) ?: return false`), it only saw claims made on the
+            // same device, and it stranded records across an account rename.
+            AccountScope.saveAgents(
+                context, hash,
+                merged.map { rec ->
+                    val prior = existing[rec.businessKey]
+                    AccountScope.AccountAgent(
+                        id = rec.businessKey,
+                        name = rec.name,
+                        hint = rec.hint,
+                        syncId = rec.syncId,
+                        updatedAt = rec.updatedAt,
+                        deviceId = rec.deviceId,
+                        deletedAt = rec.deletedAt ?: prior?.deletedAt,
+                        // Merged back in: already in the sync state, so clean.
+                        // Without this the flag would survive the merge and
+                        // every pass would re-upload the row.
+                        dirty = false
+                    )
+                }
+            )
+        }
+    }
+
+    class AccountStyleV1Store(private val context: Context) : V1SyncEngine.StyleV1Store {
+
+        private fun stableSyncId(id: String): String =
+            java.util.UUID.nameUUIDFromBytes(("fluence-style:" + id).toByteArray()).toString()
+
+        private fun AccountScope.AccountStyle.toLocal(hash: String, deviceId: String) =
+            V1SyncEngine.StyleLocal(
+                syncId = syncId ?: stableSyncId(id),
+                businessKey = id,
+                name = name,
+                hint = hint,
+                updatedAt = updatedAt ?: 0L,
+                deletedAt = deletedAt,
+                deviceId = deviceId ?: "",
+                accountHash = hash,
+                // See the agents counterpart above.
+                dirty = dirty || syncId == null || updatedAt == null,
+                everPushed = syncId != null
+            )
+
+        override suspend fun loadByAccount(hash: String): List<V1SyncEngine.StyleLocal> {
+            if (!AccountScope.validAccountHash(hash)) return emptyList()
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            return AccountScope.loadStyles(context, hash).map { it.toLocal(hash, deviceId) }
+        }
+
+        override suspend fun stampUnstamped(hash: String) {
+            if (!AccountScope.validAccountHash(hash)) return
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            val current = AccountScope.loadStyles(context, hash)
+            if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
+            // Monotonic clock, as above and as the older domains already do.
+            val highWater = current.maxOf { it.updatedAt ?: 0L }
+            val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
+            AccountScope.saveStyles(context, hash, current.map { rec ->
+                val stale = rec.updatedAt == null
+                rec.copy(
+                    syncId = rec.syncId ?: stableSyncId(rec.id),
+                    updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
+                    deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
+                )
+            })
+        }
+
+        override suspend fun hasDirty(hash: String): Boolean {
+            if (!AccountScope.validAccountHash(hash)) return false
+            val deviceId = DeviceIdProvider.getDeviceId(context)
+            return AccountScope.loadStyles(context, hash).any { it.toLocal(hash, deviceId).dirty }
+        }
+
+        override suspend fun applyMergedAndClearDirty(
+            hash: String,
+            deviceId: String,
+            merged: List<StyleRecord>
+        ) {
+            if (!AccountScope.validAccountHash(hash)) return
+            val existing = AccountScope.loadStyles(context, hash).associateBy { it.id }
+            // STAGE 4: structural partitioning replaces the ownership filter.
+            // See the agents counterpart above for the full rationale; styles
+            // have the same provenance guarantee via
+            // `fluence/v1/acct-<hash>/styles.json`.
+            AccountScope.saveStyles(
+                context, hash,
+                merged.map { rec ->
+                    val prior = existing[rec.businessKey]
+                    AccountScope.AccountStyle(
+                        id = rec.businessKey,
+                        name = rec.name,
+                        hint = rec.hint,
+                        syncId = rec.syncId,
+                        updatedAt = rec.updatedAt,
+                        deviceId = rec.deviceId,
+                        deletedAt = rec.deletedAt ?: prior?.deletedAt,
+                        // Merged back in: already in the sync state, so clean.
+                        // Without this the flag would survive the merge and
+                        // every pass would re-upload the row.
+                        dirty = false
+                    )
+                }
+            )
+        }
+    }
+
     fun metadataDao(context: Context): SyncMetadataDao =
         FluenceDatabase.getInstance(context.applicationContext).syncMetadataDao()
 }

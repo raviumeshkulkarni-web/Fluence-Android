@@ -192,6 +192,46 @@ class V1SyncEngineTest {
         assertEquals(0, store.applyCalls)
     }
 
+    @Test
+    fun future_envelope_version_is_never_overwritten() = runBlocking {
+        // A remote written by a NEWER client must not be clobbered by this v1
+        // client. Genuine corruption is still repaired (see
+        // corrupt_remote_with_local_state_is_repaired_via_cas_push); an
+        // unsupported envelope version is not corruption and must be left
+        // completely untouched.
+        val future = """{"v":2,"entries":[]}""".toByteArray()
+        val drive = FakeDrive(bytes = future, version = "9")
+        val store = FakeDictStore(mutableListOf(localOf(dictRec("l1", "brb", at = 300L))))
+        V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals("a v2 remote must never be overwritten by a v1 client", 0, drive.putCount)
+        assertEquals(0, store.applyCalls)
+    }
+
+    @Test
+    fun future_envelope_is_never_overwritten_even_when_local_dirty() = runBlocking {
+        // Companion to the above: with a dirty local row, hasDirty independently
+        // forces a write. A fix that only refuses when clean would still be
+        // destructive here, so the refusal must not depend on the dirty flag.
+        val future = """{"v":2,"entries":[]}""".toByteArray()
+        val drive = FakeDrive(bytes = future, version = "9")
+        val store = FakeDictStore(mutableListOf(localOf(dictRec("l1", "brb", at = 300L), dirty = true)))
+        V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals("a dirty local must not force an overwrite of a v2 remote", 0, drive.putCount)
+        assertEquals(0, store.applyCalls)
+    }
+
+    @Test
+    fun future_envelope_with_entries_is_never_overwritten() = runBlocking {
+        // A populated v2 payload is the case where a fix could plausibly skip
+        // only empty unsupported payloads and still destroy real newer data.
+        val future = """{"v":2,"entries":[{"syncId":"11111111-1111-4111-8111-111111111111","businessKey":"newer","spoken":"newer","corrected":"newer","isEnabled":true,"updatedAt":9999,"deletedAt":null,"deviceId":"newer-device"}]}""".toByteArray()
+        val drive = FakeDrive(bytes = future, version = "9")
+        val store = FakeDictStore(mutableListOf(localOf(dictRec("l1", "brb", at = 300L))))
+        V1SyncEngine.syncDictionary(store, drive, "hash", "device-a", MaxSeenRef(0L))
+        assertEquals("a populated v2 remote must never be overwritten by a v1 client", 0, drive.putCount)
+        assertEquals(0, store.applyCalls)
+    }
+
     // ------------------------------------------------------------------
     // B1: corrupt-but-size-valid remote is REPAIRED (Windows parity) — never
     // permanently skipped. Oversized is already surfaced as Rejected by

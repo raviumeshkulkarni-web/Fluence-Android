@@ -66,6 +66,14 @@ object V1SyncEngine {
                 // Treat it as absent for merging; the merged state then repairs
                 // it in place via a CAS-protected put (Windows parity).
                 val remoteDomain = DomainSerializer.parseDictionary(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    // A newer client owns this file: never write, never fabricate a
+                    // replacement, leave it until this client is upgraded. Tested only
+                    // after the typed parse failed, so a payload that parses is v1 by
+                    // definition (Windows parity; also avoids parsing a large payload
+                    // twice on the happy path).
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
                 val remoteWasCorrupt = remoteDomain == null
                 val merged = Merge.mergeDictionaries(
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
@@ -147,6 +155,9 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.SNIPPETS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseSnippets(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
                 val remoteWasCorrupt = remoteDomain == null
                 val merged = Merge.mergeSnippets(
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
@@ -230,6 +241,9 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.STATS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseStats(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
                 val remoteWasCorrupt = remoteDomain == null
                 // Stats are an append-only wire ledger. Never remove a legacy
                 // aggregate merely because a dictation event exists for the
@@ -313,6 +327,9 @@ object V1SyncEngine {
             val fetch = drive.getDomain(DomainFile.SETTINGS)
             if (fetch.bytes != null) {
                 val remoteDomain = DomainSerializer.parseSettings(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
                 val remoteWasCorrupt = remoteDomain == null
                 val merged = Merge.mergeSettings(
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
@@ -371,6 +388,172 @@ object V1SyncEngine {
     }
 
     /** Monotonic clock floor: maxSeen never moves backwards. */
+    // ------------------------------------------------------------------
+    // Agents / Styles (Phase 6, additive) — one winner per businessKey
+    // ------------------------------------------------------------------
+
+    /**
+     * Agents ride the same GET→MERGE→PUT contract as dictionary, with no
+     * agent-specific rules: 2B LWW decides duplicates, `records()` feeds the
+     * merge so tombstones survive, and the display projection stays separate.
+     *
+     * A blank [accountHash] means "never signed in" — local-first state must
+     * never be uploaded into an unscoped or shared file, so we no-op.
+     */
+    suspend fun syncAgents(
+        localStore: AgentV1Store,
+        drive: DomainGateway,
+        accountHash: String,
+        deviceId: String,
+        maxSeenRef: MaxSeenRef
+    ): SyncResult {
+        if (accountHash.isBlank()) return SyncResult(false, false)
+        localStore.stampUnstamped(accountHash)
+        var attempts = 0
+        while (attempts < MAX_ATTEMPTS) {
+            attempts++
+            val fetch = drive.getDomain(DomainFile.AGENTS)
+            if (fetch.bytes != null) {
+                val remoteDomain = DomainSerializer.parseAgents(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    // A newer client owns this file: never write, never fabricate a
+                    // replacement, leave it until this client is upgraded.
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
+                val remoteWasCorrupt = remoteDomain == null
+                val merged = Merge.mergeAgents(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                    ?: emptyList()
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
+                if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
+                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
+                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val bytes = DomainSerializer.serializeAgents(AgentDomain(entries = sorted)).toByteArray()
+                DomainSerializer.parseAgents(bytes)?.let { parsed ->
+                    if (parsed.entries.size != sorted.size ||
+                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()
+                    ) {
+                        throw SyncError.Rejected("agents roundtrip key mismatch")
+                    }
+                } ?: throw SyncError.Rejected("agents roundtrip produced null")
+                val uploadedVersion = try {
+                    drive.putDomain(DomainFile.AGENTS, bytes, fetch.version)
+                } catch (e: SyncError.StaleVersion) {
+                    if (attempts < MAX_ATTEMPTS) null else throw e
+                }
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.AGENTS, uploadedVersion)) {
+                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                    return SyncResult(true, true, attemptsUsed = attempts)
+                }
+                waitForStaleRetry(attempts)
+                continue
+            } else {
+                val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
+                val merged = Merge.mergeAgents(local, emptyList())
+                if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
+                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val bytes2 = DomainSerializer.serializeAgents(AgentDomain(entries = sorted2)).toByteArray()
+                DomainSerializer.parseAgents(bytes2)?.let { parsed ->
+                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("agents roundtrip size mismatch")
+                } ?: throw SyncError.Rejected("agents roundtrip null")
+                val createdVersion = drive.putDomain(DomainFile.AGENTS, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.AGENTS, createdVersion)) {
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
+                localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                return SyncResult(true, true, attemptsUsed = attempts)
+            }
+        }
+        return SyncResult(false, true, attemptsUsed = attempts)
+    }
+
+    suspend fun syncStyles(
+        localStore: StyleV1Store,
+        drive: DomainGateway,
+        accountHash: String,
+        deviceId: String,
+        maxSeenRef: MaxSeenRef
+    ): SyncResult {
+        if (accountHash.isBlank()) return SyncResult(false, false)
+        localStore.stampUnstamped(accountHash)
+        var attempts = 0
+        while (attempts < MAX_ATTEMPTS) {
+            attempts++
+            val fetch = drive.getDomain(DomainFile.STYLES)
+            if (fetch.bytes != null) {
+                val remoteDomain = DomainSerializer.parseStyles(fetch.bytes!!)
+                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
+                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                }
+                val remoteWasCorrupt = remoteDomain == null
+                val merged = Merge.mergeStyles(
+                    localStore.loadByAccount(accountHash).map { it.toRecord() },
+                    remoteDomain?.entries ?: emptyList()
+                )
+                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                    ?: emptyList()
+                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
+                if (!needsPut) {
+                    if (remoteWasCorrupt) {
+                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+                    }
+                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
+                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val bytes = DomainSerializer.serializeStyles(StyleDomain(entries = sorted)).toByteArray()
+                DomainSerializer.parseStyles(bytes)?.let { parsed ->
+                    if (parsed.entries.size != sorted.size ||
+                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()
+                    ) {
+                        throw SyncError.Rejected("styles roundtrip key mismatch")
+                    }
+                } ?: throw SyncError.Rejected("styles roundtrip produced null")
+                val uploadedVersion = try {
+                    drive.putDomain(DomainFile.STYLES, bytes, fetch.version)
+                } catch (e: SyncError.StaleVersion) {
+                    if (attempts < MAX_ATTEMPTS) null else throw e
+                }
+                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.STYLES, uploadedVersion)) {
+                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                    return SyncResult(true, true, attemptsUsed = attempts)
+                }
+                waitForStaleRetry(attempts)
+                continue
+            } else {
+                val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
+                val merged = Merge.mergeStyles(local, emptyList())
+                if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
+                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val bytes2 = DomainSerializer.serializeStyles(StyleDomain(entries = sorted2)).toByteArray()
+                DomainSerializer.parseStyles(bytes2)?.let { parsed ->
+                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("styles roundtrip size mismatch")
+                } ?: throw SyncError.Rejected("styles roundtrip null")
+                val createdVersion = drive.putDomain(DomainFile.STYLES, bytes2, null)
+                if (!uploadIsLive(drive, DomainFile.STYLES, createdVersion)) {
+                    return SyncResult(false, true, attemptsUsed = attempts)
+                }
+                localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                return SyncResult(true, true, attemptsUsed = attempts)
+            }
+        }
+        return SyncResult(false, true, attemptsUsed = attempts)
+    }
+
     private fun advanceMaxSeen(maxSeenRef: MaxSeenRef, observed: Long) {
         if (observed > maxSeenRef.value) maxSeenRef.value = observed
     }
@@ -418,6 +601,28 @@ object V1SyncEngine {
         suspend fun stampUnstamped(hash: String)
         suspend fun hasDirty(hash: String): Boolean
         suspend fun applyMergedAndClearDirty(hash: String, deviceId: String, merged: List<SnippetRecord>)
+    }
+
+    /**
+     * Phase 6 store seams.
+     *
+     * `loadByAccount` MUST return the SYNC view — tombstones included — because
+     * a tombstone that never reaches the merge is a delete that silently
+     * un-deletes itself on the next pass. The display projection is a separate
+     * concern (AccountScope.displayRecords) and must not be used here.
+     */
+    interface AgentV1Store {
+        suspend fun loadByAccount(hash: String): List<AgentLocal>
+        suspend fun stampUnstamped(hash: String)
+        suspend fun hasDirty(hash: String): Boolean
+        suspend fun applyMergedAndClearDirty(hash: String, deviceId: String, merged: List<AgentRecord>)
+    }
+
+    interface StyleV1Store {
+        suspend fun loadByAccount(hash: String): List<StyleLocal>
+        suspend fun stampUnstamped(hash: String)
+        suspend fun hasDirty(hash: String): Boolean
+        suspend fun applyMergedAndClearDirty(hash: String, deviceId: String, merged: List<StyleRecord>)
     }
 
     interface StatV1Store {
@@ -502,6 +707,41 @@ object V1SyncEngine {
         val everPushed: Boolean
     ) {
         fun toRecord() = SettingsRecord(key, value, updatedAt, deviceId, deletedAt)
+    }
+
+    /**
+     * Phase 6 local rows. `accountHash` is always the owning account for these
+     * (Phase 4 stores them in per-account preference files), so `dirty` is the
+     * only thing that varies per pass.
+     */
+    data class AgentLocal(
+        val syncId: String,
+        val businessKey: String,
+        val name: String,
+        val hint: String,
+        val updatedAt: Long,
+        val deletedAt: Long?,
+        val deviceId: String,
+        val accountHash: String?,
+        val dirty: Boolean,
+        val everPushed: Boolean
+    ) {
+        fun toRecord() = AgentRecord(syncId, businessKey, name, hint, updatedAt, deletedAt, deviceId)
+    }
+
+    data class StyleLocal(
+        val syncId: String,
+        val businessKey: String,
+        val name: String,
+        val hint: String,
+        val updatedAt: Long,
+        val deletedAt: Long?,
+        val deviceId: String,
+        val accountHash: String?,
+        val dirty: Boolean,
+        val everPushed: Boolean
+    ) {
+        fun toRecord() = StyleRecord(syncId, businessKey, name, hint, updatedAt, deletedAt, deviceId)
     }
 }
 

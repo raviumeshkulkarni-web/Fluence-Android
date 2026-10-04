@@ -35,6 +35,40 @@ class MergeTest {
     )
 
     // ------------------------------------------------------------------
+    // Total ordering: a full tie must resolve identically on every device
+    // ------------------------------------------------------------------
+
+    @Test
+    fun tie_on_timestamp_and_device_resolves_by_sync_id_not_by_side() {
+        // Mirrors the Windows test of the same name. Two records tie on both
+        // updatedAt and deviceId, so the winner must be decided by a stable
+        // content-independent discriminator (syncId) rather than by whether the
+        // record happened to arrive as the local or the remote copy. Otherwise
+        // two devices holding different payloads for this key each keep their
+        // own copy and re-push to each other forever.
+        val local = dict(
+            syncId = "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            spoken = "hello",
+            updatedAt = 100L,
+            corrected = "LOCAL"
+        )
+        val remote = dict(
+            syncId = "00000000-0000-4000-8000-000000000001",
+            spoken = "hello",
+            updatedAt = 100L,
+            corrected = "REMOTE"
+        )
+        val merged = Merge.mergeDictionaries(listOf(local), listOf(remote))
+        assertEquals(1, merged.size)
+        assertEquals(
+            "a full (updatedAt, deviceId) tie must break deterministically by " +
+                "syncId, not by whether the record happened to be local or remote",
+            "LOCAL",
+            merged[0].corrected
+        )
+    }
+
+    // ------------------------------------------------------------------
     // Pure-LWW delete / re-creation semantics
     // ------------------------------------------------------------------
 
@@ -236,6 +270,46 @@ class MergeTest {
         assertEquals(1, merged.size)
         val winner = merged[0]
         assertEquals(1700000000000L, winner.updatedAt)
+    }
+
+    // ------------------------------------------------------------------
+    // C1 differential — the adoption sentinel must be READ BACK as the
+    // adoption class. merge_settings itself emits 1700000000000 on output
+    // (see settings_adoption_winner_gets_stamped_when_no_remote), so that
+    // value is a first-observation marker, not a real Nov-2023 timestamp.
+    // Windows must produce identical winners for identical inputs.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun c1_sentinel_vs_real_timestamp_remote_wins() {
+        val localStamp = SettingsRecord("language", "en", updatedAt = 1700000000000L, deviceId = "d1")
+        val remote = SettingsRecord("language", "de", updatedAt = 100L, deviceId = "d2")
+        val winner = Merge.mergeSettings(listOf(localStamp), listOf(remote))
+            .first { it.key == "language" }
+        assertEquals("a real timestamp must beat the adoption sentinel", "de", winner.value)
+        assertEquals(100L, winner.updatedAt)
+    }
+
+    @Test
+    fun c1_zero_vs_zero_adversarial_device_ids() {
+        val localStamp = SettingsRecord("language", "en", updatedAt = 0L, deviceId = "zzz-local")
+        val remoteStamp = SettingsRecord("language", "de", updatedAt = 0L, deviceId = "aaa-remote")
+        val winner = Merge.mergeSettings(listOf(localStamp), listOf(remoteStamp))
+            .first { it.key == "language" }
+        assertEquals("greater deviceId breaks the adoption tie", "zzz-local", winner.deviceId)
+        assertEquals("en", winner.value)
+        assertEquals("adoption class re-stamps on output", 1700000000000L, winner.updatedAt)
+    }
+
+    @Test
+    fun c1_sentinel_vs_sentinel_adversarial_device_ids() {
+        val localStamp = SettingsRecord("language", "en", updatedAt = 1700000000000L, deviceId = "aaa-local")
+        val remoteStamp = SettingsRecord("language", "de", updatedAt = 1700000000000L, deviceId = "zzz-remote")
+        val winner = Merge.mergeSettings(listOf(localStamp), listOf(remoteStamp))
+            .first { it.key == "language" }
+        assertEquals("greater deviceId breaks the sentinel tie", "zzz-remote", winner.deviceId)
+        assertEquals("de", winner.value)
+        assertEquals("no re-stamp of an already-stamped value", 1700000000000L, winner.updatedAt)
     }
 
     // ------------------------------------------------------------------

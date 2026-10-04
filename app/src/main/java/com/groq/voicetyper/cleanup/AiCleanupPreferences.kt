@@ -2,6 +2,9 @@ package com.groq.voicetyper.cleanup
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.groq.voicetyper.sync.SyncAccounts
+import com.groq.voicetyper.sync.v1.AccountHash
+import com.groq.voicetyper.sync.v1.AccountScope
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -74,6 +77,32 @@ object AiCleanupPreferences {
 
     fun isBuiltIn(styleId: String): Boolean = styleId in BUILT_IN_IDS
 
+    /**
+     * The account whose namespace local style reads, writes and deletes use.
+     *
+     * Same contract as the agents counterpart: ONE predicate for all three
+     * operations (display, selection and execution must agree), valued as the
+     * best-known local identity — verified email once a pass has proven it,
+     * otherwise the persisted sign-in email via `SyncAccounts.refresh`, which
+     * never downgrades a verified identity. Uploads still demand live token
+     * verification independently in the sync engine. See the agents counterpart
+     * for the full safety argument; the reasoning is identical.
+     */
+    private fun localAccountHash(context: Context): String? {
+        if (SyncAccounts.cachedAccount == null) {
+            SyncAccounts.refresh(context)
+        }
+        return AccountHash.of(SyncAccounts.cachedAccount)
+    }
+
+    /**
+     * STAGE 6: is this an executable, known style?
+     *
+     * Gated on the admitted set, so an unassigned legacy style cannot be
+     * selected or run under a signed-in identity. This is also what protects
+     * `styleForPackage` (the TranscriptionSessionManager path) and the
+     * per-app overrides below: they all funnel through here.
+     */
     fun isKnownStyle(context: Context, styleId: String): Boolean {
         if (styleId in BUILT_IN_IDS) return true
         return loadCustomStyles(context).any { it.id == styleId }
@@ -117,22 +146,49 @@ object AiCleanupPreferences {
 
     // ── Custom styles ──
 
+    /**
+     * STAGE 6: read the union of the active account's styles and the legacy
+     * device-local ones, returning only what may execute.
+     *
+     * Every consumer — `AiCleanupStylesScreen`, `AiStylePickerScreen`,
+     * `TranscriptionSessionManager` (via `styleForPackage` →
+     * `isKnownStyle`), the formatting path — reaches styles through this
+     * function or through `isKnownStyle`, so the admission filter here is what
+     * stops any of them from running an unassigned legacy style under a
+     * signed-in identity. Unassigned records are NOT deleted; the legacy store
+     * is never written by the account module.
+     */
     fun loadCustomStyles(context: Context): List<CustomStyle> {
         return try {
+            val hash = localAccountHash(context)
             val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_CUSTOM_STYLES, "") ?: ""
-            if (raw.isBlank()) return emptyList()
+            if (raw.isBlank()) {
+                return AccountScope.admittedStyles(
+                    AccountScope.unionStylesFor(emptyList(), hash, context), hash
+                ).filterNot { record ->
+                    record is AccountScope.VisibleStyle.Owned && record.deletedAt != null
+                }.map { CustomStyle(it.id, it.name, it.hint) }
+            }
             val arr = JSONArray(raw)
-            val out = mutableListOf<CustomStyle>()
+            val legacy = mutableListOf<AccountScope.VisibleStyle.Legacy>()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val id = o.optString("id")
                 val name = o.optString("name").trim()
                 val hint = o.optString("hint", "")
                 if (id.isBlank() || name.isBlank()) continue
-                out.add(CustomStyle(id = id, name = name, hint = hint))
+                legacy.add(AccountScope.VisibleStyle.Legacy(id = id, name = name, hint = hint))
             }
-            out
+            // `admittedStyles` has already applied the gate; tombstones are
+            // excluded for the same reason as agents — a deleted style must be
+            // neither listed nor applied, while sync keeps the marker via the
+            // stores, which never read this function.
+            AccountScope.admittedStyles(
+                AccountScope.unionStylesFor(legacy, hash, context), hash
+            ).filterNot { record ->
+                record is AccountScope.VisibleStyle.Owned && record.deletedAt != null
+            }.map { CustomStyle(it.id, it.name, it.hint) }
         } catch (_: Exception) {
             emptyList()
         }
@@ -144,6 +200,16 @@ object AiCleanupPreferences {
         val cleanHint = CleanupProcessor.sanitizeCustomPrompt(hint)
         if (cleanHint.isEmpty()) return null
         return try {
+            val hash = localAccountHash(context)
+            if (hash != null) {
+                // A signed-in user creates styles under their OWN account.
+                // Writing to the legacy store instead would produce an
+                // UNASSIGNED record that admission withholds from execution —
+                // created and immediately unrunnable — and that no pass uploads.
+                val targetId = id ?: "custom:" + UUID.randomUUID().toString()
+                AccountScope.upsertStyle(context, hash, targetId, cleanName, cleanHint)
+                CustomStyle(id = targetId, name = cleanName, hint = cleanHint)
+            } else {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val current = loadCustomStyles(context).toMutableList()
             if (id != null) {
@@ -160,6 +226,7 @@ object AiCleanupPreferences {
             current.add(created)
             writeCustomStyles(prefs, current)
             created
+            }
         } catch (_: Exception) {
             null
         }
@@ -169,8 +236,16 @@ object AiCleanupPreferences {
         if (isBuiltIn(id)) return
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            writeCustomStyles(prefs, loadCustomStyles(context).filter { it.id != id })
-            // Apps in the deleted style return to Auto.
+            val hash = localAccountHash(context)
+            if (hash != null) {
+                // Tombstone in the account store so the delete propagates;
+                // a same-id legacy row is left alone, never destroyed.
+                AccountScope.deleteStyle(context, hash, id)
+            } else {
+                writeCustomStyles(prefs, loadCustomStyles(context).filter { it.id != id })
+            }
+            // Apps in the deleted style return to Auto. Overrides stay
+            // device-local (D1c) even when the style is account-owned.
             val updated = getOverrides(context).toMutableMap()
             var changed = false
             for ((pkg, style) in updated.toMap()) {

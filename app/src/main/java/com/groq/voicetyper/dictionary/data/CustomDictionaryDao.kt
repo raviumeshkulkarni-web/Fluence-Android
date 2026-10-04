@@ -15,6 +15,23 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1 AND deletedAt IS NULL")
     fun getAllEnabled(): Flow<List<CustomDictionaryEntry>>
 
+    /**
+     * Storage-seam account enforcement (account scoping, defense-in-depth).
+     *
+     * Same predicate as `belongsToCurrentAccount`: this account's rows plus
+     * unowned rows. With a null hash only unowned rows match, so never-signed-in
+     * behaviour is unchanged. The repository keeps its in-memory filter as a
+     * second layer; the two predicates are identical by construction.
+     */
+    @Query("SELECT * FROM custom_dictionary WHERE deletedAt IS NULL AND (syncAccount IS NULL OR syncAccount = :hash) ORDER BY id DESC")
+    fun getAllForAccount(hash: String?): Flow<List<CustomDictionaryEntry>>
+
+    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1 AND deletedAt IS NULL AND (syncAccount IS NULL OR syncAccount = :hash)")
+    fun getAllEnabledSyncForAccount(hash: String?): List<CustomDictionaryEntry>
+
+    @Query("SELECT * FROM custom_dictionary WHERE isEnabled = 1 AND deletedAt IS NULL AND (syncAccount IS NULL OR syncAccount = :hash)")
+    fun getAllEnabledForAccount(hash: String?): Flow<List<CustomDictionaryEntry>>
+
     @Query("SELECT * FROM custom_dictionary WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CustomDictionaryEntry?
 

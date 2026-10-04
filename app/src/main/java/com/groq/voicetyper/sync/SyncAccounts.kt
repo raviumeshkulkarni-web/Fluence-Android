@@ -20,12 +20,55 @@ object SyncAccounts {
     @Volatile
     var cachedAccount: String? = null
 
+    /**
+     * STAGE 1 — true once a sync pass has resolved the account identity from the
+     * live access token (Drive `about?fields=user`).
+     *
+     * While false, [cachedAccount] is only a *provisional* value derived from the
+     * persisted sign-in email, suitable for display before any pass has run. Once
+     * a pass has verified the identity against the token, that value is
+     * authoritative and a provisional refresh must not overwrite it — otherwise
+     * the UI and repositories would evaluate ownership against a different key
+     * than the one sync actually wrote, and the account's own rows would be
+     * misclassified as foreign.
+     */
+    @Volatile
+    var tokenVerified: Boolean = false
+        private set
+
     private val _currentAccountHash = MutableStateFlow<String?>(null)
     val currentAccountHash: StateFlow<String?> = _currentAccountHash.asStateFlow()
 
+    /**
+     * Provisional refresh from the persisted sign-in email. Never downgrades an
+     * identity that has already been verified against the access token.
+     */
     fun refresh(context: Context) {
-        cachedAccount = SyncAuthSession(context.applicationContext).accountEmail
-        _currentAccountHash.value = AccountHash.of(cachedAccount)
+        if (tokenVerified) return
+        apply(SyncAuthSession(context.applicationContext).accountEmail)
+    }
+
+    /**
+     * STAGE 1 — publish the identity proven by the access token. This is the only
+     * writer of [cachedAccount] that carries authority.
+     */
+    fun publishAuthenticated(authenticatedEmail: String?) {
+        tokenVerified = true
+        apply(authenticatedEmail)
+    }
+
+    /**
+     * Drop the verified identity. Required on sign-out and when a *different*
+     * account signs in, so a stale verified value can never outlive its token.
+     */
+    fun clearAuthentication() {
+        tokenVerified = false
+        apply(null)
+    }
+
+    private fun apply(email: String?) {
+        cachedAccount = email
+        _currentAccountHash.value = AccountHash.of(email)
     }
 
     /** True when [rowSyncAccount] belongs to a different (or past) account. */

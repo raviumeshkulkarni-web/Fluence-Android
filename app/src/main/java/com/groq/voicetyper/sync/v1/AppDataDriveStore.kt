@@ -51,11 +51,19 @@ class AppDataDriveStore(
 ) : V1SyncEngine.DomainGateway {
     private var fluenceFolderId: String? = null
     private var v1FolderId: String? = null
+    // STAGE 3: per-account partition folders, cached by folder name. Keyed by
+    // name rather than a single field so that switching accounts cannot reuse
+    // the previous account's folder id.
+    private val accountFolderIds = mutableMapOf<String, String>()
 // GET and PUT are performed through this same instance. Remember the
     // deterministic valid target so version-checking and updating cannot
     // accidentally switch to a corrupt/oversized sibling.
-    private val preferredDomainFileIds = mutableMapOf<DomainFile, String>()
-    private val validDuplicateFileIds = mutableMapOf<DomainFile, List<String>>()
+    //
+    // STAGE 3: keyed by canonical relative path, NOT by DomainFile. Under
+    // partitioning `agents.json` exists once per account, so a DomainFile key
+    // would let account B reuse account A's remembered file id.
+    private val preferredDomainFileIds = mutableMapOf<String, String>()
+    private val validDuplicateFileIds = mutableMapOf<String, List<String>>()
     // Bound the silent token recovery to one retry per pass (per store
     // instance). A second 401 means the refreshed authorization is genuinely
     // insufficient and must surface as AuthRequired, never loop.
@@ -235,9 +243,13 @@ class AppDataDriveStore(
 
     /** List domain file with exact name — handle 0/1/>1 (duplicate) */
     fun listDomainFile(domain: DomainFile): List<FileMetaLite> {
-        val v1 = ensureV1Folder()
+        val parent = domainFolder(domain)
+        // STAGE 3 fail-closed: a partitioned domain with no usable account hash
+        // has no addressable location, so it is reported as absent rather than
+        // falling back to the pooled path.
+        if (parent == null) return emptyList()
         val name = domainFileName(domain)
-        val query = URLEncoder.encode("'$v1' in parents and name = '$name' and trashed = false", "UTF-8")
+        val query = URLEncoder.encode("'$parent' in parents and name = '$name' and trashed = false", "UTF-8")
         val all = mutableListOf<FileMetaLite>()
         var pageToken: String? = null
         do {
@@ -282,18 +294,21 @@ class AppDataDriveStore(
      * empty data and are retained for manual recovery.
      */
     override fun getDomain(domain: DomainFile): DomainFetch {
+        // STAGE 3: a partitioned domain with no usable account hash has no
+        // addressable location. Fail closed instead of reading a pooled path.
+        val key = domainKey(domain) ?: return DomainFetch(null, null)
         val files = listDomainFile(domain).sortedBy { it.fileId }
         if (files.isEmpty()) {
-            preferredDomainFileIds.remove(domain)
-            validDuplicateFileIds.remove(domain)
+            preferredDomainFileIds.remove(key)
+            validDuplicateFileIds.remove(key)
             return DomainFetch(null, null)
         }
 
         // Corrupt-body injection: return malformed bytes for the first file, simulating a corrupt remote envelope.
         maybeInjectCorruptBody("get_domain_content")?.let { corrupt ->
             val target = files.first()
-            preferredDomainFileIds[domain] = target.fileId
-            validDuplicateFileIds.remove(domain)
+            preferredDomainFileIds[key] = target.fileId
+            validDuplicateFileIds.remove(key)
             android.util.Log.w("FluenceSync", "FAULT INJECTED corrupt getDomain domain=$domain fileId=${target.fileId} bytes=${corrupt.size}")
             return DomainFetch(corrupt, target.version)
         }
@@ -335,20 +350,22 @@ class AppDataDriveStore(
                 largestOversized = maxOf(largestOversized, bytes.size)
                 continue
             }
-            val parseable = when (domain) {
-                DomainFile.DICTIONARY -> DomainSerializer.parseDictionary(bytes) != null
-                DomainFile.SNIPPETS -> DomainSerializer.parseSnippets(bytes) != null
-                DomainFile.STATS -> DomainSerializer.parseStats(bytes) != null
-                DomainFile.SETTINGS -> DomainSerializer.parseSettings(bytes) != null
-            }
+              val parseable = when (domain) {
+                  DomainFile.DICTIONARY -> DomainSerializer.parseDictionary(bytes) != null
+                  DomainFile.SNIPPETS -> DomainSerializer.parseSnippets(bytes) != null
+                  DomainFile.STATS -> DomainSerializer.parseStats(bytes) != null
+                  DomainFile.SETTINGS -> DomainSerializer.parseSettings(bytes) != null
+                  DomainFile.AGENTS -> DomainSerializer.parseAgents(bytes) != null
+                  DomainFile.STYLES -> DomainSerializer.parseStyles(bytes) != null
+              }
             if (parseable) valid.add(meta to bytes)
             else if (firstCorrupt == null) firstCorrupt = meta to bytes
         }
 
         if (valid.isNotEmpty()) {
             val target = valid.first().first
-            preferredDomainFileIds[domain] = target.fileId
-            validDuplicateFileIds[domain] = valid.drop(1).map { it.first.fileId }
+            preferredDomainFileIds[key] = target.fileId
+            validDuplicateFileIds[key] = valid.drop(1).map { it.first.fileId }
             val bytes = if (valid.size == 1) {
                 valid.first().second
             } else {
@@ -357,8 +374,8 @@ class AppDataDriveStore(
             return DomainFetch(bytes, target.version, valid.size > 1)
         }
 
-        preferredDomainFileIds[domain] = files.first().fileId
-        validDuplicateFileIds.remove(domain)
+        preferredDomainFileIds[key] = files.first().fileId
+        validDuplicateFileIds.remove(key)
         if (largestOversized > 0) {
             throw SyncError.Rejected("domain payload $largestOversized bytes exceeds cap")
         }
@@ -379,10 +396,16 @@ class AppDataDriveStore(
         if (bytes.size > MAX_DOMAIN_BYTES) {
             throw SyncError.Rejected("refusing to upload ${bytes.size} byte domain payload")
         }
-        val v1 = ensureV1Folder()
+        // STAGE 3 fail-closed: refuse to upload Agents/Styles when the token
+        // identity is unresolved. Without this a signed-out or unverified
+        // device would create a pooled file that another account later adopts.
+        val key = domainKey(domain)
+            ?: throw SyncError.Rejected("refusing to upload ${domain.name} with no account partition")
+        val parent = domainFolder(domain)
+            ?: throw SyncError.Rejected("refusing to upload ${domain.name} with no account partition")
         val name = domainFileName(domain)
         val existing = listDomainFile(domain)
-        val preferredId = preferredDomainFileIds[domain]
+        val preferredId = preferredDomainFileIds[key]
         val selected = if (preferredId != null) {
             existing.firstOrNull { it.fileId == preferredId }
                 ?: if (expectedVersion != null) throw SyncError.StaleVersion(null)
@@ -403,13 +426,15 @@ class AppDataDriveStore(
             val newVersion = patchMultipart(meta.fileId, name, bytes)
             // The merged payload contains every valid sibling. Delete only
             // those valid duplicates; corrupt/oversized files remain intact.
-            validDuplicateFileIds.remove(domain).orEmpty().forEach { duplicateId ->
+            validDuplicateFileIds.remove(key).orEmpty().forEach { duplicateId ->
                 if (duplicateId != meta.fileId) deleteDomainFile(duplicateId)
             }
             newVersion
         } else {
             // File absent — creating is always safe (recreate-after-vanish).
-            val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(v1)).toString()
+            // STAGE 3: `parent` is the account partition folder for
+            // Agents/Styles, so a create can never land in a pooled location.
+            val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(parent)).toString()
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
                 val responseBody = resp.body?.string().orEmpty()
@@ -472,12 +497,24 @@ class AppDataDriveStore(
                     emptyList(), payloads.flatMap { DomainSerializer.parseStats(it)!!.entries }
                 ))
             )
-            DomainFile.SETTINGS -> DomainSerializer.serializeSettings(
-                SettingsDomain(entries = Merge.mergeSettings(
-                    emptyList(), payloads.flatMap { DomainSerializer.parseSettings(it)!!.entries }
-                ))
-            )
-        }.toByteArray()
+              DomainFile.SETTINGS -> DomainSerializer.serializeSettings(
+                  SettingsDomain(entries = Merge.mergeSettings(
+                      emptyList(), payloads.flatMap { DomainSerializer.parseSettings(it)!!.entries }
+                  ))
+              )
+              // Duplicate valid files are consolidated through the SAME 2B LWW
+              // authority as every other keyed domain — no agent-specific rule.
+              DomainFile.AGENTS -> DomainSerializer.serializeAgents(
+                  AgentDomain(entries = Merge.mergeAgents(
+                      emptyList(), payloads.flatMap { DomainSerializer.parseAgents(it)!!.entries }
+                  ))
+              )
+              DomainFile.STYLES -> DomainSerializer.serializeStyles(
+                  StyleDomain(entries = Merge.mergeStyles(
+                      emptyList(), payloads.flatMap { DomainSerializer.parseStyles(it)!!.entries }
+                  ))
+              )
+          }.toByteArray()
     }
 
     private fun deleteDomainFile(fileId: String) {
@@ -487,12 +524,61 @@ class AppDataDriveStore(
         }
     }
 
-    private fun domainFileName(d: DomainFile): String = when (d) {
-        DomainFile.DICTIONARY -> "dictionary.json"
-        DomainFile.SNIPPETS -> "snippets.json"
-        DomainFile.STATS -> "stats.json"
-        DomainFile.SETTINGS -> "settings.json"
+    /**
+     * The account this store instance addresses for partitioned domains.
+     *
+     * `null` (signed out / identity unresolved) makes every partitioned read and
+     * write fail closed rather than fall back to the pooled location.
+     */
+    @Volatile
+    var accountHash: String? = null
+
+    private fun domainFileName(d: DomainFile): String = AccountPartition.plainFileName(d)
+
+    /**
+     * Cache key identifying exactly one remote domain file.
+     *
+     * Flat domains key identically for every account. Partitioned domains key by
+     * the account-scoped path, so remembered file ids can never leak across an
+     * account switch. `null` means "do not address the remote at all".
+     */
+    private fun domainKey(d: DomainFile): String? =
+        AccountPartition.relativePath(d, accountHash)
+
+    /**
+     * The folder a domain file lives in: `v1` for the flat domains, and the
+     * per-account partition subfolder for Agents/Styles.
+     *
+     * Returns `null` for a partitioned domain with no usable account hash, which
+     * every caller treats as "do not touch the remote at all".
+     */
+    private fun domainFolder(domain: DomainFile): String? {
+        if (!AccountPartition.isPartitioned(domain)) return ensureV1Folder()
+        val folder = AccountPartition.folderName(accountHash) ?: return null
+        return ensureAccountFolder(folder)
     }
+
+    /**
+     * Resolve (or create) the per-account partition folder inside `v1`.
+     *
+     * The name is already validated by [AccountPartition.folderName], so it
+     * cannot contain a path separator or a dot and cannot escape `v1`.
+     */
+    private fun ensureAccountFolder(name: String): String {
+        accountFolderIds[name]?.let { return it }
+        val v1 = ensureV1Folder()
+        val query = URLEncoder.encode("'$v1' in parents and mimeType = '$FOLDER_MIME' and name = '$name' and trashed = false", "UTF-8")
+        call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
+            val body = resp.body?.string().orEmpty()
+            classify(resp, resp.code) { body }
+            val id = parseFirstId(body)
+            val resolved = id ?: createFolder(name, v1)
+            accountFolderIds[name] = resolved
+            return resolved
+        }
+    }
+
+    /** Ensure appDataFolder/fluence/v1 exists, handling duplicate folders (pick first). */
 
     private fun parseFirstId(json: String): String? = runCatching {
         val arr = JSONObject(json).optJSONArray("files") ?: return null

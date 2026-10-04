@@ -12,6 +12,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Matcher
 
@@ -110,21 +112,28 @@ object DictionaryRepository {
 
     fun getAll(context: Context): Flow<List<CustomDictionaryEntry>> {
         val dictionaryDao = getDao(context)
-        return SyncAccounts.currentAccountHash.combine(dictionaryDao.getAll()) { hash, entries ->
-            entries.filter { belongsToCurrentAccount(it, hash) }
+        // Storage seam enforces the same predicate; the in-memory filter stays
+        // as a second layer. Both are `belongsToCurrentAccount` by construction.
+        return SyncAccounts.currentAccountHash.flatMapLatest { hash ->
+            dictionaryDao.getAllForAccount(hash).map { entries ->
+                entries.filter { belongsToCurrentAccount(it, hash) }
+            }
         }
     }
 
     fun getAllEnabled(context: Context): Flow<List<CustomDictionaryEntry>> {
         val dictionaryDao = getDao(context)
-        return SyncAccounts.currentAccountHash.combine(dictionaryDao.getAllEnabled()) { hash, entries ->
-            entries.filter { belongsToCurrentAccount(it, hash) }
+        return SyncAccounts.currentAccountHash.flatMapLatest { hash ->
+            dictionaryDao.getAllEnabledForAccount(hash).map { entries ->
+                entries.filter { belongsToCurrentAccount(it, hash) }
+            }
         }
     }
 
     fun getAllEnabledSync(context: Context): List<CustomDictionaryEntry> {
-        return getDao(context).getAllEnabledSync()
-            .filter { belongsToCurrentAccount(it, SyncAccounts.currentAccountHash.value) }
+        val hash = SyncAccounts.currentAccountHash.value
+        return getDao(context).getAllEnabledSyncForAccount(hash)
+            .filter { belongsToCurrentAccount(it, hash) }
     }
 
     suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult {
@@ -197,6 +206,9 @@ object DictionaryRepository {
     }
 
     suspend fun toggleEntryEnabled(context: Context, entry: CustomDictionaryEntry, isEnabled: Boolean) {
+        // Ownership seam (D1a): refuse to mutate a row owned by another account.
+        // Unowned rows stay actionable, matching the read filter.
+        if (!belongsToCurrentAccount(entry, SyncAccounts.currentAccountHash.value)) return
         getDao(context).update(
             entry.copy(
                 isEnabled = isEnabled,
@@ -235,6 +247,11 @@ object DictionaryRepository {
     }
 
     internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null) {
+        // Ownership seam (D1a): a row owned by a DIFFERENT account must never be
+        // mutated, even when a stale id reaches this path — `getById` is a
+        // primary-key lookup and is not account-filtered. Unowned rows stay
+        // actionable, matching the read filter: visible implies deletable.
+        if (!belongsToCurrentAccount(entry, SyncAccounts.currentAccountHash.value)) return
         if (entry.everPushed || entry.serverFileId != null) {
             // Pushed at least once → tombstone propagates the deletion.
             val now = if (context != null) com.groq.voicetyper.sync.v1.MutationClock.next(context) else System.currentTimeMillis()
@@ -269,6 +286,6 @@ object DictionaryRepository {
         deleteByIdResolved(getDao(context), id, context)
     }
 
-    private fun belongsToCurrentAccount(entry: CustomDictionaryEntry, hash: String?): Boolean =
+    internal fun belongsToCurrentAccount(entry: CustomDictionaryEntry, hash: String?): Boolean =
         entry.syncAccount == null || entry.syncAccount == hash
 }

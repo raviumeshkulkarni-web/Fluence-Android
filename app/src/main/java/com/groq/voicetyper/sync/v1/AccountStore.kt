@@ -13,8 +13,20 @@ import androidx.security.crypto.MasterKey
  * with plain SharedPreferences returns null/garbage (keys are SIV-encrypted)
  * and would silently break accountHash stamping.
  *
- * accountHash = SHA-256(lower(trim(email))) truncated to 16 hex chars —
+ * accountHash = full 64-char lowercase hex SHA-256 of lower(trim(email)) —
  * the single canonical format used for stamping and sync_metadata keys.
+ *
+ * CORRECTION (Stage 1): an earlier version of this comment claimed the hash
+ * was "truncated to 16 hex chars". The code never truncated. `AccountHash.of`
+ * emits all 64 characters, matching Windows `metadata::account_hash_from_email`
+ * (SHA-256 hex of `lower(trim(email))`). The stale comment was a live hazard:
+ * the hash is now also used as a Drive path segment (Stage 3), so anyone
+ * "correcting" the code to match a 16-char comment would silently produce a
+ * different partition key on every device.
+ *
+ * This accessor is a DISPLAY CACHE only. The authoritative sync identity is
+ * resolved from the live access token via `DriveIdentity.authenticatedAccountEmail`
+ * during the sync pass — never from this persisted string.
  */
 object AccountStore {
     private const val PREFS_NAME = "fluence_sync_secure_prefs"
