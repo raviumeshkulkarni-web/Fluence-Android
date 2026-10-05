@@ -718,9 +718,6 @@ internal object AccountScope {
          * into a session that has no verified identity.
          */
         private fun hasVerifiedAccount(): Boolean = validAccountHash(accountHash)
-        /** Read the union once. A null/invalid hash yields legacy only. */
-        fun load(context: Context, accountHash: String?, legacy: List<VisibleAgent.Legacy>) =
-            VisibleAgentsSnapshot(loadVisibleAgents(context, accountHash, legacy), accountHash)
 
         /**
          * The full union, tombstones INCLUDED.
@@ -821,11 +818,84 @@ internal object AccountScope {
                 !(record is VisibleAgent.Owned && record.deletedAt != null)
 
         companion object {
+            /**
+             * Read the union once and wrap it. A null/invalid hash yields legacy
+             * only. This is the production entry point for every UI read: it is
+             * what pairs the account store with the legacy store under one
+             * admission snapshot, so a caller cannot list one and execute the
+             * other.
+             */
+            fun load(context: Context, accountHash: String?, legacy: List<VisibleAgent.Legacy>) =
+                VisibleAgentsSnapshot(loadVisibleAgents(context, accountHash, legacy), accountHash)
+
             /** Build a snapshot from an already-computed union. */
             internal fun forTest(
                 union: List<VisibleAgent>,
                 accountHash: String? = null,
             ) = VisibleAgentsSnapshot(union, accountHash)
+        }
+    }
+
+    /**
+     * Style counterpart of [VisibleAgentsSnapshot], with identical rules.
+     *
+     * Mirrored rather than inlined into `AiCleanupPreferences` so the display /
+     * execution distinction lives in exactly one place per domain. Duplicating
+     * those rules at the call site is how the agent and style paths drifted.
+     */
+    class VisibleStylesSnapshot internal constructor(
+        private val union: List<VisibleStyle>,
+        private val accountHash: String?
+    ) {
+        private fun hasVerifiedAccount(): Boolean = validAccountHash(accountHash)
+
+        /** The full union, tombstones INCLUDED. What sync must read. */
+        fun records(): List<VisibleStyle> = union
+
+        /** Records a runtime consumer may execute. The admission gate. */
+        fun admitted(): List<VisibleStyle> = admittedStyles(
+            union.filter { hasVerifiedAccount() || it is VisibleStyle.Legacy },
+            accountHash
+        )
+
+        /**
+         * Display projection: tombstones omitted, unassigned records kept but not
+         * runnable. See [VisibleAgentsSnapshot.displayRecords] for why.
+         */
+        fun displayRecords(): List<VisibleStyle> {
+            val verified = hasVerifiedAccount()
+            return union.filter { record ->
+                when (record) {
+                    is VisibleStyle.Legacy -> true
+                    is VisibleStyle.Owned -> verified && record.deletedAt == null
+                }
+            }
+        }
+
+        /** Admission state of a listed record, so the UI can render it honestly. */
+        fun admissionOf(record: VisibleStyle): Admission {
+            if (!hasVerifiedAccount() && record is VisibleStyle.Owned) return Admission.UNASSIGNED
+            return admitStyle(record, accountHash)
+        }
+
+        /** True when this listed record may actually be applied. */
+        fun isRunnable(record: VisibleStyle): Boolean =
+            admissionOf(record).isAdmissible() &&
+                !(record is VisibleStyle.Owned && record.deletedAt != null)
+
+        companion object {
+            /**
+             * Read the union once and wrap it. A null/invalid hash yields legacy
+             * only. See [VisibleAgentsSnapshot.Companion.load].
+             */
+            fun load(context: Context, accountHash: String?, legacy: List<VisibleStyle.Legacy>) =
+                VisibleStylesSnapshot(loadVisibleStyles(context, accountHash, legacy), accountHash)
+
+            /** Build a snapshot from an already-computed union. */
+            internal fun forTest(
+                union: List<VisibleStyle>,
+                accountHash: String? = null,
+            ) = VisibleStylesSnapshot(union, accountHash)
         }
     }
 

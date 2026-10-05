@@ -66,6 +66,30 @@ internal object PassAccountGuard {
     }
 }
 
+/**
+ * The C1 gate: given the persisted sign-in email and the token-verified Drive
+ * identity, return the error that must abort the sync pass, or `null` when the
+ * two agree and the pass may proceed.
+ *
+ * Pure and top-level so the divergence policy is unit-testable without a
+ * network or a live session. Mirrors Windows `scheduler.rs` exactly:
+ *  - no persisted identity -> [SyncError.AuthRequired]
+ *  - persisted != token-verified -> [SyncError.Retryable] (fail closed)
+ *
+ * Comparison is trimmed and case-folded, matching Windows. There is
+ * deliberately NO automatic rename migration: the trigger is a Google email
+ * rename, where the persisted value legitimately lags the token, and the only
+ * resolutions are re-authentication or explicit user reconciliation.
+ */
+internal fun identityDivergenceOutcome(persisted: String?, verified: String): SyncError? = when {
+    persisted == null -> SyncError.AuthRequired
+    persisted.trim().lowercase() != verified.trim().lowercase() -> SyncError.Retryable(
+        "token identity differs from the persisted sign-in; " +
+            "refusing to sync under a stale key"
+    )
+    else -> null
+}
+
 class SyncManager(
     private val context: Context,
     private val auth: SyncAuthSession,
@@ -283,29 +307,45 @@ class SyncManager(
         val authenticatedEmail = when (val id = DriveIdentity.resolveAccountEmail(token)) {
             is DriveIdentity.IdentityResult.Resolved -> id.email
             is DriveIdentity.IdentityResult.Unauthorized -> throw SyncError.AuthRequired
-            is DriveIdentity.IdentityResult.Unavailable -> throw SyncError.Retryable(
-                "identity: ${id.reason}"
-            )
+            is DriveIdentity.IdentityResult.Unavailable -> {
+                // Preserve an explicit Drive Retry-After: the scheduler gates
+                // the next attempt on it, same as the data path's RateLimited.
+                // Still RETRYABLE either way — never an auth prompt.
+                val retryAfterMs = id.retryAfterMs
+                if (retryAfterMs != null) throw SyncError.RateLimited(retryAfterMs)
+                throw SyncError.Retryable("identity: ${id.reason}")
+            }
         }
+        // C1 — fail CLOSED on identity divergence.
+        //
+        // The two identities must agree before any account-scoped read, write or
+        // upload happens. This previously only logged and continued on the
+        // token's identity, which is the opposite of what Windows does
+        // (`scheduler.rs`: persisted identity missing -> AuthRequired; persisted
+        // != token-verified -> Retryable "refusing to sync under a stale key").
+        // Two platforms taking opposite actions on identical input left Android
+        // with no defined outcome at all: it wrote under a partition key the user
+        // never re-confirmed, while Windows refused to sync at all.
+        //
+        // Comparison mirrors Windows exactly — trimmed and case-folded — and is
+        // deliberately NOT a rename migration: a Google email rename leaves the
+        // persisted value legitimately stale, and the only resolutions are
+        // re-authentication or explicit user reconciliation. There is no
+        // automatic re-keying, because silently moving a partition is how one
+        // account's payload ends up addressed by another's key.
+        //
+        // This check runs BEFORE `publishAuthenticated`, so an aborted pass does
+        // not even move the process-wide ownership key: repositories and the UI
+        // keep evaluating `isForeign` against the identity the user last
+        // confirmed, and no pass can strand a write under a half-applied rename.
+        val passSessionEmail = auth.accountEmail
+        identityDivergenceOutcome(passSessionEmail, authenticatedEmail)?.let { throw it }
+        val accountHash = AccountHash.of(authenticatedEmail)
+            ?: throw SyncError.AuthRequired
         // Publish the token-proven identity as the process-wide ownership key, so
         // repositories and UI evaluate `isForeign` against the same partition the
         // pass is about to read and write — not against the persisted string.
         SyncAccounts.publishAuthenticated(authenticatedEmail)
-        val accountHash = AccountHash.of(authenticatedEmail)
-            ?: throw SyncError.AuthRequired
-        // The session email is retained ONLY to detect an account change
-        // mid-pass (sign-out / account switch). It is a display cache, not the
-        // sync identity: after a Google email rename it legitimately lags the
-        // token, so divergence is REPORTED rather than made fatal here. Rename
-        // and orphan-record behaviour is a separate, explicit decision.
-        val passSessionEmail = auth.accountEmail
-        if (passSessionEmail != null && AccountHash.of(passSessionEmail) != accountHash) {
-            android.util.Log.i(
-                "FluenceSync",
-                "session email differs from authenticated Drive identity; " +
-                    "using the token-bound identity for this pass"
-            )
-        }
         val drive = AppDataDriveStore(
             token,
             tokenRefresher = AccessTokenRefresher { staleToken ->
@@ -346,8 +386,12 @@ class SyncManager(
                 ) {
                     is DriveIdentity.IdentityResult.Resolved -> r.email
                     is DriveIdentity.IdentityResult.Unauthorized -> throw SyncError.AuthRequired
-                    is DriveIdentity.IdentityResult.Unavailable ->
+                    is DriveIdentity.IdentityResult.Unavailable -> {
+                        // Same Retry-After preservation as the pass entry.
+                        val retryAfterMs = r.retryAfterMs
+                        if (retryAfterMs != null) throw SyncError.RateLimited(retryAfterMs)
                         throw SyncError.Retryable("refresh identity: ${r.reason}")
+                    }
                 }
                 if (!refreshedIdentity.equals(authenticatedEmail, ignoreCase = true)) {
                     android.util.Log.w(

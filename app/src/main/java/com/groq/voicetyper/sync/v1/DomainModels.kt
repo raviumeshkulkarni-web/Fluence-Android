@@ -110,7 +110,7 @@ data class AgentRecord(
         const val PREFIX = "agent:"
         fun isValidBusinessKey(k: String): Boolean =
             k.length > PREFIX.length && k.startsWith(PREFIX) &&
-                runCatching { java.util.UUID.fromString(k.substring(PREFIX.length)) }.isSuccess
+                isStrictUuid(k.substring(PREFIX.length))
     }
 }
 
@@ -128,7 +128,7 @@ data class StyleRecord(
         const val PREFIX = "custom:"
         fun isValidBusinessKey(k: String): Boolean =
             k.length > PREFIX.length && k.startsWith(PREFIX) &&
-                runCatching { java.util.UUID.fromString(k.substring(PREFIX.length)) }.isSuccess
+                isStrictUuid(k.substring(PREFIX.length))
     }
 }
 
@@ -140,3 +140,35 @@ data class StatsDomain(val v: Int = 1, val entries: List<StatRecord>)
 data class SettingsDomain(val v: Int = 1, val entries: List<SettingsRecord>)
 data class AgentDomain(val v: Int = 1, val entries: List<AgentRecord>)
 data class StyleDomain(val v: Int = 1, val entries: List<StyleRecord>)
+
+/**
+ * Strict UUID admission, equivalent to Rust `Uuid::parse_str` (the `uuid`
+ * crate) — the function Windows uses to validate `sync_id` and business keys.
+ *
+ * That function dispatches on length, and the two shapes that actually occur in
+ * sync data are:
+ *  - 32 -> "simple": 32 hex digits, no hyphens
+ *  - 36 -> "hyphenated": 8-4-4-4-12 hex
+ * (the crate also accepts 38-char braced and 45-char URN forms; neither is
+ * emitted here, so accepting them would widen the surface without cause — this
+ * predicate is deliberately fail-closed on them.)
+ *
+ * `java.util.UUID.fromString` is not equivalent in BOTH directions:
+ *  - it ACCEPTS arbitrary group lengths, so `1-1-1-1-1` parses on Android while
+ *    Windows rejects it — a hand-edited or corrupt file is admitted asymmetrically;
+ *  - it REJECTS the 32-digit simple form, which Windows ACCEPTS.
+ *
+ * Demanding only the canonical hyphenated shape would therefore have closed the
+ * first asymmetry while opening the second, so both shapes Windows honours are
+ * honoured here and nothing else is. Records are skipped individually at
+ * ingest, so a stricter test can only drop a malformed record, never a file.
+ */
+internal fun isStrictUuid(s: String): Boolean {
+    fun hex(c: Char) = c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
+    return when (s.length) {
+        32 -> s.all(::hex)
+        36 -> s[8] == '-' && s[13] == '-' && s[18] == '-' && s[23] == '-' &&
+            s.indices.all { i -> i == 8 || i == 13 || i == 18 || i == 23 || hex(s[i]) }
+        else -> false
+    }
+}

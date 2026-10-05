@@ -653,7 +653,12 @@ fun classifyForbidden(body: String): SyncError {
     }
 }
 
-private val TRANSIENT_403_REASONS = setOf(
+/**
+ * Drive 403 reasons that are a throttle/quota condition, not a permission
+ * decision. `internal` so [DriveIdentity.classify] reuses the exact same set
+ * instead of keeping a second copy that can drift.
+ */
+internal val TRANSIENT_403_REASONS = setOf(
     "userRateLimitExceeded",
     "rateLimitExceeded",
     "dailyLimitExceeded",
@@ -663,7 +668,8 @@ private val TRANSIENT_403_REASONS = setOf(
 )
 
 /** Read `error.reason`, falling back to `error.errors[0].reason` (Drive API v3). */
-private fun forbiddenReason(body: String): String? {
+/** `internal` so [DriveIdentity.classify] reuses the same reason parser. */
+internal fun forbiddenReason(body: String): String? {
     return try {
         val error = JSONObject(body).optJSONObject("error") ?: return null
         error.optString("reason").ifEmpty { null }

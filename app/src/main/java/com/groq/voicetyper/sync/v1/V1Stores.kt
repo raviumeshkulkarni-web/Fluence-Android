@@ -153,7 +153,6 @@ object V1Stores {
             merged: List<AgentRecord>
         ) {
             if (!AccountScope.validAccountHash(hash)) return
-            val existing = AccountScope.loadAgents(context, hash).associateBy { it.id }
             // STAGE 3 makes account isolation STRUCTURAL, so no ownership filter
             // is needed or wanted here.
             //
@@ -172,7 +171,6 @@ object V1Stores {
             AccountScope.saveAgents(
                 context, hash,
                 merged.map { rec ->
-                    val prior = existing[rec.businessKey]
                     AccountScope.AccountAgent(
                         id = rec.businessKey,
                         name = rec.name,
@@ -180,7 +178,17 @@ object V1Stores {
                         syncId = rec.syncId,
                         updatedAt = rec.updatedAt,
                         deviceId = rec.deviceId,
-                        deletedAt = rec.deletedAt ?: prior?.deletedAt,
+                        // Tombstone state comes from the WINNER alone.
+                        //
+                        // The old `rec.deletedAt ?: prior?.deletedAt` grafted a
+                        // LOSING local `deletedAt` onto the winning record, so a
+                        // newer live winner was persisted as a tombstone no
+                        // device ever produced. Because the local side wins a
+                        // timestamp tie, each later pass re-PUT that fabricated
+                        // tombstone; it can then reach the peer and delete a
+                        // record there. The winner already carries the correct
+                        // state because it IS the LWW result.
+                        deletedAt = rec.deletedAt,
                         // Merged back in: already in the sync state, so clean.
                         // Without this the flag would survive the merge and
                         // every pass would re-upload the row.
@@ -247,7 +255,6 @@ object V1Stores {
             merged: List<StyleRecord>
         ) {
             if (!AccountScope.validAccountHash(hash)) return
-            val existing = AccountScope.loadStyles(context, hash).associateBy { it.id }
             // STAGE 4: structural partitioning replaces the ownership filter.
             // See the agents counterpart above for the full rationale; styles
             // have the same provenance guarantee via
@@ -255,7 +262,6 @@ object V1Stores {
             AccountScope.saveStyles(
                 context, hash,
                 merged.map { rec ->
-                    val prior = existing[rec.businessKey]
                     AccountScope.AccountStyle(
                         id = rec.businessKey,
                         name = rec.name,
@@ -263,7 +269,9 @@ object V1Stores {
                         syncId = rec.syncId,
                         updatedAt = rec.updatedAt,
                         deviceId = rec.deviceId,
-                        deletedAt = rec.deletedAt ?: prior?.deletedAt,
+                        // Winner-only tombstone state; see the agents counterpart
+                        // for why a losing `deletedAt` must never be grafted on.
+                        deletedAt = rec.deletedAt,
                         // Merged back in: already in the sync state, so clean.
                         // Without this the flag would survive the merge and
                         // every pass would re-upload the row.

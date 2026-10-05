@@ -153,14 +153,14 @@ fun AiCleanupStylesScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 TextButton(
                     onClick = {
-                        val all = customs.map { it.id }.toSet()
+                        val all = customs.filter { it.available }.map { it.id }.toSet()
                         selectedIds = if (selectedIds == all) emptySet() else all
                     },
                     contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text(
-                        if (selectedIds == customs.map { it.id }.toSet()) "Deselect all" else "Select all",
+                        if (selectedIds == customs.filter { it.available }.map { it.id }.toSet()) "Deselect all" else "Select all",
                         color = colors.textSecondary,
                         style = FluenceTypography.labelMedium
                     )
@@ -261,15 +261,24 @@ fun AiCleanupStylesScreen(
                                 isCustom = true,
                                 isSelected = style.id in selectedIds,
                                 isMultiSelect = isMultiSelect,
+                                enabled = style.available,
+                                unavailableReason = style.unavailableReason,
                                 onToggleSelect = {
+                                    // An unavailable row must never enter the
+                                    // selection, even if driven from outside.
+                                    if (!style.available) return@AiStyleRow
                                     selectedIds = if (style.id in selectedIds) {
                                         selectedIds - style.id
                                     } else {
                                         selectedIds + style.id
                                     }
                                 },
-                                onClick = { onNavigateTo(Screen.AiStylePicker(style.id)) },
+                                onClick = {
+                                    if (!style.available) return@AiStyleRow
+                                    onNavigateTo(Screen.AiStylePicker(style.id))
+                                },
                                 onEdit = {
+                                    if (!style.available) return@AiStyleRow
                                     styleToEdit = style
                                     showEditor = true
                                 },
@@ -371,6 +380,15 @@ private fun AiStyleRow(
     isCustom: Boolean = false,
     isSelected: Boolean = false,
     isMultiSelect: Boolean = false,
+    /**
+     * False for a preserved legacy style. The row stays visible and is
+     * explicitly labelled, but it cannot be selected, opened for app assignment,
+     * or edited — assigning apps would apply a prompt of unknown provenance, and
+     * saving an edit would quietly assign the record to the signed-in account.
+     */
+    enabled: Boolean = true,
+    /** Why [enabled] is false. Rendered under the title. */
+    unavailableReason: String? = null,
     onToggleSelect: (() -> Unit)? = null,
     onClick: () -> Unit,
     onEdit: (() -> Unit)? = null,
@@ -407,9 +425,16 @@ private fun AiStyleRow(
             modifier = Modifier
                 .weight(1f)
                 .combinedClickable(
+                    enabled = enabled,
                     interactionSource = interactionSource,
                     indication = androidx.compose.foundation.LocalIndication.current,
-                    onClickLabel = if (isMultiSelect) "Toggle selection" else "Open $title apps",
+                    onClickLabel = if (!enabled) {
+                        "Unavailable"
+                    } else if (isMultiSelect) {
+                        "Toggle selection"
+                    } else {
+                        "Open $title apps"
+                    },
                     onLongClickLabel = if (isCustom) "Select $title style" else null,
                     onClick = {
                         if (isMultiSelect && onToggleSelect != null) {
@@ -442,15 +467,25 @@ private fun AiStyleRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    color = colors.textPrimary,
+                    color = if (enabled) colors.textPrimary else colors.textTertiary,
                     style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = description,
-                    color = colors.textSecondary,
+                    color = if (enabled) colors.textSecondary else colors.textTertiary,
                     style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
                 )
+                if (!enabled && unavailableReason != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    // Mandatory: a greyed-out row with no explanation looks like a
+                    // broken screen, and the user cannot tell nothing was deleted.
+                    Text(
+                        text = unavailableReason,
+                        color = colors.textTertiary,
+                        style = FluenceTypography.labelSmall
+                    )
+                }
                 if (badge != null) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -462,22 +497,38 @@ private fun AiStyleRow(
             }
         }
         if (!isMultiSelect) {
-            if (onEdit != null) {
+            // Nothing is offered on an unavailable row: it cannot be
+            // selected, opened for app assignment, edited, or deleted.
+            //
+            // Delete is withheld because the signed-in delete path is a NO-OP for
+            // a legacy row: `AccountScope.deleteStyle` returns early when the id is
+            // absent from the account store, and a legacy row lives only in the
+            // legacy store. So the button did nothing while announcing "Deleted".
+            // Signing out exposes the signed-out path, which removes the row from
+            // the store it actually lives in.
+            //
+            // NOTE: do not "fix" the no-op by removing the `none { it.id == id }`
+            // guard in `deleteStyle` — that is what stops a legacy id from
+            // acquiring an account-owned tombstone that sync would upload as an
+            // ownership claim for a record this account never owned.
+            if (onEdit != null && enabled) {
                 TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Edit", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                 }
             }
-            if (onDelete != null) {
+            if (onDelete != null && enabled) {
                 TextButton(onClick = onDelete, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
                 }
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.textSecondary,
-                modifier = Modifier.size(20.dp)
-            )
+            if (enabled) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

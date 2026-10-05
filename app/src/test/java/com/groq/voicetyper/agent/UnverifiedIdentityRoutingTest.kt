@@ -164,20 +164,44 @@ class UnverifiedIdentityRoutingTest {
     }
 
     @Test
-    fun a_legacy_style_is_not_runnable_while_signed_in_unverified() = withUnverifiedIdentity {
-        // The pre-existing legacy store is unknown provenance. A signed-in
-        // identity — even not yet re-verified this process — must not run it.
-        val store = FakePrefsStore()
-        val ctx = store.context()
-        store.fileOf("fluence_prefs")["ai_cleanup_custom_styles"] =
-            """[{"id":"custom:legacy1","name":"Legacy","hint":"Old prompt"}]"""
+    fun a_legacy_style_is_listed_but_not_runnable_while_signed_in_unverified() =
+        withUnverifiedIdentity {
+            // The pre-existing legacy store is unknown provenance. A signed-in
+            // identity — even not yet re-verified this process — must not run it.
+            //
+            // B1 changed what "must not run it" means. It used to also mean
+            // "hide it", which made an intact legacy style look deleted to a
+            // signed-in user. It is now LISTED, flagged unavailable with a
+            // reason, and excluded from the execution set.
+            val store = FakePrefsStore()
+            val ctx = store.context()
+            store.fileOf("fluence_prefs")["ai_cleanup_custom_styles"] =
+                """[{"id":"custom:legacy1","name":"Legacy","hint":"Old prompt"}]"""
 
-        assertTrue(
-            "legacy record must be withheld while signed in",
-            AiCleanupPreferences.loadCustomStyles(ctx).none { it.id == "custom:legacy1" },
-        )
-        assertFalse(AiCleanupPreferences.isKnownStyle(ctx, "custom:legacy1"))
-    }
+            val listed = AiCleanupPreferences.loadCustomStyles(ctx)
+            val legacy = listed.firstOrNull { it.id == "custom:legacy1" }
+            assertNotNull(
+                "a preserved legacy style must stay visible while signed in; " +
+                    "hiding it reads as data loss that did not happen",
+                legacy,
+            )
+            assertEquals("the legacy row itself must be unchanged", "Legacy", legacy!!.name)
+            assertEquals("Old prompt", legacy.hint)
+            assertFalse("it must not be runnable under a signed-in identity", legacy.available)
+            assertNotNull("an explicit reason is required", legacy.unavailableReason)
+
+            assertFalse(
+                "and it must be excluded from the execution set",
+                AiCleanupPreferences.isKnownStyle(ctx, "custom:legacy1"),
+            )
+            assertNull(
+                "so a stale per-app override cannot apply it",
+                AiCleanupPreferences.styleForPackage(
+                    ctx,
+                    "com.example.app",
+                ),
+            )
+        }
 
     // ------------------------------------------------------------------
     // Signed-out behaviour is unchanged

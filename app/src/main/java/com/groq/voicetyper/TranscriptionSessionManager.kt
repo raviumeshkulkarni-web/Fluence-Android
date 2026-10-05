@@ -195,8 +195,18 @@ object TranscriptionSessionManager {
                     )
                 } else {
                     val hint = try {
+                        // `available` is load-bearing, not defensive. Before the B1
+                        // display/runnable split this list WAS the runnable set, so a
+                        // legacy style simply did not appear here. It now returns
+                        // the DISPLAY set, so without this check a legacy style's
+                        // hint would be sent to the LLM under a signed-in identity.
+                        //
+                        // `styleForPackage` above is NOT a substitute gate: it is a
+                        // separate, earlier read of the same data, so a sign-in or
+                        // sync pass landing between the two would let it approve an
+                        // id that this read then reports as unavailable.
                         com.groq.voicetyper.cleanup.AiCleanupPreferences.loadCustomStyles(context)
-                            .firstOrNull { it.id == aiStyleId }?.hint
+                            .firstOrNull { it.id == aiStyleId && it.available }?.hint
                     } catch (_: Exception) {
                         null
                     }

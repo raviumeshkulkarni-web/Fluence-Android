@@ -58,9 +58,10 @@ object DomainSerializer {
         return sb.toString()
     }
 
-    private fun validUuid(s: String): Boolean = runCatching {
-        java.util.UUID.fromString(s)
-    }.isSuccess
+    // Strict, and identical to Windows: see [isStrictUuid]. `UUID.fromString`
+    // would accept malformed group lengths here and reject the simple form
+    // Windows accepts, admitting records asymmetrically.
+    private fun validUuid(s: String): Boolean = isStrictUuid(s)
 
     /**
      * The envelope version `bytes` declares, or null when the payload is not a

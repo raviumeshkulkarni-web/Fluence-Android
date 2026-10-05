@@ -140,6 +140,110 @@ class DriveIdentityTest {
     }
 
     // ------------------------------------------------------------------
+    // C2 — a 403 is only an auth problem when Drive says so
+    // ------------------------------------------------------------------
+
+    /** Drive API v3 nests the reason under `error.errors[0]`. */
+    private fun forbiddenBody(reason: String) =
+        """{"error":{"code":403,"message":"Forbidden","errors":[{"reason":"$reason","domain":"global"}]}}"""
+
+    /** Some Drive errors carry the reason directly on `error`. */
+    private fun forbiddenBodyFlat(reason: String) =
+        """{"error":{"code":403,"reason":"$reason"}}"""
+
+    @Test
+    fun a_throttled_403_is_retryable_not_an_auth_problem() {
+        // The regression: every 403 used to become Unauthorized, so a per-user
+        // throttle told the user to sign in again for a condition that clears
+        // on its own, on an account that was working fine.
+        for (reason in listOf(
+            "userRateLimitExceeded", "rateLimitExceeded", "dailyLimitExceeded",
+            "sharedLimitExceeded", "quotaExceeded", "backendError"
+        )) {
+            for (body in listOf(forbiddenBody(reason), forbiddenBodyFlat(reason))) {
+                val r = DriveIdentity.classify(403, body)
+                assertTrue(
+                    "403/$reason must be Unavailable, was $r",
+                    r is DriveIdentity.IdentityResult.Unavailable,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun a_genuine_403_denial_stays_unauthorized() {
+        for (reason in listOf("insufficientFilePermissions", "notFound", "insufficientPermissions")) {
+            val r = DriveIdentity.classify(403, forbiddenBody(reason))
+            assertTrue(
+                "403/$reason is a real permission denial and must stay Unauthorized, was $r",
+                r is DriveIdentity.IdentityResult.Unauthorized,
+            )
+        }
+    }
+
+    @Test
+    fun a_403_whose_reason_cannot_be_read_stays_unauthorized() {
+        // Unchanged on purpose: an uninspectable 403 must not be guessed into
+        // "just a blip". Both outcomes fail closed with no read/write/upload.
+        for (body in listOf(null, "", "not json", "{}", """{"error":{}}""")) {
+            val r = DriveIdentity.classify(403, body)
+            assertTrue(
+                "body=$body must stay Unauthorized, was $r",
+                r is DriveIdentity.IdentityResult.Unauthorized,
+            )
+        }
+    }
+
+    @Test
+    fun the_reason_agrees_with_the_data_path_on_every_shared_case() {
+        // DriveIdentity and AppDataDriveStore must not disagree about what a
+        // 403 means. DriveIdentity reuses the data path's reason set; this test
+        // is what stops the two from drifting apart again.
+        for (reason in listOf(
+            "userRateLimitExceeded", "rateLimitExceeded", "dailyLimitExceeded",
+            "sharedLimitExceeded", "quotaExceeded", "backendError",
+            "insufficientFilePermissions", "notFound"
+        )) {
+            val body = forbiddenBody(reason)
+            // `classifyForbidden` RETURNS the SyncError; its callers throw it.
+            val dataPath = classifyForbidden(body)
+            val dataPathRetryable = dataPath is SyncError.Retryable
+            val identity = DriveIdentity.classify(403, body)
+            val identityRetryable = identity is DriveIdentity.IdentityResult.Unavailable
+            assertEquals(
+                "classification of 403/$reason diverged: data path=$dataPath, identity=$identity",
+                dataPathRetryable,
+                identityRetryable,
+            )
+        }
+    }
+
+    @Test
+    fun retry_after_is_preserved_on_429() {
+        val r = DriveIdentity.classify(429, null, retryAfterMs = 5_000L)
+        assertTrue(r is DriveIdentity.IdentityResult.Unavailable)
+        assertEquals(5_000L, (r as DriveIdentity.IdentityResult.Unavailable).retryAfterMs)
+    }
+
+    @Test
+    fun retry_after_is_preserved_on_a_throttled_403() {
+        val r = DriveIdentity.classify(403, forbiddenBody("userRateLimitExceeded"), retryAfterMs = 2_500L)
+        assertTrue(r is DriveIdentity.IdentityResult.Unavailable)
+        assertEquals(2_500L, (r as DriveIdentity.IdentityResult.Unavailable).retryAfterMs)
+    }
+
+    @Test
+    fun retry_after_is_absent_when_the_server_sent_none() {
+        for (code in listOf(429, 503)) {
+            val r = DriveIdentity.classify(code, null)
+            assertNull(
+                "http $code must not invent a Retry-After",
+                (r as DriveIdentity.IdentityResult.Unavailable).retryAfterMs,
+            )
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Cross-platform hash contract (locked literals)
     // ------------------------------------------------------------------
 

@@ -451,6 +451,12 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         }
         val customs = try {
             AgentPreferences.loadCustomAgents(this)
+                // The dropdown offers a choice the user can act on, so it lists
+                // the EXECUTION set. `loadCustomAgents` returns the display set,
+                // which includes preserved legacy records; offering one here
+                // would present a pick that silently resolves to the Built-in
+                // Agent instead of the agent the user chose.
+                .filter { it.available }
         } catch (_: Exception) {
             emptyList()
         }

@@ -28,6 +28,18 @@ object AgentPreferences {
     const val ID_BUILT_IN = "builtin"
     const val NAME_BUILT_IN = "Fluence Agent"
 
+    /**
+     * User-facing explanation shown on a legacy agent/style that is listed but
+     * not runnable.
+     *
+     * It has to say *why* it is unavailable and that nothing was lost, because
+     * the alternative reading — an agent that vanished the moment the user signed
+     * in — is indistinguishable from data loss.
+     */
+    const val LEGACY_UNAVAILABLE_REASON =
+        "Created before you had an account, so it isn't linked to one. " +
+            "Still here and not deleted, but it can't be used while you're signed in."
+
     fun sanitizeHint(hint: String): String {
         val trimmed = hint.trim()
         if (trimmed.isEmpty()) return ""
@@ -41,7 +53,18 @@ object AgentPreferences {
     data class CustomAgent(
         val id: String,
         val name: String,
-        val hint: String
+        val hint: String,
+        /**
+         * Whether this record may be selected and executed right now.
+         *
+         * False only for a preserved legacy record listed while an account is
+         * signed in. It stays visible so a user's own custom prompts do not look
+         * deleted, but its provenance is unknown, so it is never run and never
+         * uploaded. True for every account-owned record.
+         */
+        val available: Boolean = true,
+        /** Why [available] is false. Null when it is true. */
+        val unavailableReason: String? = null
     )
 
     data class ResolvedAgent(
@@ -91,19 +114,27 @@ object AgentPreferences {
 
     /**
      * Read the union of the active account's agents and the legacy device-local
-     * ones, and return only what runtime consumers may execute.
+     * ones, and return everything the user should SEE, each tagged with whether
+     * it may actually run.
      *
-     * STAGE 6: every consumer — [AgentsScreen], [FloatingBubbleService],
-     * [TranscriptionSessionManager], the formatting and AI-cleanup paths, the
-     * bubble dropdown — reaches agents through this function, so putting the
-     * admission filter here is what stops any of them from bypassing it.
+     * STAGE 6 put the admission filter here so that no consumer could bypass it,
+     * but it also made this function the *execution* list, which meant a
+     * preserved legacy agent simply disappeared from the UI while an account was
+     * signed in. The record was never deleted and the legacy store is never
+     * written by the account module, so the user was shown data loss that did not
+     * exist: their own custom system prompts vanished and signing out brought
+     * them back. Windows lists unassigned records for the same reason.
      *
-     * Unassigned (legacy) records are deliberately excluded: they carry an
-     * executable system prompt of unknown provenance, so they must not run
-     * under a signed-in identity. They are NOT deleted, and the legacy store is
-     * never written by the account module, so signing out brings them straight
-     * back. See [AccountScope.VisibleAgentsSnapshot.displayRecords] for the
-     * list-and-disable projection the UI should use instead of hiding them.
+     * So display and execution are now separated explicitly rather than by
+     * omission:
+     *  - this returns the DISPLAY set — union, minus tombstones — and each
+     *    record carries [CustomAgent.available];
+     *  - [loadRunnableAgents] is the EXECUTION set, derived from this same read.
+     *
+     * Deriving one from the other is deliberate: a second, independently filtered
+     * read is exactly how the two drifted apart in the first place. A legacy
+     * record is never auto-migrated, never auto-assigned, and never silently
+     * replaced by the Built-in Agent — it is listed, disabled, and explained.
      */
     fun loadCustomAgents(context: Context): List<CustomAgent> {
         return try {
@@ -111,29 +142,23 @@ object AgentPreferences {
             val legacy = parseAgentsJson(
                 context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .getString(KEY_CUSTOM_AGENTS, "") ?: ""
-            ).map { CustomAgent(id = it.id, name = it.name, hint = it.hint) }
+            ).map { AccountScope.VisibleAgent.Legacy(it.id, it.name, it.hint) }
 
-            val union = AccountScope.unionAgentsFor(
-                legacy = legacy.map {
-                    AccountScope.VisibleAgent.Legacy(it.id, it.name, it.hint)
-                },
-                accountHash = hash,
-                context = context,
-            )
-            // `admittedAgents` has already applied the gate, so every record
-            // reaching here is executable. Both variants are returned: a signed
-            // -out device admits legacy records as DEVICE_LOCAL, and dropping
-            // them here would brick agents for users who are not signed in.
-            //
-            // Tombstones are excluded: a deleted agent must be neither listed
-            // nor resolvable, or deletion would be a lie until the next pass
-            // propagates it. Sync never reads this function — it uses the
-            // stores directly, where the tombstone survives — so excluding here
-            // cannot resurrect anything.
-            AccountScope.admittedAgents(union, hash).filterNot { record ->
-                record is AccountScope.VisibleAgent.Owned && record.deletedAt != null
-            }.map { record ->
-                CustomAgent(record.id, record.name, record.hint)
+            val snapshot = AccountScope.VisibleAgentsSnapshot.load(context, hash, legacy)
+            // `displayRecords` already drops tombstones, so a deleted agent is
+            // neither listed nor resolvable and deletion is not a lie until the
+            // next pass propagates it. Sync never reads this function — it uses
+            // the stores directly, where the tombstone survives — so this cannot
+            // resurrect anything.
+            snapshot.displayRecords().map { record ->
+                val runnable = snapshot.isRunnable(record)
+                CustomAgent(
+                    id = record.id,
+                    name = record.name,
+                    hint = record.hint,
+                    available = runnable,
+                    unavailableReason = if (runnable) null else LEGACY_UNAVAILABLE_REASON
+                )
             }
         } catch (_: Exception) {
             emptyList()
@@ -141,14 +166,27 @@ object AgentPreferences {
     }
 
     /**
+     * The EXECUTION set: the subset of [loadCustomAgents] that may run.
+     *
+     * Every path that resolves an agent to something executable goes through
+     * here — [isKnownAgent], [getDefaultAgentId], [setDefaultAgentId] and
+     * [resolveActiveAgent] — which is what keeps a visible-but-unavailable legacy
+     * record from being run by a stale saved default or a stale per-app
+     * selection.
+     */
+    private fun loadRunnableAgents(context: Context): List<CustomAgent> =
+        loadCustomAgents(context).filter { it.available }
+
+    /**
      * STAGE 6: is this an executable, known agent?
      *
-     * An unassigned legacy record is displayable but not known, so a saved
-     * default or selection pointing at one cannot cause it to run.
+     * A legacy record is displayable but not runnable, so a saved default or
+     * selection pointing at one cannot cause it to run; the caller falls back to
+     * the Built-in Agent instead.
      */
     fun isKnownAgent(context: Context, agentId: String): Boolean {
         if (agentId == ID_BUILT_IN) return true
-        return loadCustomAgents(context).any { it.id == agentId }
+        return loadRunnableAgents(context).any { it.id == agentId }
     }
 
     // ── Default agent ──
@@ -175,13 +213,20 @@ object AgentPreferences {
     }
 
     /**
-     * Resolves the effective agent at deliver time. Null, blank, unknown, or
-     * deleted ids fall back to built-in so callers never branch on validity.
+     * Resolves the effective agent at deliver time. Null, blank, unknown,
+     * unavailable or deleted ids fall back to built-in so callers never branch
+     * on validity.
+     *
+     * A listed-but-unavailable legacy agent falls back to the Built-in Agent
+     * rather than running: an agent carries an executable system prompt, so
+     * running one of unknown provenance under a signed-in identity is exactly the
+     * cross-account confusion this phase exists to prevent. The record itself is
+     * left untouched.
      */
     fun resolveActiveAgent(context: Context, requestedId: String?): ResolvedAgent {
         if (!requestedId.isNullOrBlank() && !isBuiltIn(requestedId)) {
             val custom = try {
-                loadCustomAgents(context).firstOrNull { it.id == requestedId }
+                loadRunnableAgents(context).firstOrNull { it.id == requestedId }
             } catch (_: Exception) {
                 null
             }

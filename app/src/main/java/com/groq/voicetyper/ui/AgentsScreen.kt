@@ -156,14 +156,14 @@ fun AgentsScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 TextButton(
                     onClick = {
-                        val all = customs.map { it.id }.toSet()
+                        val all = customs.filter { it.available }.map { it.id }.toSet()
                         selectedIds = if (selectedIds == all) emptySet() else all
                     },
                     contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text(
-                        if (selectedIds == customs.map { it.id }.toSet()) "Deselect all" else "Select all",
+                        if (selectedIds == customs.filter { it.available }.map { it.id }.toSet()) "Deselect all" else "Select all",
                         color = colors.textSecondary,
                         style = FluenceTypography.labelMedium
                     )
@@ -260,7 +260,13 @@ fun AgentsScreen(
                                 isCustom = true,
                                 isSelected = agent.id in selectedIds,
                                 isMultiSelect = isMultiSelect,
+                                enabled = agent.available,
+                                unavailableReason = agent.unavailableReason,
                                 onToggleSelect = {
+                                    // Belt and braces: an unavailable row must not
+                                    // enter the selection even if the list is
+                                    // driven from outside this composable.
+                                    if (!agent.available) return@AgentRow
                                     selectedIds = if (agent.id in selectedIds) {
                                         selectedIds - agent.id
                                     } else {
@@ -268,11 +274,13 @@ fun AgentsScreen(
                                     }
                                 },
                                 onClick = {
+                                    if (!agent.available) return@AgentRow
                                     AgentPreferences.setDefaultAgentId(context, agent.id)
                                     refresh()
                                     FeedbackBus.show("${agent.name} set as default")
                                 },
                                 onEdit = {
+                                    if (!agent.available) return@AgentRow
                                     agentToEdit = agent
                                     showEditor = true
                                 },
@@ -377,6 +385,15 @@ private fun AgentRow(
     isCustom: Boolean = false,
     isSelected: Boolean = false,
     isMultiSelect: Boolean = false,
+    /**
+     * False for a preserved legacy record. The row stays visible and is
+     * explicitly labelled, but it cannot be selected, made default, or edited —
+     * each of those would run a prompt of unknown provenance or quietly assign
+     * the record to the signed-in account.
+     */
+    enabled: Boolean = true,
+    /** Why [enabled] is false. Rendered under the description. */
+    unavailableReason: String? = null,
     onToggleSelect: (() -> Unit)? = null,
     onClick: () -> Unit,
     onEdit: (() -> Unit)? = null,
@@ -414,9 +431,16 @@ private fun AgentRow(
                 .weight(1f)
                 .pressScale(interactionSource)
                 .combinedClickable(
+                    enabled = enabled,
                     interactionSource = interactionSource,
                     indication = androidx.compose.foundation.LocalIndication.current,
-                    onClickLabel = if (isMultiSelect) "Toggle selection" else "Set $title as default agent",
+                    onClickLabel = if (!enabled) {
+                        "Unavailable"
+                    } else if (isMultiSelect) {
+                        "Toggle selection"
+                    } else {
+                        "Set $title as default agent"
+                    },
                     onLongClickLabel = if (isCustom) "Select $title" else null,
                     onClick = {
                         if (isMultiSelect && onToggleSelect != null) {
@@ -448,17 +472,28 @@ private fun AgentRow(
         ) {
             Text(
                 text = title,
-                color = colors.textPrimary,
+                color = if (enabled) colors.textPrimary else colors.textTertiary,
                 style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
-                color = colors.textSecondary,
+                color = if (enabled) colors.textSecondary else colors.textTertiary,
                 style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            if (!enabled && unavailableReason != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                // The reason is mandatory: a greyed-out row with no explanation
+                // is indistinguishable from a broken screen, and the user cannot
+                // tell that nothing was deleted.
+                Text(
+                    text = unavailableReason,
+                    color = colors.textTertiary,
+                    style = FluenceTypography.labelSmall
+                )
+            }
             if (isDefault) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
@@ -469,25 +504,41 @@ private fun AgentRow(
             }
         }
         if (!isMultiSelect) {
-            if (onEdit != null) {
+// Nothing is offered on an unavailable row: it cannot be
+            // selected, made default, edited, or deleted.
+            //
+            // Delete is withheld because the signed-in delete path is a NO-OP for
+            // a legacy row, not a delete: `AccountScope.deleteAgent` returns early
+            // when the id is absent from the account store, and a legacy row lives
+            // only in the legacy store. So the button did nothing at all while
+            // announcing "Deleted". Signing out exposes the signed-out path, which
+            // removes the row from the store it actually lives in.
+            //
+            // NOTE: do not "fix" the no-op by removing the `none { it.id == id }`
+            // guard in `deleteAgent`. That guard is precisely what stops a legacy
+            // id from acquiring an account-owned tombstone, which sync would then
+            // upload as an ownership claim for a record this account never owned.
+            if (onEdit != null && enabled) {
                 TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Edit", color = colors.textSecondary, style = FluenceTypography.labelMedium)
                 }
             }
-            if (onDelete != null) {
+            if (onDelete != null && enabled) {
                 TextButton(onClick = onDelete, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
                 }
             }
-            RadioButton(
-                selected = isDefault,
-                onClick = onClick,
-                colors = RadioButtonDefaults.colors(
-                    selectedColor = colors.textPrimary,
-                    unselectedColor = colors.textSecondary
-                ),
-                modifier = Modifier.padding(end = FluenceSpacing.Sm)
-            )
+            if (enabled) {
+                RadioButton(
+                    selected = isDefault,
+                    onClick = onClick,
+                    colors = RadioButtonDefaults.colors(
+                        selectedColor = colors.textPrimary,
+                        unselectedColor = colors.textSecondary
+                    ),
+                    modifier = Modifier.padding(end = FluenceSpacing.Sm)
+                )
+            }
         }
     }
 }

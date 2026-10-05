@@ -81,11 +81,18 @@ object DriveIdentity {
         /** Identity established from the token. */
         data class Resolved(val email: String) : IdentityResult
 
-        /** Drive refused the token (401/403). A real authorization problem. */
+        /** Drive refused the token (401, or a 403 that is not a throttle). */
         data class Unauthorized(val code: Int) : IdentityResult
 
-        /** Transient: 5xx, 429, timeout, or connectivity. Retry later. */
-        data class Unavailable(val reason: String) : IdentityResult
+        /**
+         * Transient: 5xx, 429, a throttled 403, timeout, or connectivity.
+         * Retry later.
+         *
+         * [retryAfterMs] carries an explicit Drive `Retry-After` delay when the
+         * response supplied one, so the caller can gate the next attempt on the
+         * server's own number instead of its backoff. `null` when absent.
+         */
+        data class Unavailable(val reason: String, val retryAfterMs: Long? = null) : IdentityResult
     }
 
     /**
@@ -111,9 +118,36 @@ object DriveIdentity {
      * classify identically — a divergence there is how a transient 5xx ends up
      * presented to the user as "sign in again".
      */
-    fun classify(httpCode: Int, body: String?): IdentityResult = when {
-        httpCode == 401 || httpCode == 403 -> IdentityResult.Unauthorized(httpCode)
-        httpCode !in 200..299 -> IdentityResult.Unavailable("http $httpCode")
+    fun classify(
+        httpCode: Int,
+        body: String?,
+        retryAfterMs: Long? = null
+    ): IdentityResult = when {
+        httpCode == 401 -> IdentityResult.Unauthorized(httpCode)
+
+        // A 403 is only an authorization problem when Drive says so. Drive also
+        // returns 403 for per-user and per-project throttling, and calling that
+        // "sign in again" told users to re-authenticate an account that was
+        // working, for a condition that clears on its own. Classify from the
+        // body's `error.reason`, reusing the same reason set the data path
+        // already trusts.
+        httpCode == 403 -> {
+            val reason = body?.let { forbiddenReason(it) }
+            if (reason != null && reason in TRANSIENT_403_REASONS) {
+                IdentityResult.Unavailable("Drive 403 throttled ($reason)", retryAfterMs)
+            } else {
+                // A genuine scope/ownership denial, or a 403 whose body could not
+                // be inspected. Note this deliberately differs from
+                // `AppDataDriveStore.classifyForbidden`, which treats an
+                // unparseable 403 as transient: this probe cannot proceed without
+                // a PROVEN identity either way, and both outcomes fail closed
+                // with no read, write, or upload.
+                IdentityResult.Unauthorized(httpCode)
+            }
+        }
+
+        httpCode == 429 -> IdentityResult.Unavailable("http 429", retryAfterMs)
+        httpCode !in 200..299 -> IdentityResult.Unavailable("http $httpCode", retryAfterMs)
         else -> {
             val email = body?.let { parseAccountEmail(it) }
             if (email != null) {
@@ -134,7 +168,23 @@ object DriveIdentity {
             .build()
         return try {
             client.newCall(request).execute().use { response ->
-                classify(response.code, if (response.isSuccessful) response.body?.string() else null)
+                // The body is only REQUIRED to classify a 403 or 429: both are
+                // ambiguous without it (auth denial vs throttling). Passing null
+                // here — as this call site used to — made that distinction
+                // structurally impossible, not merely unimplemented. Any other
+                // non-2xx carries no decision that depends on the payload.
+                val code = response.code
+                val needsBody = code == 403 || code == 429
+                val payload = if (response.isSuccessful || needsBody) {
+                    response.body?.string()
+                } else {
+                    null
+                }
+                classify(
+                    code,
+                    payload,
+                    parseRetryAfterMs(response.header("Retry-After"))
+                )
             }
         } catch (e: java.io.IOException) {
             IdentityResult.Unavailable(e.message ?: "io")

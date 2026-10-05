@@ -35,8 +35,27 @@ object AiCleanupPreferences {
     data class CustomStyle(
         val id: String,
         val name: String,
-        val hint: String
+        val hint: String,
+        /**
+         * Whether this record may be selected and applied right now.
+         *
+         * False only for a preserved legacy record listed while an account is
+         * signed in — visible, so it does not look deleted, but never applied and
+         * never uploaded, because its provenance is unknown.
+         */
+        val available: Boolean = true,
+        /** Why [available] is false. Null when it is true. */
+        val unavailableReason: String? = null
     )
+
+    /**
+     * User-facing explanation shown on a legacy agent/style that is listed but
+     * not runnable. Kept identical to the agent wording so the two settings
+     * screens explain themselves the same way.
+     */
+    const val LEGACY_UNAVAILABLE_REASON =
+        "Created before you had an account, so it isn't linked to one. " +
+            "Still here and not deleted, but it can't be used while you're signed in."
 
     data class BuiltInMeta(
         val id: String,
@@ -105,7 +124,10 @@ object AiCleanupPreferences {
      */
     fun isKnownStyle(context: Context, styleId: String): Boolean {
         if (styleId in BUILT_IN_IDS) return true
-        return loadCustomStyles(context).any { it.id == styleId }
+        // The EXECUTION set, not the display set: a legacy style is listed but
+        // not applicable, so a saved override pointing at one resolves to null
+        // rather than applying a prompt of unknown provenance.
+        return loadRunnableStyles(context).any { it.id == styleId }
     }
 
     // ── App overrides: package -> styleId, one AI style per app ──
@@ -163,36 +185,49 @@ object AiCleanupPreferences {
             val hash = localAccountHash(context)
             val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_CUSTOM_STYLES, "") ?: ""
-            if (raw.isBlank()) {
-                return AccountScope.admittedStyles(
-                    AccountScope.unionStylesFor(emptyList(), hash, context), hash
-                ).filterNot { record ->
-                    record is AccountScope.VisibleStyle.Owned && record.deletedAt != null
-                }.map { CustomStyle(it.id, it.name, it.hint) }
-            }
-            val arr = JSONArray(raw)
             val legacy = mutableListOf<AccountScope.VisibleStyle.Legacy>()
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val id = o.optString("id")
-                val name = o.optString("name").trim()
-                val hint = o.optString("hint", "")
-                if (id.isBlank() || name.isBlank()) continue
-                legacy.add(AccountScope.VisibleStyle.Legacy(id = id, name = name, hint = hint))
+            if (raw.isNotBlank()) {
+                val arr = JSONArray(raw)
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("id")
+                    val name = o.optString("name").trim()
+                    val hint = o.optString("hint", "")
+                    if (id.isBlank() || name.isBlank()) continue
+                    legacy.add(AccountScope.VisibleStyle.Legacy(id = id, name = name, hint = hint))
+                }
             }
-            // `admittedStyles` has already applied the gate; tombstones are
-            // excluded for the same reason as agents — a deleted style must be
-            // neither listed nor applied, while sync keeps the marker via the
-            // stores, which never read this function.
-            AccountScope.admittedStyles(
-                AccountScope.unionStylesFor(legacy, hash, context), hash
-            ).filterNot { record ->
-                record is AccountScope.VisibleStyle.Owned && record.deletedAt != null
-            }.map { CustomStyle(it.id, it.name, it.hint) }
+            // DISPLAY set — same split as agents. `displayRecords` omits
+            // tombstones (a deleted style must be neither listed nor applied,
+            // while sync keeps the marker via the stores, which never read this
+            // function) and KEEPS unassigned legacy records so they do not read
+            // as deleted. Each record is tagged runnable or not.
+            val snapshot = AccountScope.VisibleStylesSnapshot.load(context, hash, legacy)
+            snapshot.displayRecords().map { record ->
+                val runnable = snapshot.isRunnable(record)
+                CustomStyle(
+                    id = record.id,
+                    name = record.name,
+                    hint = record.hint,
+                    available = runnable,
+                    unavailableReason = if (runnable) null else LEGACY_UNAVAILABLE_REASON
+                )
+            }
         } catch (_: Exception) {
             emptyList()
         }
     }
+
+    /**
+     * The EXECUTION set: the subset of [loadCustomStyles] that may be applied.
+     *
+     * Derived from the same read as the display set so the two cannot disagree.
+     * [isKnownStyle] and therefore [setOverride] / [styleForPackage] route
+     * through here, which is what stops a stale per-app override from applying a
+     * visible-but-unavailable legacy style.
+     */
+    private fun loadRunnableStyles(context: Context): List<CustomStyle> =
+        loadCustomStyles(context).filter { it.available }
 
     fun saveCustomStyle(context: Context, name: String, hint: String, id: String? = null): CustomStyle? {
         val cleanName = name.trim().take(MAX_STYLE_NAME_LENGTH).trim()
