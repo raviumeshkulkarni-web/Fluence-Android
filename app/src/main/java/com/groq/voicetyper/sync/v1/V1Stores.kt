@@ -122,23 +122,31 @@ object V1Stores {
         override suspend fun stampUnstamped(hash: String) {
             if (!AccountScope.validAccountHash(hash)) return
             val deviceId = DeviceIdProvider.getDeviceId(context)
-            val current = AccountScope.loadAgents(context, hash)
-            if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
-            // Monotonic clock, exactly as the older domains stamp: the floor is
-            // the account's own high-water mark, so two edits inside the same
-            // wall-clock millisecond still get DISTINCT, increasing revisions.
-            // With a raw `currentTimeMillis()` they collided, and LWW could not
-            // order them, so the second edit could lose to the first on a peer.
-            val highWater = current.maxOf { it.updatedAt ?: 0L }
-            val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
-            AccountScope.saveAgents(context, hash, current.map { rec ->
-                val stale = rec.updatedAt == null
-                rec.copy(
-                    syncId = rec.syncId ?: stableSyncId(rec.id),
-                    updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
-                    deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
-                )
-            })
+            // Shares the claim's monitor. Without this, a claim that has already
+            // saved and reported success could be discarded by this function
+            // saving the older snapshot it loaded — after which the claim's caller
+            // deletes the legacy copy and the record exists in NEITHER store.
+            // This is the minimum mutual exclusion required for the destructive
+            // claim step; it is NOT the general B2/R1 account-store fix.
+            synchronized(AccountScope.accountStoreLock) {
+                val current = AccountScope.loadAgents(context, hash)
+                if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
+                // Monotonic clock, exactly as the older domains stamp: the floor is
+                // the account's own high-water mark, so two edits inside the same
+                // wall-clock millisecond still get DISTINCT, increasing revisions.
+                // With a raw `currentTimeMillis()` they collided, and LWW could not
+                // order them, so the second edit could lose to the first on a peer.
+                val highWater = current.maxOf { it.updatedAt ?: 0L }
+                val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
+                AccountScope.saveAgents(context, hash, current.map { rec ->
+                    val stale = rec.updatedAt == null
+                    rec.copy(
+                        syncId = rec.syncId ?: stableSyncId(rec.id),
+                        updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
+                        deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
+                    )
+                })
+            }
         }
 
         override suspend fun hasDirty(hash: String): Boolean {
@@ -228,19 +236,22 @@ object V1Stores {
         override suspend fun stampUnstamped(hash: String) {
             if (!AccountScope.validAccountHash(hash)) return
             val deviceId = DeviceIdProvider.getDeviceId(context)
-            val current = AccountScope.loadStyles(context, hash)
-            if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
-            // Monotonic clock, as above and as the older domains already do.
-            val highWater = current.maxOf { it.updatedAt ?: 0L }
-            val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
-            AccountScope.saveStyles(context, hash, current.map { rec ->
-                val stale = rec.updatedAt == null
-                rec.copy(
-                    syncId = rec.syncId ?: stableSyncId(rec.id),
-                    updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
-                    deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
-                )
-            })
+            // Shares the claim's monitor — see AccountAgentV1Store.
+            synchronized(AccountScope.accountStoreLock) {
+                val current = AccountScope.loadStyles(context, hash)
+                if (current.none { it.dirty || it.syncId == null || it.updatedAt == null }) return
+                // Monotonic clock, as above and as the older domains already do.
+                val highWater = current.maxOf { it.updatedAt ?: 0L }
+                val stamp = Clock.nextUpdatedAt(Clock.nowWallMs(), highWater)
+                AccountScope.saveStyles(context, hash, current.map { rec ->
+                    val stale = rec.updatedAt == null
+                    rec.copy(
+                        syncId = rec.syncId ?: stableSyncId(rec.id),
+                        updatedAt = if (rec.dirty || stale) stamp else rec.updatedAt,
+                        deviceId = if (rec.dirty || rec.deviceId == null) deviceId else rec.deviceId
+                    )
+                })
+            }
         }
 
         override suspend fun hasDirty(hash: String): Boolean {

@@ -19,6 +19,22 @@ internal class FakePrefsStore {
     /** Keys removed via `edit().clear()`, per file. */
     val cleared = mutableListOf<String>()
 
+    /**
+     * Fault injection: when true, `commit()` applies the mutation to the in-memory
+     * map and then reports failure, reproducing a real disk-write failure.
+     *
+     * This is the GHOST state: `SharedPreferences.commit()` calls `commitToMemory()`
+     * before attempting the disk write, so a failed commit returns false with the new
+     * value already readable in memory (and flushed by some later, successful write).
+     * Modelling this faithfully matters because the claim and delete durability gates
+     * are reasoned about precisely in these terms — a failed write must not be treated
+     * as a rollback.
+     *
+     * `apply()` honours it too, since it delegates to `commit()` here — exactly the
+     * property the durability gates must not depend on.
+     */
+    var failCommits = false
+
     fun fileOf(name: String): MutableMap<String, Any?> =
         files.getOrPut(name) { linkedMapOf() }
 
@@ -52,12 +68,25 @@ internal class FakePrefsStore {
             removals.forEach { target.remove(it) }
             removals.clear()
             val changed = pending.keys.toList()
+            // Faithful ordering: real SharedPreferences calls commitToMemory() FIRST,
+            // so the new value is ALWAYS visible in the in-memory map, and only then
+            // attempts the disk write. `commit()` returns false only when that disk
+            // write fails — leaving the in-memory mutation in place (the "ghost").
+            //
+            // A fake that discarded `pending` on failure modelled a transactional
+            // rollback, which Android does not perform. Durability gates in the claim
+            // and delete paths are written against the real semantics, so tests must
+            // see the ghost too.
             target.putAll(pending)
             pending.clear()
             changed.forEach { k ->
                 listeners[file]?.forEach { l ->
                     runCatching { l.onSharedPreferenceChanged(fake(file), k) }
                 }
+            }
+            if (failCommits) {
+                // Memory now carries the mutation; the disk never got it.
+                return false
             }
             return true
         }

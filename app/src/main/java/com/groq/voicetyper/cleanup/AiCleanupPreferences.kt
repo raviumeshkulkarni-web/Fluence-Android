@@ -2,6 +2,7 @@ package com.groq.voicetyper.cleanup
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.groq.voicetyper.sync.SyncAccounts
 import com.groq.voicetyper.sync.v1.AccountHash
 import com.groq.voicetyper.sync.v1.AccountScope
@@ -20,6 +21,7 @@ import java.util.UUID
  */
 object AiCleanupPreferences {
     private const val PREFS_NAME = "fluence_prefs"
+    private const val TAG = "AiCleanupPrefs"
     private const val KEY_AI_OVERRIDES = "ai_cleanup_package_overrides"
     private const val KEY_CUSTOM_STYLES = "ai_cleanup_custom_styles"
 
@@ -54,8 +56,8 @@ object AiCleanupPreferences {
      * screens explain themselves the same way.
      */
     const val LEGACY_UNAVAILABLE_REASON =
-        "Created before you had an account, so it isn't linked to one. " +
-            "Still here and not deleted, but it can't be used while you're signed in."
+        "Created before account ownership existed, so this isn't linked to an account yet. " +
+            "Nothing has been deleted — add it to your account to edit, use and sync it."
 
     data class BuiltInMeta(
         val id: String,
@@ -229,6 +231,38 @@ object AiCleanupPreferences {
     private fun loadRunnableStyles(context: Context): List<CustomStyle> =
         loadCustomStyles(context).filter { it.available }
 
+    // ------------------------------------------------------------------
+    // Explicit legacy claim
+    // ------------------------------------------------------------------
+
+    /**
+     * Adopt pre-account Styles into the **currently authenticated** account.
+     *
+     * Mirrors [com.groq.voicetyper.agent.AgentPreferences.claimLegacyAgents]
+     * exactly: one explicit tap, never automatic; the target account comes from
+     * [localAccountHash] and is never chosen here; ownership is granted with a
+     * durable write and the legacy row is KEPT, never dropped, so a sync pass that
+     * discards the claim can only leave a re-claimable shadow rather than a record
+     * missing from both stores; and a legacy id that is already owned is skipped
+     * and reported, never overwritten.
+     *
+     * Deletion removes the same-id shadow once a tombstone proves ownership — see
+     * `AgentPreferences.claimLegacyAgents`.
+     */
+internal fun claimLegacyStyles(
+        context: Context,
+        onlyIds: Set<String>? = null,
+    ): AccountScope.ClaimOutcome {
+        // NO legacy cleanup — the claim COPIES, never MOVES. See the full rationale
+        // in `AgentPreferences.claimLegacyAgents`; it applies identically here.
+        return AccountScope.claimLegacyStyles(context, localAccountHash(context), onlyIds)
+    }
+
+    /** Legacy Styles still awaiting an explicit claim. 0 when signed out. */
+    fun unclaimedLegacyStyleCount(context: Context): Int =
+        AccountScope.unclaimedLegacyStyleCount(context, localAccountHash(context))
+
+
     fun saveCustomStyle(context: Context, name: String, hint: String, id: String? = null): CustomStyle? {
         val cleanName = name.trim().take(MAX_STYLE_NAME_LENGTH).trim()
         if (cleanName.isEmpty()) return null
@@ -267,30 +301,66 @@ object AiCleanupPreferences {
         }
     }
 
-    fun deleteCustomStyle(context: Context, id: String) {
-        if (isBuiltIn(id)) return
+    /**
+     * Delete a custom Style. Returns false when the delete could NOT be made
+     * durable — the caller must say so rather than confirming a delete that did
+     * not happen. Nothing is lost on that path: the legacy shadow is preserved.
+     *
+     * BLOCKING: the signed-in path performs two synchronous `commit()` writes,
+     * so UI callers must move this to `Dispatchers.IO`.
+     */
+    fun deleteCustomStyle(context: Context, id: String): Boolean {
+        if (isBuiltIn(id)) return true
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val hash = localAccountHash(context)
+            var durable = true
             if (hash != null) {
-                // Tombstone in the account store so the delete propagates;
-                // a same-id legacy row is left alone, never destroyed.
-                AccountScope.deleteStyle(context, hash, id)
+                // Tombstone in the account store so the delete propagates.
+                val tombstoned = AccountScope.deleteStyle(context, hash, id)
+                durable = tombstoned
+                // Then drop the same-id legacy shadow — see the Agent counterpart. The
+                // claim copies rather than moves, so without this the deleted style
+                // returns as a device-local record once the user signs out.
+                // Preserved on tombstone-write failure: the only copy left.
+                if (tombstoned) {
+                    val shadowDropped = AccountScope.removeLegacyId(
+                        context, AccountScope.STYLES_LEGACY_KEY, id,
+                    )
+                    // The tombstone IS durable here, so the account copy survives and
+                    // shadows this row: recoverable, not data loss. Reported rather
+                    // than silently discarded — see the Agent counterpart.
+                    if (!shadowDropped) {
+                        Log.w(
+                            TAG,
+                            "Deleted style $id but could not drop its legacy shadow; " +
+                                "it may resurface as a device-local style after sign-out",
+                        )
+                    }
+                }
             } else {
+                // Signed-out: legacy-only rows, fire-and-forget like the agent
+                // path. `durable` stays true; failure reporting is signed-in only.
                 writeCustomStyles(prefs, loadCustomStyles(context).filter { it.id != id })
             }
-            // Apps in the deleted style return to Auto. Overrides stay
-            // device-local (D1c) even when the style is account-owned.
-            val updated = getOverrides(context).toMutableMap()
-            var changed = false
-            for ((pkg, style) in updated.toMap()) {
-                if (style == id) {
-                    updated.remove(pkg)
-                    changed = true
+            // Apps in the deleted style return to Auto — but only on a durable
+            // delete. On a failed tombstone the record is still live, so its
+            // overrides stay valid. Overrides stay device-local (D1c) even when
+            // the style is account-owned.
+            if (durable) {
+                val updated = getOverrides(context).toMutableMap()
+                var changed = false
+                for ((pkg, style) in updated.toMap()) {
+                    if (style == id) {
+                        updated.remove(pkg)
+                        changed = true
+                    }
                 }
+                if (changed) prefs.edit().putStringSet(KEY_AI_OVERRIDES, encodeMap(updated)).apply()
             }
-            if (changed) prefs.edit().putStringSet(KEY_AI_OVERRIDES, encodeMap(updated)).apply()
+            return durable
         } catch (_: Exception) {
+            return false
         }
     }
 

@@ -37,6 +37,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.groq.voicetyper.sync.v1.AccountScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -85,6 +90,9 @@ fun AiCleanupStylesScreen(
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
+    // Scope for the claim action, whose durable write must stay off the main
+    // thread - see the onClaim lambda below.
+    val claimScope = rememberCoroutineScope()
     var customs by remember { mutableStateOf(AiCleanupPreferences.loadCustomStyles(context)) }
     var overrides by remember { mutableStateOf(AiCleanupPreferences.getOverrides(context)) }
     var showEditor by remember { mutableStateOf(false) }
@@ -103,6 +111,9 @@ fun AiCleanupStylesScreen(
     val isMultiSelect = selectedIds.isNotEmpty()
     var pendingDeleteIds by rememberSaveable(saver = stringListSaver) { mutableStateOf<List<String>>(emptyList()) }
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    // Guard against double-submit: same 2N-commit window as AgentsScreen. Plain
+    // `remember` so a rotation mid-delete resets to enabled (retry is safe).
+    var deleting by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isMultiSelect) {
         selectedIds = emptySet()
@@ -263,6 +274,41 @@ fun AiCleanupStylesScreen(
                                 isMultiSelect = isMultiSelect,
                                 enabled = style.available,
                                 unavailableReason = style.unavailableReason,
+                                onClaim = if (style.available) {
+                                    null
+                                } else {
+                                    {
+                                        // Exactly this record, never the whole
+                                        // unclaimed set: a per-row button must not
+                                        // move records the user did not choose.
+                                        //
+                                        // Dispatchers.IO: the claim performs
+                                        // SYNCHRONOUS commit() writes, so it must not
+                                        // block the main thread.
+                                        claimScope.launch {
+                                            val outcome = withContext(Dispatchers.IO) {
+                                                AiCleanupPreferences.claimLegacyStyles(
+                                                    context, setOf(style.id),
+                                                )
+                                            }
+                                            customs = AiCleanupPreferences.loadCustomStyles(context)
+                                            overrides = AiCleanupPreferences.getOverrides(context)
+                                            val refusal = AccountScope.describeRefusals(
+                                                outcome.refusedIds, "style",
+                                            )
+                                            FeedbackBus.show(
+                                                when {
+outcome.claimedCount > 0 ->
+                                                    "Added to your account — it will sync to your devices"
+                                                refusal != null -> refusal
+                                                outcome.skippedCount > 0 ->
+                                                    "Already in your account — nothing changed"
+else -> "Nothing to add"
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
                                 onToggleSelect = {
                                     // An unavailable row must never enter the
                                     // selection, even if driven from outside.
@@ -321,15 +367,39 @@ fun AiCleanupStylesScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingDeleteIds.forEach { id ->
-                            AiCleanupPreferences.deleteCustomStyle(context, id)
+                        if (deleting) return@TextButton
+                        // Runs on Dispatchers.IO: deleteCustomStyle performs two
+                        // SYNCHRONOUS commit() writes per record (tombstone +
+                        // legacy-shadow removal), so a multi-select delete would
+                        // otherwise do 2N blocking disk writes on the main thread.
+                        deleting = true
+                        claimScope.launch {
+                            try {
+                                val ids = pendingDeleteIds.toList()
+                                val failed = withContext(Dispatchers.IO) {
+                                    ids.filterNot { AiCleanupPreferences.deleteCustomStyle(context, it) }
+                                }
+                                selectedIds = selectedIds - ids.toSet()
+                                customs = AiCleanupPreferences.loadCustomStyles(context)
+                                overrides = AiCleanupPreferences.getOverrides(context)
+                                showDeleteDialog = false
+                                FeedbackBus.show(
+                                    when {
+                                        // The record survives (its legacy shadow is
+                                        // preserved), so the delete simply did not
+                                        // stick. Say that instead of claiming success.
+                                        failed.isNotEmpty() ->
+                                            "Couldn't delete ${failed.size}. Nothing was lost — try again."
+                                        count > 1 -> "Deleted $count styles"
+                                        else -> "Style deleted"
+                                    }
+                                )
+                            } finally {
+                                deleting = false
+                            }
                         }
-                        selectedIds = selectedIds - pendingDeleteIds.toSet()
-                        customs = AiCleanupPreferences.loadCustomStyles(context)
-                        overrides = AiCleanupPreferences.getOverrides(context)
-                        showDeleteDialog = false
-                        FeedbackBus.show(if (count > 1) "Deleted $count styles" else "Style deleted")
-                    }
+                    },
+                    enabled = !deleting,
                 ) {
                     Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
                 }
@@ -389,6 +459,11 @@ private fun AiStyleRow(
     enabled: Boolean = true,
     /** Why [enabled] is false. Rendered under the title. */
     unavailableReason: String? = null,
+    /**
+     * Explicit ownership transfer for an unclaimed pre-account record. Shown only
+     * while [enabled] is false, labelled so the ownership change is explicit.
+     */
+    onClaim: (() -> Unit)? = null,
     onToggleSelect: (() -> Unit)? = null,
     onClick: () -> Unit,
     onEdit: (() -> Unit)? = null,
@@ -496,21 +571,30 @@ private fun AiStyleRow(
                 }
             }
         }
-        if (!isMultiSelect) {
-            // Nothing is offered on an unavailable row: it cannot be
-            // selected, opened for app assignment, edited, or deleted.
+if (!isMultiSelect) {
+            // An unclaimed pre-account row cannot be selected, opened for app
+            // assignment, edited or deleted — all of those act on the ACCOUNT
+            // store, where this record does not exist yet. The one action offered
+            // is the explicit claim, which adopts it into the account signed in
+            // right now; from that moment it is an ordinary owned Style.
             //
-            // Delete is withheld because the signed-in delete path is a NO-OP for
-            // a legacy row: `AccountScope.deleteStyle` returns early when the id is
-            // absent from the account store, and a legacy row lives only in the
-            // legacy store. So the button did nothing while announcing "Deleted".
-            // Signing out exposes the signed-out path, which removes the row from
-            // the store it actually lives in.
-            //
-            // NOTE: do not "fix" the no-op by removing the `none { it.id == id }`
-            // guard in `deleteStyle` — that is what stops a legacy id from
-            // acquiring an account-owned tombstone that sync would upload as an
-            // ownership claim for a record this account never owned.
+            // NOTE: do not "fix" the pre-claim no-op by removing the
+            // `none { it.id == id }` guard in `deleteStyle` — that is what stops
+            // an unclaimed id from acquiring an account-owned tombstone that sync
+            // would upload as an ownership claim for a record this account never
+            // chose to adopt.
+            if (!enabled && onClaim != null) {
+                TextButton(
+                    onClick = onClaim,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        "Add to my account",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelMedium,
+                    )
+                }
+            }
             if (onEdit != null && enabled) {
                 TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Edit", color = colors.textSecondary, style = FluenceTypography.labelMedium)

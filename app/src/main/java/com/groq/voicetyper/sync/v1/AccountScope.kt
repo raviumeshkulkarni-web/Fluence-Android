@@ -42,15 +42,120 @@ import org.json.JSONObject
  */
 internal object AccountScope {
 
-    /** Legacy preferences file. Never written by this module. */
+    /**
+     * Legacy preferences file.
+     *
+     * READ by the claim, and WRITTEN only by [removeLegacyId] — never by the claim
+     * path. The claim copies rather than moves, so it leaves these keys alone; the
+     * single exception is the delete path, which removes a shadow once an account
+     * tombstone proves the record was owned. See [removeLegacyId] for why.
+     */
     const val LEGACY_PREFS = "fluence_prefs"
 
-    private const val AGENTS_LEGACY_KEY = "agent_custom_styles"
-    private const val STYLES_LEGACY_KEY = "ai_cleanup_custom_styles"
+    internal const val AGENTS_LEGACY_KEY = "agent_custom_styles"
+    internal const val STYLES_LEGACY_KEY = "ai_cleanup_custom_styles"
     private const val ACCOUNT_FILE_PREFIX = "fluence_acct_"
     private const val AGENTS_KEY = "agents"
     private const val STYLES_KEY = "styles"
     private const val CORRUPT_PREFIX = "corrupt."
+
+    /**
+     * Human-readable explanation for a refusal, or `null` when nothing was refused.
+     *
+     * A refusal must never be reported as "nothing to add" or "already in your
+     * account": the first hides a deliberate policy decision, the second is simply
+     * untrue. The user asked to adopt a record and was told no, so the reason has
+     * to reach them.
+     */
+    fun describeRefusals(refusedIds: List<Pair<String, String>>, subject: String): String? {
+        if (refusedIds.isEmpty()) return null
+        val reasons = refusedIds.map { it.second }.distinct()
+        return when {
+            "tombstoned" in reasons ->
+                "That $subject was deleted in your account, so it was not added."
+            "duplicate-legacy-id" in reasons ->
+                "That $subject appears more than once on this device, so it was not added."
+            "builtin-id" in reasons ->
+                "That $subject is built in and cannot be added to an account."
+            else -> "That $subject could not be added."
+        }
+    }
+
+    /**
+     * Remove every entry carrying [id] from a legacy JSON array.
+     *
+     * Used ONLY by the DELETE path, never by the claim. This is what keeps
+     * "the claim copies, never moves" from turning a deletion into a
+     * resurrection:
+     *
+     *  - a claim leaves the legacy row behind on purpose, so a sync pass that
+     *    discards the claim cannot destroy the record;
+     *  - but then a delete would leave that row as a device-local record that
+     *    becomes `DeviceLocal` — visible and RUNNABLE — once the user signs out.
+     *    The user deleted the agent, signed out, and it came back.
+     *
+     * By the time a tombstone is written the account store provably holds the
+     * record, so any same-id legacy row is a shadow the claim itself created and
+     * removing it is safe. Idempotent, and if the tombstone were ever lost the
+     * outcome degrades to the record resurfacing rather than to data loss.
+     *
+     * Fail-safe: if the stored text is not a JSON array the file is left exactly
+     * as it is. Returns true only when something was removed and persisted.
+     */
+    internal fun removeLegacyId(context: Context, key: String, id: String): Boolean {
+        if (id.isBlank()) return false
+        val prefs = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString(key, "") ?: return false
+        if (raw.isBlank()) return false
+        val arr = try {
+            org.json.JSONArray(raw)
+        } catch (_: Exception) {
+            return false
+        }
+        val kept = org.json.JSONArray()
+        var removed = 0
+        for (i in 0 until arr.length()) {
+            val element = arr.opt(i)
+            val elementId = (element as? org.json.JSONObject)?.optString("id")
+            if (!elementId.isNullOrBlank() && elementId == id) {
+                removed++
+                continue
+            }
+            kept.put(element)
+        }
+        if (removed == 0) return false
+        return prefs.edit().putString(key, kept.toString()).commit()
+    }
+
+    /**
+     * How many RAW entries in a legacy store carry [id].
+     *
+     * The claim's duplicate guard MUST use this, not `legacyAgents(context).count`,
+     * because [readLegacy] is LOSSY: it skips any row whose name or hint is blank,
+     * so a second copy of an id can be invisible to the parsed view while still
+     * being present on disk. Counting the parsed list would report 1 for a
+     * genuinely duplicated id, and the claim would adopt it.
+     *
+     * Returns 0 when the key is missing or not a JSON array (fail-safe: no
+     * duplicate signal, so the claim proceeds).
+     */
+    private fun countLegacyIdOccurrences(context: Context, key: String, id: String): Int {
+        if (id.isBlank()) return 0
+        val prefs = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString(key, "") ?: return 0
+        if (raw.isBlank()) return 0
+        val arr = try {
+            org.json.JSONArray(raw)
+        } catch (_: Exception) {
+            return 0
+        }
+        var count = 0
+        for (i in 0 until arr.length()) {
+            val element = arr.opt(i) as? org.json.JSONObject ?: continue
+            if (element.optString("id") == id) count++
+        }
+        return count
+    }
 
     /**
      * Strictly the documented convention: SHA-256 hex, so exactly 64 lowercase
@@ -652,17 +757,26 @@ internal object AccountScope {
      * Writes a tombstone rather than removing the row, so the delete propagates
      * to the account's other devices instead of being resurrected by their next
      * upload. A no-op for an invalid hash.
+     *
+     * Returns true only when the tombstone was found AND durably persisted
+     * (`commit()`, not `apply()`). Callers drop the same-id legacy shadow only
+     * on success: a failed tombstone write must preserve the legacy copy, or
+     * the record ends up in neither store with no tombstone to propagate.
      */
-    fun deleteAgent(context: Context, accountHash: String, id: String) {
-        if (!validAccountHash(accountHash)) return
+    fun deleteAgent(context: Context, accountHash: String, id: String): Boolean {
+        if (!validAccountHash(accountHash)) return false
         val current = loadAgents(context, accountHash)
-        if (current.none { it.id == id }) return
-        saveAgents(
-            context, accountHash,
-            current.map {
-                if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it
-            }
-        )
+        if (current.none { it.id == id }) return false
+        return context.getSharedPreferences(agentsPrefsName(accountHash), Context.MODE_PRIVATE)
+            .edit().putString(
+                AGENTS_KEY,
+                serializeAgents(
+                    current.map {
+                        if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it
+                    }
+                )
+            )
+            .commit()
     }
 
     /**
@@ -685,15 +799,334 @@ internal object AccountScope {
         saveStyles(context, accountHash, current)
     }
 
-    /** Style counterpart of [deleteAgent]: tombstone, never row-removal. */
-    fun deleteStyle(context: Context, accountHash: String, id: String) {
-        if (!validAccountHash(accountHash)) return
+    /**
+     * Style counterpart of [deleteAgent]: tombstone, never row-removal.
+     *
+     * Same durability contract: true only when the tombstone persisted, so the
+     * caller keeps the legacy shadow on any failure.
+     */
+    fun deleteStyle(context: Context, accountHash: String, id: String): Boolean {
+        if (!validAccountHash(accountHash)) return false
         val current = loadStyles(context, accountHash)
-        if (current.none { it.id == id }) return
-        saveStyles(
-            context, accountHash,
-            current.map { if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it }
-        )
+        if (current.none { it.id == id }) return false
+        return context.getSharedPreferences(stylesPrefsName(accountHash), Context.MODE_PRIVATE)
+            .edit().putString(
+                STYLES_KEY,
+                serializeStyles(
+                    current.map { if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it }
+                )
+            )
+            .commit()
+    }
+
+    // ---------------------------------------------------------------
+    // Explicit legacy claim — an ownership transition, never automatic
+    // ---------------------------------------------------------------
+
+    /**
+     * One record read from the pre-account store.
+     *
+     * The pre-partitioning build wrote custom Agents/Styles to a single
+     * device-local key with no account stamp, so provenance of a legacy record
+     * cannot be proven. The shape is `[{"id","name","hint"}]` in both legacy
+     * stores.
+     */
+    data class LegacyRecord(val id: String, val name: String, val hint: String)
+
+    /**
+     * Result of one explicit claim action.
+     *
+     * [skippedIds] are legacy records whose stable id ALREADY exists in the
+     * account store. They are deliberately left untouched on BOTH sides: the
+     * owned copy is authoritative and is already synced, so overwriting it would
+     * destroy the user's data on every other device. The legacy copy stays put
+     * (and stays shadowed by the account copy) so nothing is silently discarded.
+     *
+     * [refusedIds] are records deliberately NOT adopted, each with a reason; see
+     * [describeRefusals] for the user-facing wording.
+     *
+     * NOTE ON SCOPE: the claim never deletes or rewrites a legacy row — not for a
+     * claimed id, not for a skipped one, not for a refused one. Legacy rows are
+     * removed in exactly one place, [removeLegacyId], on the DELETE path.
+     */
+    data class ClaimOutcome(
+        val claimedIds: List<String>,
+        val skippedIds: List<String>,
+        /**
+         * Deliberately NOT claimed, with the legacy copy deliberately left in
+         * place. Kept distinct from [skippedIds] because the two mean opposite
+         * things to the user: "skipped" means the record is already theirs,
+         * "refused" means this record cannot be adopted and the app says why.
+         *
+         * Reasons, all deterministic:
+         *  - `builtin-id` — a reserved id that must never become ownable.
+         *  - `tombstoned` — the account holds a DELETE for this id. A delete is
+         *    never resurrected by an ownership transfer.
+         *  - `duplicate-legacy-id` — the legacy store holds this id more than
+         *    once, so there is no single record to adopt and picking one would
+         *    silently destroy the other.
+         */
+        val refusedIds: List<Pair<String, String>> = emptyList(),
+    ) {
+        val claimedCount: Int get() = claimedIds.size
+        val skippedCount: Int get() = skippedIds.size
+        val refusedCount: Int get() = refusedIds.size
+        val isEmpty: Boolean
+            get() = claimedIds.isEmpty() && skippedIds.isEmpty() && refusedIds.isEmpty()
+    }
+
+    /**
+     * CRITICAL SECTION for the account-owned Agents/Styles document, shared by
+     * the claim and by the sync stamper (`V1Stores.stampUnstamped`).
+     *
+     * The account store is a whole-document read-modify-write, so a claim is
+     * itself an RMW cycle — batching does not avoid that. This is NOT the general
+     * account-store concurrency fix (B2/R1 remains open and unfixed by design
+     * here); it is the minimum needed to keep THIS operation from losing a
+     * record, because it is the only writer whose success is followed by a
+     * destructive delete of the other copy.
+     *
+     * Why the stamper must share it: `stampUnstamped` loads the account document,
+     * stamps it, and saves it. If it does not take this monitor, it can save its
+     * own OLDER snapshot after the claim has saved and reported success —
+     * discarding the claim, after which the legacy copy is deleted and the record
+     * exists in NEITHER store. A lock only the claim takes would prevent nothing.
+     *
+     * Deliberately a plain monitor, not [com.groq.voicetyper.sync.SyncPassGate]:
+     * that gate is a coroutine [kotlinx.coroutines.sync.Mutex] serialising sync
+     * PASSES against each other, and the claim is a short, non-suspending local
+     * write that must not queue behind a network pass. Never held across a
+     * network or Drive operation.
+     */
+    internal val accountStoreLock = Any()
+
+    /**
+     * Durable account-store write used ONLY by the claim path.
+     *
+     * [saveAgents] deliberately keeps `apply()` semantics for every existing
+     * caller: `apply()` is asynchronous and reports nothing, so it cannot be
+     * used as proof that ownership landed. This variant uses `commit()` and
+     * returns its real success flag, so the claim can withhold the "claimed"
+     * report — and therefore withhold the legacy delete — when the write fails.
+     */
+    private fun saveAgentsDurably(
+        context: Context,
+        accountHash: String,
+        agents: List<AccountAgent>,
+    ): Boolean = context.getSharedPreferences(agentsPrefsName(accountHash), Context.MODE_PRIVATE)
+        .edit().putString(AGENTS_KEY, serializeAgents(agents))
+        .commit()
+
+    /** Style counterpart of [saveAgentsDurably]. */
+    private fun saveStylesDurably(
+        context: Context,
+        accountHash: String,
+        styles: List<AccountStyle>,
+    ): Boolean = context.getSharedPreferences(stylesPrefsName(accountHash), Context.MODE_PRIVATE)
+        .edit().putString(STYLES_KEY, serializeStyles(styles))
+        .commit()
+
+    private fun readLegacy(context: Context, key: String): List<LegacyRecord> {
+        val raw = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+            .getString(key, "") ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(raw)
+            val out = mutableListOf<LegacyRecord>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id").takeIf { it.isNotBlank() && it != "null" } ?: continue
+                val name = o.optString("name").takeIf { it.isNotBlank() && it != "null" } ?: continue
+                val hint = o.optString("hint").takeIf { it.isNotBlank() && it != "null" } ?: continue
+                out.add(LegacyRecord(id = id, name = name, hint = hint))
+            }
+            out
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun legacyAgents(context: Context): List<LegacyRecord> = readLegacy(context, AGENTS_LEGACY_KEY)
+
+    fun legacyStyles(context: Context): List<LegacyRecord> = readLegacy(context, STYLES_LEGACY_KEY)
+
+    /**
+     * Adopt every legacy Agent into [accountHash] — ONE explicit user action.
+     *
+     * This is an ownership transition and the ONLY path that performs it:
+     *
+     *  - it never runs on its own. Nothing here is called from a read path, from
+     *    sign-in, or from sync; only an explicit tap reaches it.
+     *  - it never infers the target account. [accountHash] is supplied by the
+     *    caller from the currently authenticated identity, and an invalid or
+     *    absent hash is refused outright — so signing out, or an unverifiable
+     *    identity, claims nothing.
+     *  - it never overwrites an owned record. A legacy id that already exists in
+     *    the account store is skipped and reported, never merged or clobbered.
+     *
+     * Claimed rows are written with `syncId`/`updatedAt` null, which is exactly
+     * what [upsertAgent] does, so the record becomes [Admission.OWNED] on the
+     * next read and is stamped and uploaded by the ordinary pass. No new sync
+     * path, envelope, or ownership mechanism is introduced.
+     *
+     * The whole batch is applied in ONE read and ONE write: a per-record
+     * read-modify-write would multiply the very race this repository already
+     * tracks as B2/R1.
+     */
+    fun claimLegacyAgents(
+        context: Context,
+        accountHash: String?,
+        onlyIds: Set<String>? = null,
+    ): ClaimOutcome {
+        if (!validAccountHash(accountHash)) return ClaimOutcome(emptyList(), emptyList())
+        val hash = accountHash!!
+        val legacy = legacyAgents(context)
+            .let { if (onlyIds == null) it else it.filter { rec -> rec.id in onlyIds } }
+        if (legacy.isEmpty()) return ClaimOutcome(emptyList(), emptyList())
+
+        val claimed = mutableListOf<String>()
+        val skipped = mutableListOf<String>()
+        val refused = mutableListOf<Pair<String, String>>()
+
+        synchronized(accountStoreLock) {
+            val current = loadAgents(context, hash).toMutableList()
+            val owned = current.associateBy { it.id }
+            // Each id is DECIDED once, so a duplicated legacy id yields exactly one
+            // refusal rather than one per row.
+            val decided = HashSet<String>()
+            for (rec in legacy) {
+                if (!decided.add(rec.id)) continue
+                // A reserved id must never become an ownable, syncable record. Uses the
+                // canonical predicate rather than a duplicated literal, so the
+                // claim gate cannot drift from the create/resolve paths.
+                if (com.groq.voicetyper.agent.AgentPreferences.isBuiltIn(rec.id)) {
+                    refused += rec.id to "builtin-id"
+                    continue
+                }
+                // Duplicate ids in the legacy store: refuse rather than pick one.
+                // Count RAW occurrences, NOT the parsed list: `readLegacy` hides
+                // blank-name/hint rows, so a genuinely duplicated id can look unique
+                // here and one copy would be adopted arbitrarily.
+                if (countLegacyIdOccurrences(context, AGENTS_LEGACY_KEY, rec.id) > 1) {
+                    refused += rec.id to "duplicate-legacy-id"
+                    continue
+                }
+                val existing = owned[rec.id]
+                if (existing != null) {
+                    // TOMBSTONE POLICY (deterministic): a DELETE wins. An explicit
+                    // claim does NOT resurrect a deleted record, because reviving it
+                    // would let an ownership transfer undo a deletion the user made
+                    // on another device, and would change tombstone semantics. The
+                    // refusal is reported to the UI when a row is reachable.
+                    if (existing.deletedAt != null) {
+                        refused += rec.id to "tombstoned"
+                    } else {
+                        // Already owned and live: leave both sides intact.
+                        skipped += rec.id
+                    }
+                    continue
+                }
+                current.add(
+                    AccountAgent(id = rec.id, name = rec.name, hint = rec.hint, dirty = true)
+                )
+                claimed += rec.id
+            }
+            // The claim is withheld when the ownership write reports failure.
+            //
+            // NOTE: there is deliberately NO compensating "roll back to `previous`"
+            // write here. `commit() == false` does leave the SharedPreferences
+            // in-memory map mutated, so a later successful commit by any writer could
+            // persist a claim the user was told had not happened. A rollback was tried
+            // and removed: `upsertAgent`/`deleteAgent`/`applyMergedAndClearDirty` do
+            // NOT take this monitor, so between a failed commit and the compensating
+            // write an unsynchronised writer can persist its own edit — and the
+            // rollback would then overwrite it, converting a benign ghost into
+            // silent loss of someone else's change. A confusing message is strictly
+            // better than destroying data, so the ghost is accepted instead.
+            //
+            // The ghost is benign in practice: because the claim never removes the
+            // legacy row, a later-persisted claim converges on the same end state as
+            // a successful one (owned row plus a shadow), and the user keeps their
+            // record.
+            if (claimed.isNotEmpty() && !saveAgentsDurably(context, hash, current)) {
+                claimed.clear()
+            }
+        }
+        return ClaimOutcome(claimed, skipped, refused)
+    }
+
+    /** Style counterpart of [claimLegacyAgents], with identical rules. */
+    fun claimLegacyStyles(
+        context: Context,
+        accountHash: String?,
+        onlyIds: Set<String>? = null,
+    ): ClaimOutcome {
+        if (!validAccountHash(accountHash)) return ClaimOutcome(emptyList(), emptyList())
+        val hash = accountHash!!
+        val legacy = legacyStyles(context)
+            .let { if (onlyIds == null) it else it.filter { rec -> rec.id in onlyIds } }
+        if (legacy.isEmpty()) return ClaimOutcome(emptyList(), emptyList())
+
+        val claimed = mutableListOf<String>()
+        val skipped = mutableListOf<String>()
+        val refused = mutableListOf<Pair<String, String>>()
+
+        synchronized(accountStoreLock) {
+val current = loadStyles(context, hash).toMutableList()
+            val owned = current.associateBy { it.id }
+            // Each id decided once — see the agent counterpart.
+            val decided = HashSet<String>()
+            for (rec in legacy) {
+                if (!decided.add(rec.id)) continue
+                if (com.groq.voicetyper.cleanup.AiCleanupPreferences.isBuiltIn(rec.id)) {
+                    refused += rec.id to "builtin-id"
+                    continue
+                }
+                // Raw-occurrence guard — see the agent counterpart.
+                if (countLegacyIdOccurrences(context, STYLES_LEGACY_KEY, rec.id) > 1) {
+                    refused += rec.id to "duplicate-legacy-id"
+                    continue
+                }
+                // DELETE wins over an ownership transfer — see the agent path.
+                val existing = owned[rec.id]
+                if (existing != null) {
+                    if (existing.deletedAt != null) {
+                        refused += rec.id to "tombstoned"
+                    } else {
+                        skipped += rec.id
+                    }
+                    continue
+                }
+                current.add(
+                    AccountStyle(id = rec.id, name = rec.name, hint = rec.hint, dirty = true)
+                )
+                claimed += rec.id
+            }
+            // Withheld on a failed durable write — see the agent counterpart for why there
+            // is no compensating rollback.
+            if (claimed.isNotEmpty() && !saveStylesDurably(context, hash, current)) {
+                claimed.clear()
+            }
+        }
+        return ClaimOutcome(claimed, skipped, refused)
+    }
+
+    /**
+     * How many legacy Agents are still unclaimed for [accountHash], for the
+     * UI banner. Returns 0 when signed out, because a legacy record is then
+     * device-local and usable — there is nothing to claim.
+     */
+    fun unclaimedLegacyAgentCount(context: Context, accountHash: String?): Int {
+        if (!validAccountHash(accountHash)) return 0
+        val owned = loadAgents(context, accountHash).mapTo(HashSet()) { it.id }
+        return legacyAgents(context).count { it.id !in owned }
+    }
+
+    /** Style counterpart of [unclaimedLegacyAgentCount]. */
+    fun unclaimedLegacyStyleCount(context: Context, accountHash: String?): Int {
+        if (!validAccountHash(accountHash)) return 0
+        val owned = loadStyles(context, accountHash).mapTo(HashSet()) { it.id }
+        return legacyStyles(context).count { it.id !in owned }
     }
 
     /**

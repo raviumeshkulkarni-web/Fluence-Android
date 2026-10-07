@@ -2,6 +2,7 @@ package com.groq.voicetyper.agent
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.groq.voicetyper.sync.SyncAccounts
 import com.groq.voicetyper.sync.v1.AccountScope
 import org.json.JSONArray
@@ -21,6 +22,7 @@ object AgentPreferences {
     private const val PREFS_NAME = "fluence_prefs"
     private const val KEY_CUSTOM_AGENTS = "agent_custom_styles"
     private const val KEY_DEFAULT_AGENT = "agent_default_id"
+    private const val TAG = "AgentPreferences"
 
     const val MAX_AGENT_NAME_LENGTH = 30
     const val MAX_AGENT_HINT_LENGTH = 1000
@@ -37,8 +39,8 @@ object AgentPreferences {
      * in — is indistinguishable from data loss.
      */
     const val LEGACY_UNAVAILABLE_REASON =
-        "Created before you had an account, so it isn't linked to one. " +
-            "Still here and not deleted, but it can't be used while you're signed in."
+        "Created before account ownership existed, so this isn't linked to an account yet. " +
+            "Nothing has been deleted — add it to your account to edit, use and sync it."
 
     fun sanitizeHint(hint: String): String {
         val trimmed = hint.trim()
@@ -177,6 +179,77 @@ object AgentPreferences {
     private fun loadRunnableAgents(context: Context): List<CustomAgent> =
         loadCustomAgents(context).filter { it.available }
 
+    // ------------------------------------------------------------------
+    // Explicit legacy claim
+    // ------------------------------------------------------------------
+
+    /**
+     * Adopt pre-account Agents into the **currently authenticated** account.
+     *
+     * This is the single explicit ownership transition, reached only from an
+     * explicit tap on the claim affordance. It is never called from a read path,
+     * from sign-in, or from sync, and it never picks an account itself: the
+     * target is [localAccountHash], so signing out (or an unverifiable identity)
+     * claims nothing at all.
+     *
+     * The claim COPIES the record into the account; it never MOVES it, and this
+     * function never writes the legacy store. [AccountScope.claimLegacyAgents]
+     * grants ownership with a durable write, and the pre-account row is left on
+     * disk on purpose.
+     *
+     * Why the row is kept: the account store is a whole-document
+     * read-modify-write, and writers that do not share the claim's monitor — the
+     * sync pass notably loads the document, performs a Drive round trip, then
+     * writes a payload built from that pre-network snapshot — can discard a
+     * committed claim. Keeping the legacy row means that outcome degrades to a
+     * re-claimable shadow instead of a record in neither store.
+     *
+     * Deletion is handled where it is unambiguous: once a tombstone proves the
+     * account held the record, `deleteCustomAgent` removes the same-id shadow so a
+     * delete still deletes after sign-out.
+     *
+     * Records whose id is already owned are skipped and reported by the outcome;
+     * neither side is overwritten or discarded.
+     */
+    internal fun claimLegacyAgents(
+        context: Context,
+        onlyIds: Set<String>? = null,
+    ): AccountScope.ClaimOutcome {
+        // NO legacy cleanup, by decision.
+        //
+        // The claim COPIES the record into the account; it never MOVES it. The
+        // pre-account row is deliberately left on disk.
+        //
+        // Why: the account store is a whole-document read-modify-write, and writers
+        // other than the stamper do not share the claim's monitor — most
+        // importantly the sync pass, which loads the document, performs a Drive
+        // round trip, and only then writes a `merged` payload built from that
+        // pre-network snapshot. A claim landing inside that window is discarded by
+        // the pass. If the claim had also DELETED the legacy copy, the record would
+        // exist in NEITHER store: permanent, unrecoverable loss.
+        //
+        // Leaving the legacy row makes that outcome degrade instead: the row
+        // resurfaces as unassigned and can simply be claimed again (self-healing).
+        // Every other race in this codebase already degrades to a shadow; keeping
+        // the copy is what makes the claim obey the same rule.
+        //
+        // This is also consistent policy: a `skipped` (already owned) or `refused`
+        // id already keeps its legacy row. Extending that to `claimed` introduces
+        // no new state.
+        //
+        // Accepted cost, stated plainly: signing out re-exposes the row as
+        // device-local and runnable. That is the user's own pre-existing data, and
+        // it is already true today for skipped and refused rows.
+        //
+        // A single read + a single write still applies inside the claim, so no
+        // additional read-modify-write cycle is introduced.
+        return AccountScope.claimLegacyAgents(context, localAccountHash(context), onlyIds)
+    }
+
+    /** Legacy Agents still awaiting an explicit claim. 0 when signed out. */
+    fun unclaimedLegacyAgentCount(context: Context): Int =
+        AccountScope.unclaimedLegacyAgentCount(context, localAccountHash(context))
+
     /**
      * STAGE 6: is this an executable, known agent?
      *
@@ -293,26 +366,71 @@ object AgentPreferences {
         }
     }
 
-    fun deleteCustomAgent(context: Context, id: String) {
-        if (isBuiltIn(id)) return
+    /**
+     * Delete a custom Agent. Returns false when the delete could NOT be made
+     * durable — the caller must then say so rather than confirming a delete
+     * that did not happen. Nothing is ever lost on that path: the legacy shadow
+     * is preserved, so the record still exists in at least one store.
+     *
+     * BLOCKING: the signed-in path performs two synchronous `commit()` writes
+     * (tombstone + shadow removal), so callers on the UI thread must move this
+     * to `Dispatchers.IO`. See `AgentsScreen`'s delete handler.
+     */
+    fun deleteCustomAgent(context: Context, id: String): Boolean {
+        if (isBuiltIn(id)) return true
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val hash = localAccountHash(context)
+            var durable = true
             if (hash != null) {
-                // Remove from the account store. A legacy record of the same id is
-                // deliberately left alone: deleting it here would destroy
-                // device-local data that merely shadowed the account copy.
-                AccountScope.deleteAgent(context, hash, id)
+                // Tombstone in the account store so the delete propagates.
+                val tombstoned = AccountScope.deleteAgent(context, hash, id)
+                durable = tombstoned
+                // Then drop the same-id legacy shadow — but ONLY on a durable
+                // tombstone. The account store provably held the record (we just
+                // tombstoned it), so any legacy row of that id is a shadow the
+                // CLAIM created, and the claim deliberately left it in place.
+                //
+                // This is required, not cosmetic: the claim copies rather than moves, so
+                // without this the deleted agent would return as a device-local record
+                // — visible and runnable — the moment the user signed out. Deleting must
+                // still delete. Idempotent, and it fires only after the tombstone.
+                //
+                // On a failed tombstone write the shadow is preserved: it is the only
+                // copy left, and removing it would lose the record entirely.
+                if (tombstoned) {
+                    val shadowDropped = AccountScope.removeLegacyId(
+                        context, AccountScope.AGENTS_LEGACY_KEY, id,
+                    )
+                    // The tombstone IS durable here, so the account copy survives and
+                    // shadows this row: recoverable, not data loss. It only means the
+                    // shadow can resurface as a device-local row after sign-out, so it
+                    // is reported rather than silently discarded. The delete itself
+                    // still counts as successful.
+                    if (!shadowDropped) {
+                        Log.w(
+                            TAG,
+                            "Deleted agent $id but could not drop its legacy shadow; " +
+                                "it may resurface as a device-local agent after sign-out",
+                        )
+                    }
+                }
             } else {
+                // Signed-out: legacy-only row. `apply()` is fire-and-forget by
+                // design here (pre-existing behaviour); `durable` stays true so
+                // this path always reports success. The "Couldn't delete"
+                // reporting is signed-in only.
                 val remaining = loadCustomAgents(context).filter { it.id != id }
                 prefs.edit().putString(KEY_CUSTOM_AGENTS, serializeAgentsJson(remaining)).apply()
             }
-            // A deleted default falls back to built-in. The default id itself stays
-            // device-local (D1c) even when the agent it names is account-owned.
-            if (prefs.getString(KEY_DEFAULT_AGENT, ID_BUILT_IN) == id) {
+            // Only on a durable delete: if the tombstone failed the record is
+            // still live, so clearing the default would drop a valid selection.
+            if (durable && prefs.getString(KEY_DEFAULT_AGENT, ID_BUILT_IN) == id) {
                 prefs.edit().putString(KEY_DEFAULT_AGENT, ID_BUILT_IN).apply()
             }
+            return durable
         } catch (_: Exception) {
+            return false
         }
     }
 

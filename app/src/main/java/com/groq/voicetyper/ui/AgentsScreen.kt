@@ -36,6 +36,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.groq.voicetyper.sync.v1.AccountScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -82,6 +87,9 @@ fun AgentsScreen(
 ) {
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
+    // Scope for the claim action, which must do its durable write off the main
+    // thread — see the onClaim lambda in the row below.
+    val claimScope = rememberCoroutineScope()
     var customs by remember { mutableStateOf(AgentPreferences.loadCustomAgents(context)) }
     var defaultId by remember { mutableStateOf(AgentPreferences.getDefaultAgentId(context)) }
     var showEditor by remember { mutableStateOf(false) }
@@ -100,6 +108,11 @@ fun AgentsScreen(
     val isMultiSelect = selectedIds.isNotEmpty()
     var pendingDeleteIds by rememberSaveable(saver = stringListSaver) { mutableStateOf<List<String>>(emptyList()) }
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    // Guard against double-submit: the delete runs 2N synchronous commit()s off
+    // the main thread, so the dialog stays up long enough to tap twice. Plain
+    // `remember` (not saveable): a rotation mid-delete must reset to enabled —
+    // the in-flight batch is idempotent, so retry is safe, stuck-disabled is not.
+    var deleting by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isMultiSelect) {
         selectedIds = emptySet()
@@ -262,6 +275,44 @@ fun AgentsScreen(
                                 isMultiSelect = isMultiSelect,
                                 enabled = agent.available,
                                 unavailableReason = agent.unavailableReason,
+                                onClaim = if (agent.available) {
+                                    null
+                                } else {
+                                    {
+                                        // Claims exactly this record: a per-row
+                                        // button that silently adopted every other
+                                        // unclaimed Agent would be a surprise and
+                                        // could move records the user did not
+                                        // choose.
+                                        //
+                                        // Runs on Dispatchers.IO: the claim performs
+                                        // SYNCHRONOUS SharedPreferences commit() writes
+                                        // (the ownership write must be confirmed
+                                        // durable before the legacy copy is retired),
+                                        // so doing it here would block the main thread.
+                                        claimScope.launch {
+                                            val outcome = withContext(Dispatchers.IO) {
+                                                AgentPreferences.claimLegacyAgents(
+                                                    context, setOf(agent.id),
+                                                )
+                                            }
+                                            refresh()
+                                            val refusal = AccountScope.describeRefusals(
+                                                outcome.refusedIds, "agent",
+                                            )
+                                            FeedbackBus.show(
+                                                when {
+                                                    outcome.claimedCount > 0 ->
+                                                        "Added to your account — it will sync to your devices"
+                                                    refusal != null -> refusal
+                                                    outcome.skippedCount > 0 ->
+                                                        "Already in your account — nothing changed"
+                                                    else -> "Nothing to add"
+                                                }
+                                            )
+                                        }
+                                    }
+                                },
                                 onToggleSelect = {
                                     // Belt and braces: an unavailable row must not
                                     // enter the selection even if the list is
@@ -323,14 +374,40 @@ fun AgentsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingDeleteIds.forEach { id ->
-                            AgentPreferences.deleteCustomAgent(context, id)
+                        if (deleting) return@TextButton
+                        // Runs on Dispatchers.IO: deleteCustomAgent performs two
+                        // SYNCHRONOUS commit() writes per record (tombstone +
+                        // legacy-shadow removal), so a multi-select delete of N
+                        // agents would otherwise do 2N blocking disk writes on
+                        // the main thread. Same rule the claim handler above
+                        // follows.
+                        deleting = true
+                        claimScope.launch {
+                            try {
+                                val ids = pendingDeleteIds.toList()
+                                val failed = withContext(Dispatchers.IO) {
+                                    ids.filterNot { AgentPreferences.deleteCustomAgent(context, it) }
+                                }
+                                selectedIds = selectedIds - ids.toSet()
+                                refresh()
+                                showDeleteDialog = false
+                                FeedbackBus.show(
+                                    when {
+                                        // The record survives (its legacy shadow is
+                                        // preserved), so the delete simply did not
+                                        // stick. Say that instead of claiming success.
+                                        failed.isNotEmpty() ->
+                                            "Couldn't delete ${failed.size}. Nothing was lost — try again."
+                                        count > 1 -> "Deleted $count agents"
+                                        else -> "Agent deleted"
+                                    }
+                                )
+                            } finally {
+                                deleting = false
+                            }
                         }
-                        selectedIds = selectedIds - pendingDeleteIds.toSet()
-                        refresh()
-                        showDeleteDialog = false
-                        FeedbackBus.show(if (count > 1) "Deleted $count agents" else "Agent deleted")
-                    }
+                    },
+                    enabled = !deleting,
                 ) {
                     Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
                 }
@@ -394,6 +471,12 @@ private fun AgentRow(
     enabled: Boolean = true,
     /** Why [enabled] is false. Rendered under the description. */
     unavailableReason: String? = null,
+    /**
+     * Explicit ownership transfer for an unclaimed pre-account record. Rendered
+     * only while [enabled] is false, and labelled so the ownership change is
+     * unmistakable — never a generic "Fix".
+     */
+    onClaim: (() -> Unit)? = null,
     onToggleSelect: (() -> Unit)? = null,
     onClick: () -> Unit,
     onEdit: (() -> Unit)? = null,
@@ -504,20 +587,34 @@ private fun AgentRow(
             }
         }
         if (!isMultiSelect) {
-// Nothing is offered on an unavailable row: it cannot be
-            // selected, made default, edited, or deleted.
+            // An unclaimed pre-account row cannot be selected, made default,
+            // edited or deleted — all of those act on the ACCOUNT store, where
+            // this record does not exist yet. The one action offered is the
+            // explicit claim, which adopts it into the account signed in right
+            // now; from that moment it is an ordinary Agent and every other
+            // control appears.
             //
-            // Delete is withheld because the signed-in delete path is a NO-OP for
-            // a legacy row, not a delete: `AccountScope.deleteAgent` returns early
-            // when the id is absent from the account store, and a legacy row lives
-            // only in the legacy store. So the button did nothing at all while
-            // announcing "Deleted". Signing out exposes the signed-out path, which
-            // removes the row from the store it actually lives in.
+            // Delete stays hidden afterwards only because `deleteAgent` writes a
+            // tombstone, and a tombstone is meaningless for a row that was never
+            // owned. Once claimed, the row IS owned, so Delete works normally.
             //
-            // NOTE: do not "fix" the no-op by removing the `none { it.id == id }`
-            // guard in `deleteAgent`. That guard is precisely what stops a legacy
-            // id from acquiring an account-owned tombstone, which sync would then
-            // upload as an ownership claim for a record this account never owned.
+            // NOTE: do not "fix" the pre-claim no-op by removing the
+            // `none { it.id == id }` guard in `deleteAgent`. That guard is what
+            // stops an unclaimed id from acquiring an account-owned tombstone,
+            // which sync would then upload as an ownership claim for a record
+            // this account never chose to adopt.
+            if (!enabled && onClaim != null) {
+                TextButton(
+                    onClick = onClaim,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        "Add to my account",
+                        color = colors.textPrimary,
+                        style = FluenceTypography.labelMedium,
+                    )
+                }
+            }
             if (onEdit != null && enabled) {
                 TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text("Edit", color = colors.textSecondary, style = FluenceTypography.labelMedium)
