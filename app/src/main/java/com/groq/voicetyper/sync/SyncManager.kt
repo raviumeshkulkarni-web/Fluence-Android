@@ -260,7 +260,9 @@ class SyncManager(
                     outcome = PassOutcomeKind.RETRYABLE
                 } finally {
                     scheduler.completePass(outcome)
-                    if (outcome == PassOutcomeKind.SUCCESS) {
+                    // F4: DEGRADED recorded the sync like a success, so its
+                    // timestamp must survive process death too.
+                    if (outcome == PassOutcomeKind.SUCCESS || outcome == PassOutcomeKind.DEGRADED) {
                         persistLastSyncAt(scheduler.lastSyncAtMs)
                     }
                     publish()
@@ -280,7 +282,7 @@ class SyncManager(
      * One frozen-v1.2 pass across all four domains. Domains are isolated: a
      * classified failure in one never prevents the others from syncing, and
      * the worst per-domain outcome is reported as the pass outcome
-     * (worstOutcome — SUCCESS < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED).
+     * (worstOutcome — SUCCESS < DEGRADED < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED).
      * Only truly unexpected exceptions escape to the caller.
      */
     private suspend fun runV12Pass(): PassOutcomeKind {
@@ -499,7 +501,11 @@ class SyncManager(
             syncEnabled = isSyncEnabled(),
             running = scheduler.running,
             lastSyncAtMs = scheduler.lastSyncAtMs ?: persistedLastSyncAtMs,
-            lastError = scheduler.lastOutcome?.takeIf { it != PassOutcomeKind.SUCCESS }?.name,
+            // F4: a warning is not an error — DEGRADED surfaces via the
+            // dedicated flag, never as lastError text.
+            lastError = scheduler.lastOutcome
+                ?.takeIf { it != PassOutcomeKind.SUCCESS && it != PassOutcomeKind.DEGRADED }?.name,
+            degraded = scheduler.degraded,
             recoveryPending = auth.recoveryIntent != null,
             secureStorageUnavailable = auth.storageDegraded,
         )
@@ -564,9 +570,17 @@ class SyncManager(
 }
 
 /** Maps a [V1SyncEngine.SyncResult] (one that was not thrown as a classified
- *  error) to the pass outcome. Corrupt domains that could not be repaired this
- *  pass must never read as silent success, so they surface
- *  [PassOutcomeKind.RETRYABLE] and are re-attempted on the next pass.
- *  (Intentional Windows-parity divergence: Windows reports plain Ok.) */
+ *  error) to the pass outcome.
+ *
+ *  F4 Success-with-warning (Windows parity): a domain that converged (uploaded
+ *  or merged) but skipped corrupt state it retains reports DEGRADED — the sync
+ *  is recorded and the skips stay visible as a warning, never a stalled clock
+ *  or a misleading error. A domain that converged NOTHING but skipped state
+ *  proved nothing: it stays RETRYABLE and is re-attempted on the next pass.
+ */
 internal fun domainOutcome(result: V1SyncEngine.SyncResult): PassOutcomeKind =
-    if (result.skippedCorrupt) PassOutcomeKind.RETRYABLE else PassOutcomeKind.SUCCESS
+    when {
+        result.skippedCorrupt && (result.uploaded || result.merged) -> PassOutcomeKind.DEGRADED
+        result.skippedCorrupt -> PassOutcomeKind.RETRYABLE
+        else -> PassOutcomeKind.SUCCESS
+    }

@@ -34,6 +34,31 @@ object V1SyncEngine {
         fun getDomain(domain: DomainFile): AppDataDriveStore.DomainFetch
         /** Upload; [expectedVersion] = version the merge was based on (null = create). */
         fun putDomain(domain: DomainFile, bytes: ByteArray, expectedVersion: String?): String
+
+        // ---- Stats time shards (monthly per-event envelopes) ----
+        // New clients union the frozen legacy `stats.json` (read via
+        // getDomain(STATS), NEVER via putDomain(STATS)) with these siblings.
+        // Old released clients list `stats.json` by exact name and never see
+        // shard files. Defaults keep legacy-only fakes compiling; production
+        // overrides them in AppDataDriveStore.
+        /** All shard siblings in v1 (legacy `stats.json` excluded), sorted. */
+        fun listStatsShards(): List<StatsShardMeta> = emptyList()
+        /** Shard bytes by file id; null = vanished. Throws Rejected when oversized. */
+        fun getStatsShardBytes(fileId: String): ByteArray? = null
+        /**
+         * CAS upload of one shard file; [expectedVersion] = version the merge
+         * was based on (null = create), [preferredFileId] = file to update.
+         * Rejects non-shard names fail-closed (legacy is never written here).
+         */
+        fun putStatsShard(
+            name: String,
+            bytes: ByteArray,
+            expectedVersion: String?,
+            preferredFileId: String?
+        ): String = throw SyncError.Rejected("stats shards unsupported")
+
+        /** Delete one shard file by id (same-name valid-duplicate cleanup only). */
+        fun deleteStatsShard(fileId: String) {}
     }
 
     data class SyncResult(
@@ -217,7 +242,36 @@ object V1SyncEngine {
     }
 
     // ------------------------------------------------------------------
-    // Stats — union dedup eventId, backfill once per accountHash
+    // Stats — time-sharded union ledger (frozen legacy + monthly shards).
+    //
+    // The Stats ledger is one LOGICAL set of per-dictation events stored as
+    // SEVERAL physical v1 envelopes: the frozen legacy `stats.json` plus
+    // monthly shards (`stats-YYYY-MM.json`, overflow `-pNN`). Every shard is
+    // a complete v1 envelope with identical serialization, validation,
+    // sorting, caps, merge/LWW, CAS, and liveness. Storage location changes;
+    // record meaning never does (sessions = record count, totals = sums).
+    //
+    // Legacy rules (mixed-version safety):
+    // - `stats.json` is read (unioned) but NEVER written and NEVER deleted by
+    //   this path. Old released clients own it; they list it by exact name
+    //   and never see shard siblings.
+    // - Fresh accounts may have NO legacy file at all: new clients simply
+    //   sync shards. If an old client later creates `stats.json` (its
+    //   create-on-absent path), the next pass unions it in with no rewrite —
+    //   dashboards differ across versions until upgrade, by design, and
+    //   converge after. Seeding legacy from new clients was rejected: it
+    //   would duplicate history or route growth back into the uncapped file.
+    // - Shard content per month = merged rows NOT identical to the legacy
+    //   version (history is never recopied, moved, or deleted).
+    // - Shard files are never deleted; same-name valid duplicates are
+    //   consolidated after a live PUT, corrupt/oversized files stay intact.
+    // - No cross-file atomicity: each chunk PUT is independent; a partial
+    //   pass leaves rows dirty so the next pass re-heals the remainder.
+    // - Push decisions are diff-driven (desired chunk bytes vs remote), NOT
+    //   `hasDirty`-driven: dirty flags are sticky under the mid-pass LWW
+    //   tie-guard (an uploaded row ties with itself), so `hasDirty` is
+    //   permanently true in steady state and must never gate PUTs — the
+    //   diff already converges to zero PUTs with no upload loop.
     // ------------------------------------------------------------------
 
     suspend fun syncStats(
@@ -229,85 +283,212 @@ object V1SyncEngine {
     ): SyncResult {
         localStore.stampUnstamped(accountHash)
         if (!localStore.isBackfillDone(accountHash)) {
-            if (localStore.backfillIfNeeded(accountHash, deviceId)) {
-                localStore.setBackfillDone(accountHash, true)
-            } else {
-                localStore.setBackfillDone(accountHash, true)
-            }
+            localStore.backfillIfNeeded(accountHash, deviceId)
+            localStore.setBackfillDone(accountHash, true)
         }
         var attempts = 0
         while (attempts < MAX_ATTEMPTS) {
             attempts++
-            val fetch = drive.getDomain(DomainFile.STATS)
-            if (fetch.bytes != null) {
-                val remoteDomain = DomainSerializer.parseStats(fetch.bytes!!)
-                if (remoteDomain == null && DomainSerializer.isFutureEnvelope(fetch.bytes!!)) {
-                    return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
-                }
-                val remoteWasCorrupt = remoteDomain == null
-                // Stats are an append-only wire ledger. Never remove a legacy
-                // aggregate merely because a dictation event exists for the
-                // same day; the aggregate may contain data from another peer.
-                val merged = Merge.mergeStats(
-                    localStore.loadByAccount(accountHash).map { it.toRecord() },
-                    remoteDomain?.entries ?: emptyList()
-                )
-                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.day }, { it.eventId }))
-                    ?: emptyList()
-                val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
-                if (!needsPut) {
-                    if (remoteWasCorrupt) {
-                        return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
-                    }
-                    // Remote already converged: persist merged winners locally
-                    // anyway, or a fresh device never materializes pulled data.
-                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
-                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
-                    return SyncResult(false, true, attemptsUsed = attempts)
-                }
-                val sorted = merged.sortedWith(compareBy({ it.day }, { it.eventId }))
-                val bytes = DomainSerializer.serializeStats(StatsDomain(entries = sorted)).toByteArray()
-                DomainSerializer.parseStats(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.eventId }.toSet() != sorted.map { it.eventId }.toSet()) {
-                        throw SyncError.Rejected("stats roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("stats roundtrip null")
-                val uploadedVersion = try {
-                    drive.putDomain(DomainFile.STATS, bytes, fetch.version)
-                } catch (e: SyncError.StaleVersion) {
-                    if (attempts < MAX_ATTEMPTS) null else throw e
-                }
-                if (uploadedVersion != null && uploadIsLive(drive, DomainFile.STATS, uploadedVersion)) {
-                    localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
-                    advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
-                    return SyncResult(true, true, attemptsUsed = attempts)
-                }
+            try {
+                return syncStatsAttempt(localStore, drive, accountHash, deviceId, maxSeenRef, attempts)
+            } catch (e: SyncError.StaleVersion) {
+                if (attempts >= MAX_ATTEMPTS) throw e
                 waitForStaleRetry(attempts) // break the lockstep livelock
-                continue
-            } else {
-                val merged = Merge.mergeStats(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
-                if (merged.isEmpty()) {
-                    localStore.setBackfillDone(accountHash, true)
-                    return SyncResult(false, true, attemptsUsed = attempts)
+            } catch (e: RetryLedger) {
+                // Liveness miss: the PUT may still appear. Retry the whole
+                // ledger read; live chunks compare equal and skip.
+                if (attempts >= MAX_ATTEMPTS) {
+                    return SyncResult(false, false, attemptsUsed = attempts)
                 }
-                val sorted2 = merged.sortedWith(compareBy({ it.day }, { it.eventId }))
-                val bytes2 = DomainSerializer.serializeStats(StatsDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseStats(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("stats roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("stats roundtrip null")
-                val statCreatedVersion = drive.putDomain(DomainFile.STATS, bytes2, null)
-                if (!uploadIsLive(drive, DomainFile.STATS, statCreatedVersion)) {
-                    localStore.setBackfillDone(accountHash, true)
-                    return SyncResult(false, true, attemptsUsed = attempts)
-                }
-                localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
-                advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
-                return SyncResult(true, true, attemptsUsed = attempts)
+                waitForStaleRetry(attempts)
             }
         }
         return SyncResult(false, true, attemptsUsed = attempts)
     }
+
+    /** Internal: abort this ledger attempt and re-run GET -> MERGE -> PUT. */
+    private class RetryLedger : Exception()
+
+    private data class ShardPut(
+        val name: String,
+        val bytes: ByteArray,
+        val expectedVersion: String?,
+        val preferredFileId: String?,
+        val extraValidIds: List<String>
+    )
+
+    private suspend fun syncStatsAttempt(
+        localStore: StatV1Store,
+        drive: DomainGateway,
+        accountHash: String,
+        deviceId: String,
+        maxSeenRef: MaxSeenRef,
+        attempts: Int
+    ): SyncResult {
+        // 1. Legacy `stats.json`: read-only. Only an oversize Rejected is
+        // caught (skip + retain, shards still sync); transport errors
+        // propagate. Corrupt/future payloads are skipped, never repaired:
+        // frozen means frozen.
+        var legacyUnusable = false
+        val legacyFetch = try {
+            drive.getDomain(DomainFile.STATS)
+        } catch (e: SyncError.Rejected) {
+            legacyUnusable = true
+            AppDataDriveStore.DomainFetch(null, null)
+        }
+        val legacyEntries: List<StatRecord> = if (legacyFetch.bytes != null) {
+            val parsed = DomainSerializer.parseStats(legacyFetch.bytes!!)
+            if (parsed != null) parsed.entries
+            else {
+                // Future envelopes are a newer client's property, not
+                // corruption; either way the frozen file is left untouched.
+                legacyUnusable = true
+                emptyList()
+            }
+        } else emptyList()
+
+        // 2. Shard siblings, grouped by exact file name (same-name duplicates
+        // merge). Oversize/future files are skipped and retained; corrupt
+        // files are remembered as CAS repair targets, never deleted.
+        data class RemoteShard(
+            val validEntries: List<StatRecord>,
+            val validIds: List<String>,
+            val preferred: StatsShardMeta?,
+            val repairTarget: StatsShardMeta?,
+            val skipped: Boolean
+        )
+        val metas = drive.listStatsShards()
+            .filter { StatsShards.isStatsShardFileName(it.name) }
+            .sortedWith(compareBy(
+                { StatsShards.shardSortKey(it.name)!!.first },
+                { StatsShards.shardSortKey(it.name)!!.second },
+                { it.fileId }
+            ))
+        val remoteByName = mutableMapOf<String, RemoteShard>()
+        var anyShardSkipped = false
+        for (name in metas.map { it.name }.distinct()) {
+            val files = metas.filter { it.name == name }
+            val validEntries = mutableListOf<StatRecord>()
+            val validIds = mutableListOf<String>()
+            var preferred: StatsShardMeta? = null
+            var repairTarget: StatsShardMeta? = null
+            var skipped = false
+            for (meta in files) {
+                // F5: listing-reported oversize skips the download, not just
+                // the decode — the bytes would only be discarded.
+                if (meta.size != null && meta.size > AppDataDriveStore.MAX_DOMAIN_BYTES) {
+                    skipped = true
+                    continue
+                }
+                val bytes = try {
+                    drive.getStatsShardBytes(meta.fileId)
+                } catch (e: SyncError.Rejected) {
+                    skipped = true
+                    continue
+                } ?: continue // vanished between list and get
+                val parsed = DomainSerializer.parseStats(bytes)
+                if (parsed != null) {
+                    validEntries += parsed.entries
+                    validIds += meta.fileId
+                    if (preferred == null) preferred = meta
+                } else if (DomainSerializer.isFutureEnvelope(bytes)) {
+                    skipped = true
+                } else if (repairTarget == null) {
+                    repairTarget = meta
+                }
+            }
+            if (skipped) anyShardSkipped = true
+            remoteByName[name] = RemoteShard(validEntries, validIds, preferred, repairTarget, skipped)
+        }
+
+        // 3. Deterministic global merge: local, legacy, then shards by name.
+        // Local wins every LWW tie, preserving two-list behavior exactly.
+        val localRecords = localStore.loadByAccount(accountHash).map { it.toRecord() }
+        val ordered = mutableListOf(localRecords, legacyEntries)
+        for (name in remoteByName.keys.sorted()) ordered += remoteByName.getValue(name).validEntries
+        val merged = StatsShards.unionStatsMerge(ordered)
+
+        // 4. Desired shard content per month (never recopies legacy history).
+        val legacyById = StatsShards.indexByEventId(legacyEntries)
+        val months = (StatsShards.monthsIn(merged) +
+            remoteByName.keys.mapNotNull { StatsShards.shardSortKey(it)?.first })
+            .distinct().sorted()
+        val pending = mutableListOf<ShardPut>()
+        for (month in months) {
+            val desired = StatsShards.desiredShardRows(month, merged, legacyById)
+            val chunks = StatsShards.chunkMonthRecords(month, desired)
+            if (chunks.isEmpty()) {
+                // Nothing desired: remote files (stale losers or corrupt) are
+                // left permanently intact — never rewritten empty, never
+                // deleted. Their rows lose LWW by construction.
+                continue
+            }
+            for ((name, rows) in chunks) {
+                val remote = remoteByName[name]
+                val wantSorted = rows.sortedWith(compareBy({ it.day }, { it.eventId }))
+                val remoteSorted = remote?.validEntries?.toMutableList()
+                    ?.also { StatsShards.sortStatsRecords(it) } ?: emptyList()
+                val dupes = (remote?.validIds?.size ?: 0) > 1
+                if (remoteSorted == wantSorted && !dupes) continue
+                val bytes = DomainSerializer.serializeStats(StatsDomain(entries = wantSorted)).toByteArray()
+                DomainSerializer.parseStats(bytes)?.let { parsed ->
+                    if (parsed.entries.size != wantSorted.size ||
+                        parsed.entries.map { it.eventId }.toSet() != wantSorted.map { it.eventId }.toSet()) {
+                        throw SyncError.Rejected("stats shard $name roundtrip key mismatch")
+                    }
+                } ?: throw SyncError.Rejected("stats shard $name roundtrip null")
+                val (expectedVersion, preferredFileId) = when {
+                    remote?.preferred != null -> remote.preferred!!.version to remote.preferred!!.fileId
+                    remote?.repairTarget != null -> remote.repairTarget!!.version to remote.repairTarget!!.fileId
+                    else -> null to null
+                }
+                val extraValidIds = remote?.let { r ->
+                    r.validIds.filter { it != r.preferred?.fileId }
+                } ?: emptyList()
+                pending.add(ShardPut(name, bytes, expectedVersion, preferredFileId, extraValidIds))
+            }
+        }
+
+        val degraded = legacyUnusable || anyShardSkipped
+        if (pending.isEmpty()) {
+            // Converged (or nothing to write): persist merged winners locally
+            // anyway, or a fresh device never materializes pulled data.
+            if (merged.toSet() != localRecords.toSet()) {
+                localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+                advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+                return SyncResult(false, true, skippedCorrupt = degraded, attemptsUsed = attempts)
+            }
+            if (degraded) {
+                return SyncResult(false, false, skippedCorrupt = true, attemptsUsed = attempts)
+            }
+            localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+            advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+            return SyncResult(false, true, attemptsUsed = attempts)
+        }
+
+        // 5. Version-checked upload per chunk (no cross-file atomicity).
+        // NOTE: a StaleVersion from any putStatsShard escapes to the caller,
+        // which retries the whole ledger; live chunks compare equal and skip.
+        for (put in pending) {
+            val uploadedVersion = drive.putStatsShard(put.name, put.bytes, put.expectedVersion, put.preferredFileId)
+            if (!isShardLive(drive, put.name, uploadedVersion)) {
+                throw RetryLedger() // liveness miss: full re-list -> re-merge -> re-put
+            }
+            // Same-name valid duplicates consolidated only after a live PUT.
+            // Corrupt/oversized files remain intact.
+            for (duplicateId in put.extraValidIds) drive.deleteStatsShard(duplicateId)
+        }
+        localStore.applyMergedAndClearDirty(accountHash, deviceId, merged)
+        advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
+        return SyncResult(true, true, skippedCorrupt = degraded, attemptsUsed = attempts)
+    }
+
+    private fun isShardLive(drive: DomainGateway, name: String, uploadedVersion: String): Boolean =
+        try {
+            drive.listStatsShards().any { it.name == name && it.version == uploadedVersion }
+        } catch (e: Exception) {
+            false
+        }
 
     // ------------------------------------------------------------------
     // Settings — per-key LWW over the frozen five keys

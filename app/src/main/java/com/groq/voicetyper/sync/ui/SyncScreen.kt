@@ -215,6 +215,9 @@ fun SyncScreen(
                                         status.secureStorageUnavailable -> "Secure storage unavailable"
                                         status.lastError != null -> "Attention required"
                                         !status.syncEnabled -> "Sync paused"
+                                        // F4 Success-with-warning: converged with
+                                        // skips — synced, with a visible warning.
+                                        status.degraded -> "Synced — some items skipped"
                                         status.lastSyncAtMs != null -> "Connected & Synced"
                                         else -> "Connected"
                                     },
@@ -259,6 +262,15 @@ fun SyncScreen(
                                     status.secureStorageUnavailable ->
                                         "Please restart the app to restore sync"
                                     status.lastError != null -> syncOutcomeMessage(status.lastError)
+                                    // F4: warning styling is informational —
+                                    // never the error color (handled above).
+                                    status.degraded && status.lastSyncAtMs != null -> {
+                                        "Last synced: " + DateFormat.getDateTimeInstance(
+                                            DateFormat.MEDIUM,
+                                            DateFormat.SHORT
+                                        ).format(Date(status.lastSyncAtMs!!)) +
+                                            " · Some items were skipped"
+                                    }
                                     status.lastSyncAtMs != null -> {
                                         "Last synced: " + DateFormat.getDateTimeInstance(
                                             DateFormat.MEDIUM,

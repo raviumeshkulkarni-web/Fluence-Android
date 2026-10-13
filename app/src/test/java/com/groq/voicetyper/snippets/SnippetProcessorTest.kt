@@ -13,6 +13,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -264,15 +265,15 @@ class SnippetProcessorTest {
                 Snippet(2, "my github", "https://github.com/u")
             )
         )
-        val loaded = SnippetPreferences.deserialize(json)
+        val loaded = SnippetPreferences.deserialize(json)!!
         assertEquals(listOf(1L, 2L), loaded.map { it.id })
         assertEquals("my linkedin", loaded[0].trigger)
         assertEquals("https://github.com/u", loaded[1].expansion)
     }
 
     @Test
-    fun `corrupt json body yields an empty list`() {
-        assertEquals(emptyList<Snippet>(), SnippetPreferences.deserialize("not json {{{"))
+    fun `corrupt json body yields null so the caller preserves it aside`() {
+        assertNull(SnippetPreferences.deserialize("not json {{{"))
     }
 
     @Test
@@ -330,6 +331,26 @@ class SnippetProcessorTest {
         SnippetPreferences.deleteSnippet(context, 1)
         val snippets = SnippetPreferences.loadSnippets(context)
         assertEquals(listOf("b"), snippets.map { it.trigger })
+    }
+
+    @Test
+    fun `parallel inserts all survive with unique ids`() {
+        // F3: every snippet writer is a lock-free read-modify-write on one
+        // JSON document. Parallel inserts must neither lose rows nor hand out
+        // the same local id twice — the sync apply pass races these writers
+        // on the UI/background threads in production.
+        val context = contextWith(FakeSharedPreferences())
+        val threads = (0 until 64).map { i ->
+            Thread { SnippetPreferences.saveSnippet(context, "trigger-$i", "expansion-$i") }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(30_000) }
+        val snippets = SnippetPreferences.loadSnippets(context)
+        assertEquals("every parallel insert must survive", 64, snippets.size)
+        assertEquals(
+            "local ids must stay unique under parallel inserts",
+            64, snippets.map { it.id }.toSet().size
+        )
     }
 
     @Test

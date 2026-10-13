@@ -34,6 +34,192 @@ class MergeTest {
         deviceId = deviceId
     )
 
+    private fun snippet(
+        syncId: String,
+        trigger: String,
+        updatedAt: Long,
+        deletedAt: Long? = null,
+        deviceId: String = "device-a",
+        expansion: String = "expand"
+    ) = SnippetRecord(
+        syncId = syncId,
+        businessKey = SnippetRecord.businessKeyOf(trigger),
+        trigger = trigger,
+        expansion = expansion,
+        isEnabled = true,
+        updatedAt = updatedAt,
+        deletedAt = deletedAt,
+        deviceId = deviceId
+    )
+
+    // ------------------------------------------------------------------
+    // Cross-key syncId dedup (audit finding H3 / Phase D) - mirrors the
+    // Windows Rust suite (sync::merge::tests). A rename moves a record's
+    // business key while keeping its syncId; both platforms must collapse
+    // the pre-rename and post-rename winners to one record.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun rename_same_syncId_different_snippet_keys_collapses_to_newest() {
+        val old = snippet("s-rename-1", "my email", updatedAt = 100L)
+        val new = snippet("s-rename-1", "my primary email", updatedAt = 200L)
+        val merged = Merge.mergeSnippets(listOf(new), listOf(old))
+        assertEquals("same syncId under two keys must collapse to one record", 1, merged.size)
+        assertEquals("my primary email", merged[0].trigger)
+    }
+
+    // ------------------------------------------------------------------
+    // H3 rename (delete-old + create-new) - mirrors Windows merge.rs. A
+    // rename retires the old row (tombstone under the OLD key when pushed)
+    // and creates a new row with a FRESH syncId under the NEW key. Both
+    // platforms must agree on every scenario below, in both merge orders.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun rename_tombstone_plus_new_converges_both_orders() {
+        val oldLive = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 100L, deviceId = "b")
+        val oldDead = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 200L, deletedAt = 200L, deviceId = "a")
+        val newLive = dict("22222222-2222-4222-8222-222222222222", "hallo", updatedAt = 200L, deviceId = "a")
+        listOf(
+            Pair(listOf(oldDead, newLive), listOf(oldLive)),
+            Pair(listOf(oldLive), listOf(oldDead, newLive))
+        ).forEach { (local, remote) ->
+            val merged = Merge.mergeDictionaries(local, remote)
+            assertEquals("tombstone(old) + live(new), nothing else", 2, merged.size)
+            val old = merged.single { it.businessKey == "hello" }
+            assertNotNull("the old entry stays dead", old.deletedAt)
+            val new = merged.single { it.businessKey == "hallo" }
+            assertNull(new.deletedAt)
+            assertEquals("fix", new.corrected)
+        }
+    }
+
+    @Test
+    fun rename_repeated_merge_is_stable_and_stale_copies_do_not_resurrect() {
+        val oldDead = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 200L, deletedAt = 200L, deviceId = "a")
+        val newLive = dict("22222222-2222-4222-8222-222222222222", "hallo", updatedAt = 200L, deviceId = "a")
+        val converged = Merge.mergeDictionaries(listOf(oldDead, newLive), emptyList())
+        val stale = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 50L, deviceId = "c")
+        val second = Merge.mergeDictionaries(converged, listOf(stale))
+        assertEquals(2, second.size)
+        assertNotNull(second.single { it.businessKey == "hello" }.deletedAt)
+        assertNull(second.single { it.businessKey == "hallo" }.deletedAt)
+    }
+
+    @Test
+    fun rename_concurrent_same_target_is_deterministic() {
+        val aNew = dict("11111111-1111-4111-8111-111111111111", "hallo", updatedAt = 200L, deviceId = "a", corrected = "A")
+        val bNew = dict("22222222-2222-4222-8222-222222222222", "hallo", updatedAt = 200L, deviceId = "a", corrected = "B")
+        val ab = Merge.mergeDictionaries(listOf(aNew), listOf(bNew))
+        val ba = Merge.mergeDictionaries(listOf(bNew), listOf(aNew))
+        assertEquals(1, ab.size)
+        assertEquals(1, ba.size)
+        assertEquals("both orders agree", ab[0].corrected, ba[0].corrected)
+        assertEquals("larger syncId wins the full tie", "B", ab[0].corrected)
+    }
+
+    @Test
+    fun rename_delete_vs_rename_is_deterministic() {
+        val oldLive = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 100L, deviceId = "b")
+        val renameDead = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 200L, deletedAt = 200L, deviceId = "a")
+        val renameNew = dict("22222222-2222-4222-8222-222222222222", "hallo", updatedAt = 200L, deviceId = "a")
+        val deleteDead = dict("11111111-1111-4111-8111-111111111111", "hello", updatedAt = 300L, deletedAt = 300L, deviceId = "c")
+        listOf(
+            Pair(listOf(renameDead, renameNew), listOf(oldLive, deleteDead)),
+            Pair(listOf(oldLive, deleteDead), listOf(renameDead, renameNew))
+        ).forEach { (local, remote) ->
+            val merged = Merge.mergeDictionaries(local, remote)
+            val old = merged.single { it.businessKey == "hello" }
+            assertNotNull(old.deletedAt)
+            assertEquals("the newest tombstone wins the old key", 300L, old.updatedAt)
+            val new = merged.single { it.businessKey == "hallo" }
+            assertNull("the renamed entry survives the delete", new.deletedAt)
+        }
+    }
+
+    @Test
+    fun rename_same_syncId_different_dictionary_keys_collapses_to_newest() {
+        val old = dict("d-rename-1", "oldword", updatedAt = 100L)
+        val new = dict("d-rename-1", "newword", updatedAt = 200L)
+        val merged = Merge.mergeDictionaries(listOf(new), listOf(old))
+        assertEquals("same syncId under two keys must collapse to one record", 1, merged.size)
+        assertEquals("newword", merged[0].spoken)
+    }
+
+    @Test
+    fun rename_collapse_is_independent_of_merge_side() {
+        val old = dict("d-rename-2", "oldword", updatedAt = 100L)
+        val new = dict("d-rename-2", "newword", updatedAt = 200L)
+        val ab = Merge.mergeDictionaries(listOf(new), listOf(old))
+        val ba = Merge.mergeDictionaries(listOf(old), listOf(new))
+        assertEquals(1, ab.size)
+        assertEquals(1, ba.size)
+        assertEquals(ab[0], ba[0])
+    }
+
+    @Test
+    fun rename_collapse_keeps_newer_tombstone_over_older_live() {
+        val live = dict("d-rename-3", "newword", updatedAt = 100L, deviceId = "device-a")
+        val tomb = dict("d-rename-3", "oldword", updatedAt = 200L, deletedAt = 200L, deviceId = "device-b")
+        val merged = Merge.mergeDictionaries(listOf(live), listOf(tomb))
+        assertEquals(1, merged.size)
+        assertNotNull("the newer tombstone must win even across keys", merged[0].deletedAt)
+    }
+
+    @Test
+    fun rename_collapse_keeps_newer_live_over_older_tombstone() {
+        val tomb = dict("d-rename-4", "oldword", updatedAt = 100L, deletedAt = 100L, deviceId = "device-a")
+        val live = dict("d-rename-4", "newword", updatedAt = 200L, deviceId = "device-b")
+        val merged = Merge.mergeDictionaries(listOf(tomb), listOf(live))
+        assertEquals(1, merged.size)
+        assertNull("the newer live record must win even across keys", merged[0].deletedAt)
+        assertEquals("newword", merged[0].spoken)
+    }
+
+    @Test
+    fun distinct_syncIds_still_yield_distinct_records() {
+        val a = dict("d-distinct-1", "alpha", updatedAt = 100L)
+        val b = dict("d-distinct-2", "beta", updatedAt = 200L)
+        val merged = Merge.mergeDictionaries(listOf(a, b), emptyList())
+        assertEquals(2, merged.size)
+    }
+
+    @Test
+    fun rename_collapse_is_stable_across_repeated_passes() {
+        // First pass collapses the rename; later passes — including one
+        // against a stale pre-rename copy from a device that never saw the
+        // rename — must stay collapsed and converge, never flap back to two.
+        val new = dict("d-repeat-1", "newword", updatedAt = 200L)
+        val old = dict("d-repeat-1", "oldword", updatedAt = 100L)
+        val first = Merge.mergeDictionaries(listOf(new), listOf(old))
+        assertEquals(1, first.size)
+
+        val stale = dict("d-repeat-1", "oldword", updatedAt = 50L, deviceId = "device-c")
+        val second = Merge.mergeDictionaries(first, listOf(stale))
+        assertEquals("a stale pre-rename copy must not resurrect the duplicate", 1, second.size)
+        assertEquals("newword", second[0].spoken)
+
+        val third = Merge.mergeDictionaries(second, emptyList())
+        assertEquals(1, third.size)
+    }
+
+    @Test
+    fun rename_full_tie_keeps_smallest_businessKey() {
+        // Same syncId, same updatedAt, same deviceId under two keys: the
+        // syncId tiebreak is inert inside the group, so determinism comes
+        // from the pre-collapse key sort — smallest business key wins,
+        // matching Windows' BTreeMap order. Practically unreachable (a
+        // rename restamps updatedAt), pinned so the order is total.
+        val old = dict("d-tie-1", "oldword", updatedAt = 100L)
+        val new = dict("d-tie-1", "newword", updatedAt = 100L)
+        val ab = Merge.mergeDictionaries(listOf(new), listOf(old))
+        val ba = Merge.mergeDictionaries(listOf(old), listOf(new))
+        assertEquals(1, ab.size)
+        assertEquals(1, ba.size)
+        assertEquals("newword", ab[0].spoken)
+        assertEquals("newword", ba[0].spoken)
+    }
+
     // ------------------------------------------------------------------
     // Total ordering: a full tie must resolve identically on every device
     // ------------------------------------------------------------------
@@ -160,6 +346,18 @@ class MergeTest {
         assertEquals(smallFuture + 1L, Clock.nextUpdatedAt(wallMs = wall, maxSeen = smallFuture))
     }
 
+    @Test
+    fun clock_stamps_stay_monotone_while_wall_lags_the_floor() {
+        // Post-jump state: the floor sits far ahead of wall. Successive stamps
+        // must not regress (cap binds both calls, wall advance carries them).
+        val wall = 1_000_000L
+        val seen = wall + 30 * 60_000L
+        val s1 = Clock.nextUpdatedAt(wallMs = wall, maxSeen = seen)
+        val s2 = Clock.nextUpdatedAt(wallMs = wall + 1L, maxSeen = seen)
+        assertEquals(wall + Clock.MAX_CLOCK_SKEW_MS, s1)
+        assertTrue("stamps never regress while wall lags the floor", s2 >= s1)
+    }
+
     // ------------------------------------------------------------------
     // businessKey
     // ------------------------------------------------------------------
@@ -244,6 +442,51 @@ class MergeTest {
             listOf(setting("theme", "dark", 1L), setting("haptics_enabled", "true", 1L), setting("language", "en", 1L))
         )
         assertEquals(listOf("language"), merged.map { it.key })
+    }
+
+    @Test
+    fun settings_full_tie_resolves_by_value_larger_wins() {
+        // H2 (Windows parity, merge.rs): same key, same updatedAt, same
+        // deviceId, different value — larger value wins on BOTH merge orders.
+        // Side-dependent outcomes would re-push forever.
+        val local = listOf(setting("language", "en", 100L, dev = "a"))
+        val remote = listOf(setting("language", "fr", 100L, dev = "a"))
+        assertEquals("fr", Merge.mergeSettings(local, remote).single().value)
+        assertEquals("fr", Merge.mergeSettings(remote, local).single().value)
+    }
+
+    @Test
+    fun settings_sentinel_full_tie_resolves_by_value() {
+        // H2: a full tie inside the adoption-sentinel class also resolves by
+        // value — and the winner is the ORIGINAL record, never a copy (the
+        // stored sentinel differs from the effective time, so a copy-based
+        // comparison could mistake the winner).
+        val local = listOf(setting("language", "en", 1700000000000L, dev = "d"))
+        val remote = listOf(setting("language", "fr", 1700000000000L, dev = "d"))
+        val out = Merge.mergeSettings(local, remote).single()
+        assertEquals("fr", out.value)
+        assertEquals(1700000000000L, out.updatedAt)
+        assertEquals("fr", Merge.mergeSettings(remote, local).single().value)
+    }
+
+    @Test
+    fun stats_full_tie_resolves_by_payload_larger_wins() {
+        // H2 (Windows parity, merge.rs): same eventId, same updatedAt, same
+        // deviceId, different payload — larger wordCount wins on BOTH orders.
+        val local = StatRecord("evt-1", "2026-08-20", 100, 84000, updatedAt = 1L, deviceId = "d1")
+        val remote = local.copy(wordCount = 999)
+        assertEquals(999, Merge.mergeStats(listOf(local), listOf(remote)).single().wordCount)
+        assertEquals(999, Merge.mergeStats(listOf(remote), listOf(local)).single().wordCount)
+    }
+
+    @Test
+    fun stats_full_tie_same_day_resolves_by_timestamp_then_words() {
+        // H2: day ties fall through to timestampMs, then wordCount — larger
+        // wins regardless of merge order.
+        val base = StatRecord("evt-2", "2026-08-20", 100, 84000, timestampMs = 100L, updatedAt = 1L, deviceId = "d1")
+        val laterTs = base.copy(timestampMs = 200L)
+        assertEquals(200L, Merge.mergeStats(listOf(base), listOf(laterTs)).single().timestampMs)
+        assertEquals(200L, Merge.mergeStats(listOf(laterTs), listOf(base)).single().timestampMs)
     }
 
     @Test

@@ -41,11 +41,38 @@ object SnippetPreferences {
     private const val KEY_SNIPPETS_ENABLED = "snippets_enabled"
     private const val KEY_SNIPPETS_JSON = "snippets_json"
     private const val JSON_VERSION = 2
+    /** Backup-key prefix for quarantined documents; visible for tests. */
+    internal const val CORRUPT_PREFIX = "snippets_json_corrupt_"
+    /**
+     * High-water mark for local row ids. Merge healing can drop the row
+     * holding the max id (a healed duplicate); without a memory of it, the
+     * next insert would recycle that id and a stale UI/delete reference could
+     * alias the new row. Every write funnels through [write], which only ever
+     * raises this mark; inserts allocate above both the live max and the mark.
+     * Wire identity is the uuid, so skipping a dropped id costs nothing.
+     */
+    private const val KEY_MAX_ID = "snippets_max_id"
 
     const val MAX_TRIGGER_LENGTH = 4096
     const val MAX_EXPANSION_LENGTH = 8192
 
     enum class SaveResult { INSERTED, UPDATED, PRESERVED }
+
+    /**
+     * F3: every writer in this object is a read-modify-write on ONE JSON
+     * document, and the sync apply pass races the UI writers on different
+     * threads. Without serialization a mutation landing between another
+     * writer's read and write is silently lost (parallel inserts proved it:
+     * 64 racing inserts kept 2 rows). This leaf lock serializes every such
+     * span, including the sync store's apply pass (via [withWriteLock]).
+     * `synchronized` is reentrant so nested writers are safe; the lock is a
+     * leaf — never held while acquiring `accountStoreLock` or a Room
+     * transaction — so no lock ordering exists to invert.
+     */
+    private val writeLock = Any()
+
+    /** Run [block] with the snippet write lock held (see [writeLock]). */
+    internal inline fun <T> withWriteLock(block: () -> T): T = synchronized(writeLock, block)
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -63,13 +90,62 @@ object SnippetPreferences {
     fun loadSnippets(context: Context): List<Snippet> {
         val json = getPrefs(context).getString(KEY_SNIPPETS_JSON, null) ?: return emptyList()
         val hash = currentAccountHash(context)
-        return deserialize(json).filter { it.deletedAt == null && belongsToCurrentAccount(it, hash) }
+        return readUsable(context, json).filter { it.deletedAt == null && belongsToCurrentAccount(it, hash) }
     }
 
     /** Every entry — live, tombstoned, latched — for the sync seam. */
     fun allEntries(context: Context): List<Snippet> {
         val json = getPrefs(context).getString(KEY_SNIPPETS_JSON, null) ?: return emptyList()
-        return deserialize(json)
+        return readUsable(context, json)
+    }
+
+    /**
+     * Parse gate shared by every read. [deserialize] returning `null` means
+     * the document is unparseable, so its bytes are preserved aside under a
+     * backup key and the live key is removed — mirroring
+     * `AccountScope.quarantine`. Every writer below reads through
+     * [allEntries], so after quarantine they operate on a genuinely fresh
+     * store instead of persisting an empty read over corrupt bytes (Phase E).
+     *
+     * A parseable document with an unsupported schema version is NOT corrupt:
+     * a newer client owns it (cf. frozen.rs `is_future_envelope` — "it is NOT
+     * corrupt and must never be repaired over"). The live key is left
+     * completely untouched and the read yields empty; quarantining it would
+     * delete a newer build's data and propagate a downgrade to Drive.
+     */
+    private fun readUsable(context: Context, json: String): List<Snippet> {
+        val version = try {
+            JSONObject(json).optInt("v", 0)
+        } catch (_: Exception) {
+            quarantineCorrupt(context, json)
+            return emptyList()
+        }
+        if (version != 1 && version != JSON_VERSION) return emptyList()
+        // Supported version but unreadable body (missing/not-an-array
+        // "snippets", malformed entries section): unambiguously corruption,
+        // since the version gate above already passed. Quarantine like the
+        // unparseable case — returning empty here would let the next write
+        // persist a fresh document straight over the live key.
+        return deserialize(json) ?: run { quarantineCorrupt(context, json); emptyList() }
+    }
+
+    /**
+     * Preserve an unusable document under a `snippets_json_corrupt.N` key and
+     * remove the live key in the same edit, so the next read finds nothing
+     * instead of re-quarantining forever. Same shape as the Windows
+     * `backup_corrupt_account` rotate-aside: one corruption event costs one
+     * entry, and bytes are never silently converted into an empty store.
+     */
+    private fun quarantineCorrupt(context: Context, raw: String) = withWriteLock {
+        // No logcat here: android.util.Log throws in JVM unit tests, and this
+        // path must stay testable. The backup key itself is the record.
+        val prefs = getPrefs(context)
+        var n = 1
+        while (prefs.contains("$CORRUPT_PREFIX$n")) n++
+        prefs.edit()
+            .putString("$CORRUPT_PREFIX$n", raw)
+            .remove(KEY_SNIPPETS_JSON)
+            .apply()
     }
 
     /** Observable user-facing view; background sync imports become visible immediately. */
@@ -92,7 +168,7 @@ object SnippetPreferences {
     }
 
     /** Sync seam: atomically replace the whole collection (§30.2 bulk import). */
-    fun saveAll(context: Context, snippets: List<Snippet>) {
+    fun saveAll(context: Context, snippets: List<Snippet>) = withWriteLock {
         write(context, snippets)
     }
 
@@ -107,7 +183,7 @@ object SnippetPreferences {
      * fresh entry with a NEW sync UUID carries the updated content — one
      * write, no live-content PATCH.
      */
-    fun saveSnippet(context: Context, trigger: String, expansion: String, id: Long = 0L): SaveResult {
+    fun saveSnippet(context: Context, trigger: String, expansion: String, id: Long = 0L): SaveResult = withWriteLock {
         val trimmedTrigger = trigger.trim()
         val trimmedExpansion = expansion.trim()
         if (trimmedTrigger.isEmpty() || trimmedExpansion.isEmpty()) return SaveResult.PRESERVED
@@ -127,7 +203,11 @@ object SnippetPreferences {
         if (duplicate != null) return SaveResult.PRESERVED
 
         if (id == 0L) {
-            val nextId = (all.maxOfOrNull { it.id } ?: 0L) + 1L
+            // Allocate above both the live max and the high-water mark: a
+            // healed duplicate may have held a higher id than any live row.
+            val liveMax = all.maxOfOrNull { it.id } ?: 0L
+            val highWater = getPrefs(context).getLong(KEY_MAX_ID, 0L)
+            val nextId = maxOf(liveMax, highWater) + 1L
             all.add(newSnippet(nextId, trimmedTrigger, trimmedExpansion, context, hash))
             write(context, all)
             return SaveResult.INSERTED
@@ -156,7 +236,7 @@ object SnippetPreferences {
      * Frozen v1.2 delete: a pushed snippet is tombstoned so other devices
      * delete it too; a never-pushed one is provably safe to hard-remove.
      */
-    fun deleteSnippet(context: Context, id: Long) {
+    fun deleteSnippet(context: Context, id: Long) = withWriteLock {
         val all = allEntries(context).toMutableList()
         val index = all.indexOfFirst { it.id == id }
         if (index < 0) return
@@ -203,7 +283,14 @@ object SnippetPreferences {
         snippet.syncAccount == null || snippet.syncAccount == hash
 
     private fun write(context: Context, snippets: List<Snippet>) {
-        getPrefs(context).edit().putString(KEY_SNIPPETS_JSON, serialize(snippets)).apply()
+        // Single choke point for every writer (always under writeLock):
+        // raise the id high-water mark past any id ever stored, then write.
+        val prefs = getPrefs(context)
+        val highWater = prefs.getLong(KEY_MAX_ID, 0L)
+        val liveMax = snippets.maxOfOrNull { it.id } ?: 0L
+        val editor = prefs.edit().putString(KEY_SNIPPETS_JSON, serialize(snippets))
+        if (liveMax > highWater) editor.putLong(KEY_MAX_ID, liveMax)
+        editor.apply()
     }
 
     internal fun serialize(snippets: List<Snippet>): String {
@@ -237,17 +324,18 @@ object SnippetPreferences {
     }
 
     /**
-     * Fail-soft decode: an unreadable document (corruption, future schema,
-     * wrong version) yields an empty list so the transcript passes through
-     * unchanged; a single malformed entry is skipped without discarding the
-     * rest of the collection. v1 documents load unchanged — every metadata
-     * field defaults to null.
+     * Decode, distinguishing unusable documents from empty ones. Returns
+     * `null` when the document cannot be safely used at all — unparseable
+     * JSON or an unsupported schema version — so the caller preserves it
+     * aside instead of treating it as empty (Phase E). A single malformed
+     * entry is still skipped without discarding the rest of the collection;
+     * v1 documents load unchanged — every metadata field defaults to null.
      */
-    internal fun deserialize(json: String): List<Snippet> {
+    internal fun deserialize(json: String): List<Snippet>? {
         return try {
             val root = JSONObject(json)
             val version = root.optInt("v", 0)
-            if (version != 1 && version != JSON_VERSION) return emptyList()
+            if (version != 1 && version != JSON_VERSION) return null
             val array = root.getJSONArray("snippets")
             val result = ArrayList<Snippet>(array.length())
             for (i in 0 until array.length()) {
@@ -278,7 +366,7 @@ object SnippetPreferences {
             }
             result
         } catch (e: JSONException) {
-            emptyList()
+            null
         }
     }
 

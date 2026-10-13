@@ -30,6 +30,38 @@ class SyncSchedulerCoreTest {
     }
 
     @Test
+    fun worstOutcome_degraded_yields_to_real_failures_but_beats_success() {
+        // F4 Success-with-warning parity (Windows PassOutcomeKind::Degraded):
+        // a degraded domain is worse than clean but never hides a domain
+        // that actually failed.
+        val degraded = PassOutcomeKind.DEGRADED
+        assertEquals(degraded, worstOutcome(PassOutcomeKind.SUCCESS, degraded))
+        assertEquals(degraded, worstOutcome(degraded, PassOutcomeKind.SUCCESS))
+        assertEquals(PassOutcomeKind.RETRYABLE, worstOutcome(degraded, PassOutcomeKind.RETRYABLE))
+        assertEquals(PassOutcomeKind.REJECTED, worstOutcome(degraded, PassOutcomeKind.REJECTED))
+        assertEquals(PassOutcomeKind.FATAL, worstOutcome(degraded, PassOutcomeKind.FATAL))
+    }
+
+    @Test
+    fun degraded_advances_last_sync_with_a_clearable_warning() {
+        // Converged-with-skips records lastSyncAtMs like a success (never
+        // stalls it), holds cadence without backoff escalation, and keeps a
+        // visible warning until a clean pass.
+        val core = core()
+        now = 10_000L
+        core.beginPass()
+        core.completePass(PassOutcomeKind.DEGRADED)
+        assertEquals(10_000L, core.lastSyncAtMs)
+        assertEquals(310_000L, core.nextAttemptMs)
+        assertTrue("the warning must stay visible", core.degraded)
+        now = 310_000L
+        core.beginPass()
+        core.completePass(PassOutcomeKind.SUCCESS)
+        assertFalse("the warning clears once a pass is clean", core.degraded)
+        assertEquals(310_000L, core.lastSyncAtMs)
+    }
+
+    @Test
     fun worstOutcome_aggregates_a_mixed_four_domain_pass() {
         val pass = worstOutcome(
             listOf(PassOutcomeKind.SUCCESS, PassOutcomeKind.RETRYABLE, PassOutcomeKind.SUCCESS, PassOutcomeKind.FATAL)

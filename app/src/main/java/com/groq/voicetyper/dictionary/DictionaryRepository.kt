@@ -136,12 +136,20 @@ object DictionaryRepository {
             .filter { belongsToCurrentAccount(it, hash) }
     }
 
-    suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult {
+    suspend fun saveEntry(context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult =
+        saveEntryResolved(getDao(context), context, spokenText, replacementText, isEnabled, id)
+
+    /**
+     * Scheduler-free core of [saveEntry] behind an injectable DAO, mirroring
+     * the `deleteEntryResolved` seam: identical lookup, resolve, insert,
+     * update (including the H3 rename branch below), and persistence, but no
+     * DAO acquisition. Unit tests drive this with a mocked DAO.
+     */
+    internal suspend fun saveEntryResolved(dao: CustomDictionaryDao, context: Context, spokenText: String, replacementText: String, isEnabled: Boolean = true, id: Long = 0): SaveResult {
         val trimmedSpoken = spokenText.trim()
         val trimmedReplacement = replacementText.trim()
         if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return SaveResult.PRESERVED
 
-        val dao = getDao(context)
         val currentHash = runCatching {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
         }.getOrNull()
@@ -178,22 +186,54 @@ object DictionaryRepository {
             SaveAction.UPDATE -> {
                 try {
                     val base = if (targetId == existing?.id) existing else dao.getById(targetId)
-                    dao.update(
-                        (base ?: CustomDictionaryEntry(id = targetId, spokenText = trimmedSpoken, replacementText = trimmedReplacement)).copy(
-                            id = targetId,
-                            spokenText = trimmedSpoken,
-                            replacementText = trimmedReplacement,
-                            isEnabled = isEnabled,
-                            deletedAt = null,
-                             // Re-create after delete is a NEWER state than the
-                             // tombstone under pure LWW - bump updatedAt.
-                             updatedAt = MutationClock.next(context),
-                             deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
-                             dirty = true,
-                            syncState = if (base?.serverFileId != null) "dirty" else base?.syncState ?: "local"
+                    // H3 rename: a spoken-text move changes the sync business
+                    // key. The old row must NOT be edited in place (that keeps
+                    // one syncId across two keys) — retire it and insert the
+                    // renamed entry with a fresh wire identity, mirroring
+                    // Windows `update_dictionary_entry_internal`. The toggle
+                    // state rides with the row (a rename is not a toggle);
+                    // the account partition rides with it too.
+                    if (base != null &&
+                        com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(base.spokenText) !=
+                        com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(trimmedSpoken)
+                    ) {
+                        deleteEntryResolved(dao, base, context)
+                        val now = com.groq.voicetyper.sync.v1.MutationClock.next(context)
+                        dao.insert(
+                            CustomDictionaryEntry(
+                                id = 0,
+                                spokenText = trimmedSpoken,
+                                replacementText = trimmedReplacement,
+                                isEnabled = base.isEnabled,
+                                syncId = java.util.UUID.randomUUID().toString(),
+                                createdAt = now,
+                                updatedAt = now,
+                                deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                                dirty = true,
+                                everPushed = false,
+                                syncAccount = base.syncAccount,
+                                syncState = "local"
+                            )
                         )
-                    )
-                    SaveResult.UPDATED
+                        SaveResult.UPDATED
+                    } else {
+                        dao.update(
+                            (base ?: CustomDictionaryEntry(id = targetId, spokenText = trimmedSpoken, replacementText = trimmedReplacement)).copy(
+                                id = targetId,
+                                spokenText = trimmedSpoken,
+                                replacementText = trimmedReplacement,
+                                isEnabled = isEnabled,
+                                deletedAt = null,
+                                // Re-create after delete is a NEWER state than the
+                                // tombstone under pure LWW - bump updatedAt.
+                                updatedAt = MutationClock.next(context),
+                                deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                                dirty = true,
+                                syncState = if (base?.serverFileId != null) "dirty" else base?.syncState ?: "local"
+                            )
+                        )
+                        SaveResult.UPDATED
+                    }
                 } catch (e: android.database.sqlite.SQLiteConstraintException) {
                     // A concurrent save of the same spokenText won the race between the
                     // getBySpokenText check and this update; the phrase already exists,

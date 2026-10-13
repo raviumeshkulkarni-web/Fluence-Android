@@ -107,10 +107,27 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
     private fun metaPrefs(accountHash: String) =
         context.getSharedPreferences("$META_PREFS$accountHash", Context.MODE_PRIVATE)
 
-    private fun loadMeta(accountHash: String): JSONObject = try {
-        JSONObject(metaPrefs(accountHash).getString(META_KEY, "{}") ?: "{}")
-    } catch (_: Exception) {
-        JSONObject()
+    private fun loadMeta(accountHash: String): JSONObject {
+        val raw = metaPrefs(accountHash).getString(META_KEY, null) ?: return JSONObject()
+        return try {
+            JSONObject(raw)
+        } catch (_: Exception) {
+            // Derived bookkeeping only, but its bytes are still evidence:
+            // preserve aside under a backup key and reset to fresh baselines
+            // instead of overwriting the corrupt document (Phase E).
+            quarantineMeta(accountHash, raw)
+            JSONObject()
+        }
+    }
+
+    private fun quarantineMeta(accountHash: String, raw: String) {
+        val prefs = metaPrefs(accountHash)
+        var n = 1
+        while (prefs.contains("$META_CORRUPT_PREFIX$n")) n++
+        prefs.edit()
+            .putString("$META_CORRUPT_PREFIX$n", raw)
+            .remove(META_KEY)
+            .apply()
     }
 
     private fun saveMeta(accountHash: String, meta: JSONObject) {
@@ -241,6 +258,7 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
     companion object {
         const val META_PREFS = "fluence_sync_settings"
         const val META_KEY = "lww_meta"
+        const val META_CORRUPT_PREFIX = "lww_meta_corrupt_"
         const val KEY_AI_POLISH_STYLE = "ai_polish_style"
         private const val ACTIVATION_BASELINE_KEY = "__activation_baseline"
     }

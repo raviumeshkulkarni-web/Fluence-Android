@@ -176,34 +176,84 @@ object V1Stores {
             // its three defects for no benefit: it failed OPEN
             // (`ownerOf(...) ?: return false`), it only saw claims made on the
             // same device, and it stranded records across an account rename.
-            AccountScope.saveAgents(
-                context, hash,
-                merged.map { rec ->
-                    AccountScope.AccountAgent(
-                        id = rec.businessKey,
-                        name = rec.name,
-                        hint = rec.hint,
-                        syncId = rec.syncId,
-                        updatedAt = rec.updatedAt,
-                        deviceId = rec.deviceId,
-                        // Tombstone state comes from the WINNER alone.
-                        //
-                        // The old `rec.deletedAt ?: prior?.deletedAt` grafted a
-                        // LOSING local `deletedAt` onto the winning record, so a
-                        // newer live winner was persisted as a tombstone no
-                        // device ever produced. Because the local side wins a
-                        // timestamp tie, each later pass re-PUT that fabricated
-                        // tombstone; it can then reach the peer and delete a
-                        // record there. The winner already carries the correct
-                        // state because it IS the LWW result.
-                        deletedAt = rec.deletedAt,
-                        // Merged back in: already in the sync state, so clean.
-                        // Without this the flag would survive the merge and
-                        // every pass would re-upload the row.
-                        dirty = false
-                    )
+            //
+            // RECONCILE (mirror of Windows `AgentDirtyStore::save_merged`):
+            // `merged` is this pass's LWW result, computed from a snapshot taken
+            // BEFORE the Drive round trip. A local create/edit/delete that landed
+            // meanwhile exists only in the local store, so writing `merged`
+            // wholesale destroyed it - a row created during a pass ended up in no
+            // store at all. The current rows are therefore re-read INSIDE
+            // `accountStoreLock`, which every local account writer also takes, so
+            // nothing can interleave between the check and the write.
+            synchronized(AccountScope.accountStoreLock) {
+                val current = AccountScope.loadAgents(context, hash)
+                val winners = merged.associateBy { it.businessKey }
+                val surviving = mutableListOf<AccountScope.AccountAgent>()
+                for (e in current) {
+                    val winner = winners[e.id]
+                    when {
+                        // No winner for this id: a row created during the pass.
+                        // Keep it exactly as stored - dirty flag included - so the
+                        // next pass uploads it.
+                        winner == null -> surviving += e
+                        // Keep a row whose mutation is not uploaded yet. `dirty`
+                        // is the signal, not the timestamp: a local edit does not
+                        // restamp `updatedAt` (that belongs to the next pass), so
+                        // it still carries its pre-edit revision and would lose any
+                        // pure LWW comparison to the payload just uploaded. Once
+                        // the content EQUALS the winner, this edit IS what was
+                        // uploaded, so the winner is authoritative and the row is
+                        // written back clean - without that check the flag would
+                        // re-upload on every pass forever.
+                        else -> {
+                            val alreadyUploaded = e.name == winner.name &&
+                                e.hint == winner.hint &&
+                                e.deletedAt == winner.deletedAt
+                            if (e.toLocal(hash, deviceId).dirty && !alreadyUploaded) {
+                                surviving += e
+                            }
+                        }
+                    }
                 }
-            )
+                val winnerKeys = merged.map { it.businessKey }.toSet()
+                // Never-pushed tombstone purge - identical to the Windows store:
+                // drop a tombstone only when it has NO counterpart in this
+                // pass's payload (created and deleted while never synced, so it
+                // carries nothing a peer could need). A tombstone whose record
+                // WAS pushed must survive, or the next pass resurrects it.
+                val kept = surviving.filterNot { e ->
+                    e.deletedAt != null && e.syncId.isNullOrEmpty() && e.id !in winnerKeys
+                }
+                val keptIds = kept.map { it.id }.toSet()
+                AccountScope.saveAgents(
+                    context, hash,
+                    kept + merged.filter { it.businessKey !in keptIds }.map { rec ->
+                        AccountScope.AccountAgent(
+                            id = rec.businessKey,
+                            name = rec.name,
+                            hint = rec.hint,
+                            syncId = rec.syncId,
+                            updatedAt = rec.updatedAt,
+                            deviceId = rec.deviceId,
+                            // Tombstone state comes from the WINNER alone.
+                            //
+                            // The old `rec.deletedAt ?: prior?.deletedAt` grafted a
+                            // LOSING local `deletedAt` onto the winning record, so a
+                            // newer live winner was persisted as a tombstone no
+                            // device ever produced. Because the local side wins a
+                            // timestamp tie, each later pass re-PUT that fabricated
+                            // tombstone; it can then reach the peer and delete a
+                            // record there. The winner already carries the correct
+                            // state because it IS the LWW result.
+                            deletedAt = rec.deletedAt,
+                            // Merged back in: already in the sync state, so clean.
+                            // Without this the flag would survive the merge and
+                            // every pass would re-upload the row.
+                            dirty = false
+                        )
+                    }
+                )
+            }
         }
     }
 
@@ -270,26 +320,56 @@ object V1Stores {
             // See the agents counterpart above for the full rationale; styles
             // have the same provenance guarantee via
             // `fluence/v1/acct-<hash>/styles.json`.
-            AccountScope.saveStyles(
-                context, hash,
-                merged.map { rec ->
-                    AccountScope.AccountStyle(
-                        id = rec.businessKey,
-                        name = rec.name,
-                        hint = rec.hint,
-                        syncId = rec.syncId,
-                        updatedAt = rec.updatedAt,
-                        deviceId = rec.deviceId,
-                        // Winner-only tombstone state; see the agents counterpart
-                        // for why a losing `deletedAt` must never be grafted on.
-                        deletedAt = rec.deletedAt,
-                        // Merged back in: already in the sync state, so clean.
-                        // Without this the flag would survive the merge and
-                        // every pass would re-upload the row.
-                        dirty = false
-                    )
+            //
+            // RECONCILE: identical rule to the agents counterpart - re-read the
+            // current rows inside `accountStoreLock` and keep any row whose
+            // mutation is not uploaded yet, instead of overwriting it with the
+            // pass's pre-network snapshot.
+            synchronized(AccountScope.accountStoreLock) {
+                val current = AccountScope.loadStyles(context, hash)
+                val winners = merged.associateBy { it.businessKey }
+                val surviving = mutableListOf<AccountScope.AccountStyle>()
+                for (e in current) {
+                    val winner = winners[e.id]
+                    when {
+                        winner == null -> surviving += e
+                        else -> {
+                            val alreadyUploaded = e.name == winner.name &&
+                                e.hint == winner.hint &&
+                                e.deletedAt == winner.deletedAt
+                            if (e.toLocal(hash, deviceId).dirty && !alreadyUploaded) {
+                                surviving += e
+                            }
+                        }
+                    }
                 }
-            )
+                val winnerKeys = merged.map { it.businessKey }.toSet()
+                // Never-pushed tombstone purge; see the agents counterpart.
+                val kept = surviving.filterNot { e ->
+                    e.deletedAt != null && e.syncId.isNullOrEmpty() && e.id !in winnerKeys
+                }
+                val keptIds = kept.map { it.id }.toSet()
+                AccountScope.saveStyles(
+                    context, hash,
+                    kept + merged.filter { it.businessKey !in keptIds }.map { rec ->
+                        AccountScope.AccountStyle(
+                            id = rec.businessKey,
+                            name = rec.name,
+                            hint = rec.hint,
+                            syncId = rec.syncId,
+                            updatedAt = rec.updatedAt,
+                            deviceId = rec.deviceId,
+                            // Winner-only tombstone state; see the agents counterpart
+                            // for why a losing `deletedAt` must never be grafted on.
+                            deletedAt = rec.deletedAt,
+                            // Merged back in: already in the sync state, so clean.
+                            // Without this the flag would survive the merge and
+                            // every pass would re-upload the row.
+                            dirty = false
+                        )
+                    }
+                )
+            }
         }
     }
 
@@ -322,6 +402,38 @@ fun decideDictionaryApply(currentUpdatedAt: Long?, currentDeviceId: String?, cur
 }
 
 /**
+ * Phase D (audit finding H3) — superseded-row selection for the dictionary
+ * apply pass. The merge collapse drops a same-`syncId` loser that sits under
+ * a different business key (rename), but the sync-id-keyed hard-delete in
+ * [RoomDictionaryV1Store.applyMergedAndClearDirty] only removes rows whose
+ * `syncId` is ABSENT from the merge — the superseded row's `syncId` is
+ * present (the winner shares it), so without this rule it survives locally
+ * forever as a visible duplicate while Drive converges. Selects clean rows
+ * whose `syncId` is in the merge but whose business key is not: those lost
+ * the collapse. Dirty rows are never selected — a mid-pass mutation rides
+ * the next PUT (H5 invariant). Quarantined rows are never selected either:
+ * they are held for recovery, excluded from the merge input
+ * (`excludeQuarantined`), and must not be destroyed by a reconcile that never
+ * saw them. Input is `dao.getAllByAccount(hash)`, already account-scoped, so
+ * no ownership clause is needed here.
+ *
+ * Snippet asymmetry note: snippets have no quarantine exclusion in their
+ * load path, so a quarantined snippet enters the merge normally and needs no
+ * equivalent guard in [decideSnippetSupersededDrops].
+ */
+fun decideDictionarySupersededDeletions(
+    existing: List<com.groq.voicetyper.dictionary.data.CustomDictionaryEntry>,
+    merged: List<DictionaryRecord>
+): List<com.groq.voicetyper.dictionary.data.CustomDictionaryEntry> {
+    val mergedIds = merged.map { it.syncId }.toSet()
+    val mergedKeys = merged.map { it.businessKey }.toSet()
+    return existing.filter { row ->
+        !row.dirty && row.quarantineReason == null && row.syncId in mergedIds &&
+            DictionaryRecord.businessKeyOf(row.spokenText) !in mergedKeys
+    }
+}
+
+/**
  * Pure retention decision for the snippet apply pass (dictionary-store
  * parity). Rows owned by a DIFFERENT account survive untouched (they belong
  * to a previous sign-in and must never be dropped by this account's pass);
@@ -338,6 +450,31 @@ fun decideSnippetRetention(local: List<Snippet>, mergedIds: Set<String>, current
             sid == null || s.dirty -> true
             else -> sid in mergedIds
         }
+    }
+}
+
+/**
+ * Phase D (audit finding H3) — snippet counterpart of
+ * [decideDictionarySupersededDeletions]. [decideSnippetRetention] keeps any
+ * row whose sync id is present in the merge, so a same-`syncId` loser under
+ * a pre-rename trigger (whose id the collapse winner shares) would survive
+ * locally forever as a visible duplicate. Drops clean current-account rows
+ * whose sync id is merged but whose trigger key is not. Dirty rows survive
+ * (mid-pass edit rides the next PUT — H5 invariant); foreign-account rows
+ * and rows without wire identity are untouched.
+ */
+fun decideSnippetSupersededDrops(
+    kept: List<Snippet>,
+    merged: List<SnippetRecord>,
+    currentAccountHash: String
+): List<Snippet> {
+    val mergedIds = merged.map { it.syncId }.toSet()
+    val mergedKeys = merged.map { it.businessKey }.toSet()
+    return kept.filterNot { s ->
+        s.quarantineReason == null &&
+            s.syncAccount == currentAccountHash && !s.dirty &&
+            s.effectiveSyncId() in mergedIds &&
+            SnippetRecord.businessKeyOf(s.trigger) !in mergedKeys
     }
 }
 
@@ -421,7 +558,6 @@ class RoomDictionaryV1Store(
         merged: List<DictionaryRecord>
     ) = db.withTransaction {
         val existing = dao.getAllByAccount(hash)
-        val bySyncId = existing.associateBy { it.syncId }
         // Replace only clean rows that lost the merge. A dirty row may have
         // been created or edited after the pre-pass snapshot; retaining it is
         // required so a successful network pass cannot erase a concurrent
@@ -432,6 +568,17 @@ class RoomDictionaryV1Store(
                 dao.hardDeleteBySyncId(row.syncId ?: continue)
             }
         }
+        // Phase D (H3): drop clean superseded rows — same syncId as the
+        // winner, loser business key (rename). Deleted by row id:
+        // hardDeleteBySyncId would also remove the survivor sharing the id.
+        // The survivor view is re-read afterwards so the apply loop below
+        // indexes post-delete rows only and cannot resurrect the ghost
+        // through a stale `bySyncId` reference (which would `update` a
+        // deleted row into a no-op and skip writing the winner).
+        for (row in decideDictionarySupersededDeletions(existing, merged)) {
+            dao.deleteById(row.id)
+        }
+        val bySyncId = dao.getAllByAccount(hash).associateBy { it.syncId }
         val skipClear = mutableSetOf<String>()
         val appliedIds = mutableListOf<String>()
         for (rec in merged) {
@@ -561,6 +708,11 @@ class RoomStatV1Store(
             // local row. Event ids are unique in the legacy Room schema.
             if (before?.accountHash != null && before.accountHash != hash) continue
 
+            // Shard-unroutable rows (malformed `day`, no valid UTC month) can
+            // never be uploaded to a month shard. They stay in the local
+            // ledger for the dashboard, permanently dirty — never clean.
+            val routable = StatsShards.monthOfDay(rec.day) != null
+
             // A local edit made after the GET→PUT snapshot still wins if its
             // LWW stamp is newer (or ties on the device id). Otherwise the
             // merged remote winner must replace the stale dirty row; INSERT
@@ -582,19 +734,19 @@ class RoomStatV1Store(
                 deletedAt = rec.deletedAt,
                 deviceId = rec.deviceId,
                 accountHash = hash,
-                dirty = false,
-                everPushed = true,
+                dirty = !routable,
+                everPushed = routable,
                 chars = rec.chars,
                 timestampMs = rec.timestampMs
             )
             if (before == null) {
                 if (statDao.insertIgnore(replacement) != -1L) {
                     // newly inserted
-                    toClear.add(rec.eventId)
+                    if (routable) toClear.add(rec.eventId)
                 }
             } else {
                 statDao.insert(replacement)
-                toClear.add(rec.eventId)
+                if (routable) toClear.add(rec.eventId)
             }
         }
         if (toClear.isNotEmpty()) {
@@ -687,7 +839,11 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
 
     override suspend fun loadByAccount(hash: String): List<V1SyncEngine.SnippetLocal> =
         SnippetPreferences.allEntries(context)
-            .filter { it.syncAccount == hash }
+            // Contract defense (dictionary excludeQuarantined parity):
+            // quarantined rows are held for recovery and must be impossible
+            // to serialize via the sync store even if a future writer stamps
+            // quarantineReason on an entry.
+            .filter { it.syncAccount == hash && it.quarantineReason == null }
             .map { s ->
                 V1SyncEngine.SnippetLocal(
                     syncId = s.effectiveSyncId() ?: "",
@@ -705,6 +861,9 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
             }
 
     override suspend fun stampUnstamped(hash: String) {
+        // Serialized with every other snippet writer (F3 write lock): the
+        // read-compute-write below must not interleave with a UI insert.
+        SnippetPreferences.withWriteLock {
         val all = SnippetPreferences.allEntries(context)
         val needsStamp = all.any {
             it.syncAccount == null ||
@@ -727,6 +886,7 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
                 )
             } else s
         })
+        }
     }
 
     override suspend fun hasDirty(hash: String): Boolean =
@@ -737,12 +897,27 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
         deviceId: String,
         merged: List<SnippetRecord>
     ) {
+        // Serialized with every other snippet writer (F3 write lock): a UI
+        // insert landing between the read below and the wholesale write would
+        // otherwise be silently lost.
+        SnippetPreferences.withWriteLock {
         val all = SnippetPreferences.allEntries(context)
         // Retention first (decideSnippetRetention): foreign-account rows and
         // unsynced/dirty rows survive untouched; current-account clean rows
         // absent from the merge were tombstoned elsewhere and are dropped.
-        val kept = decideSnippetRetention(all, merged.map { it.syncId }.toSet(), hash).toMutableList()
-        var nextFree = ((kept.maxOfOrNull { it.id } ?: 0L)) + 1L
+        // Phase D (H3): then drop clean superseded rows — same syncId as the
+        // winner under a pre-rename trigger — which retention alone would keep
+        // because their sync id is present in the merge.
+        val kept = decideSnippetSupersededDrops(
+            decideSnippetRetention(all, merged.map { it.syncId }.toSet(), hash),
+            merged,
+            hash
+        ).toMutableList()
+        // Local ids are never reused: derive nextFree from the PRE-drop id
+        // space, not the kept rows. A healed duplicate can hold the max id;
+        // deriving from kept would hand its id to the next insert. Wire
+        // identity is the uuid, so skipping the dropped id is free.
+        var nextFree = ((all.maxOfOrNull { it.id } ?: 0L)) + 1L
         for (rec in merged) {
             val idx = kept.indexOfFirst { it.effectiveSyncId() == rec.syncId }
             if (idx >= 0) {
@@ -782,5 +957,6 @@ class PrefsSnippetV1Store(private val context: Context) : V1SyncEngine.SnippetV1
             }
         }
         SnippetPreferences.saveAll(context, kept)
+        }
     }
 }

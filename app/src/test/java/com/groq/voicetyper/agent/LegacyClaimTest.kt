@@ -840,13 +840,29 @@ class LegacyClaimTest {
     }
 
     /**
-     * A stale merge through the REAL `applyMergedAndClearDirty` discards the
-     * claimed row — and the record stays recoverable, because the claim copied
-     * rather than moved it. This is what makes the residual race safe without
-     * touching general B2/R1.
+     * A stale merge through the REAL `applyMergedAndClearDirty` now PRESERVES
+     * the claimed row.
+     *
+     * This test previously pinned the opposite: that the pass discarded a row
+     * claimed while it was on the network, with the un-removed legacy copy
+     * acting as the recovery path ("B2/R1 remains open on Android"). The merge
+     * writer now reconciles against the current local rows instead of
+     * wholesale-deleting clean rows it considers superseded, and a claimed row
+     * is dirty with no wire identity, so it is never selected as a superseded
+     * deletion at all (audit finding H5). The claim therefore survives the pass
+     * itself.
+     *
+     * The recovery property did NOT go away — it changed shape. It is no longer
+     * "the record can be claimed again after the merge drops it", it is "the
+     * merge never drops it, and the board does not offer a second claim for a
+     * row this device already owns". The legacy copy is still never removed on
+     * claim success and remains the fallback for any other drop path.
+     *
+     * Mirrors the Windows `a_stale_real_merge_now_preserves_the_claim`
+     * (src-tauri/src/sync/stores.rs).
      */
     @Test
-    fun a_stale_real_android_merge_that_drops_a_claim_leaves_it_recoverable() =
+    fun a_stale_real_android_merge_now_preserves_the_claim() =
         signedInAs(emailA) {
             val s = store()
             seedLegacyAgents(s, a1)
@@ -860,15 +876,35 @@ class LegacyClaimTest {
                 com.groq.voicetyper.sync.v1.V1Stores.agentStore(s.context())
                     .applyMergedAndClearDirty(hashA, "test-device", emptyList())
             }
+
+            // The claim survives the stale merge that omitted it.
+            val survived = AccountScope.loadAgents(s.context(), hashA).firstOrNull { it.id == a1 }
+            assertNotNull(
+                "the claimed row must survive a stale merge that omitted it",
+                survived
+            )
             assertTrue(
-                "precondition: the stale merge discarded the claimed row",
-                AccountScope.loadAgents(s.context(), hashA).none { it.id == a1 }
+                "and it stays dirty, so the next pass uploads it instead of " +
+                    "stamping a never-pushed row as synced",
+                survived!!.dirty
             )
 
-            // Not lost: visible again and claimable.
+            // Not lost either way: the claim COPIES, so the legacy record is
+            // still there and remains the fallback for other drop paths.
             assertTrue((rawLegacyAgents(s) ?: "").contains(a1))
+
+            // No second claim is offered for a row this device already owns:
+            // it is reported as already-theirs rather than re-claimed, which
+            // would duplicate it in the account store.
             val retry = AgentPreferences.claimLegacyAgents(s.context(), setOf(a1))
-            assertTrue("the record can be claimed again", retry.claimedIds.contains(a1))
+            assertTrue(
+                "a row this device owns must not be claimed a second time",
+                retry.claimedIds.none { it == a1 }
+            )
+            assertTrue(
+                "an already-owned row is reported as skipped, not refused",
+                retry.skippedIds.contains(a1)
+            )
         }
 
     // ================================================================

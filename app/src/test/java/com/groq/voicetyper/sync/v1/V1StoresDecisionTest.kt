@@ -148,6 +148,69 @@ class SnippetRetentionTest {
     }
 }
 
+class SnippetSupersededDropTest {
+
+    private val hash = "acct-1"
+
+    private fun snippet(
+        uuid: String?,
+        trigger: String,
+        syncAccount: String? = hash,
+        dirty: Boolean = false,
+        id: Long = 1L
+    ) = Snippet(
+        id = id,
+        trigger = trigger,
+        expansion = "hi",
+        uuid = uuid,
+        createdAt = 900L,
+        updatedAt = 1000L,
+        syncAccount = syncAccount,
+        dirty = dirty
+    )
+
+    private fun rec(syncId: String, trigger: String) = SnippetRecord(
+        syncId = syncId,
+        businessKey = SnippetRecord.businessKeyOf(trigger),
+        trigger = trigger,
+        expansion = "hi",
+        isEnabled = true,
+        updatedAt = 500L,
+        deletedAt = null,
+        deviceId = "d"
+    )
+
+    @Test
+    fun cleanGhostWithWinnerSyncIdButLoserTriggerIsDropped() {
+        val kept = listOf(
+            snippet(uuid = "s-1", trigger = "my email", id = 1L),
+            snippet(uuid = "s-1", trigger = "my primary email", id = 2L)
+        )
+        val out = decideSnippetSupersededDrops(kept, listOf(rec("s-1", "my primary email")), hash)
+        assertEquals(listOf(2L), out.map { it.id })
+    }
+
+    @Test
+    fun dirtyGhostSurvivesForNextPut() {
+        val kept = listOf(
+            snippet(uuid = "s-1", trigger = "my email", dirty = true, id = 1L),
+            snippet(uuid = "s-1", trigger = "my primary email", id = 2L)
+        )
+        val out = decideSnippetSupersededDrops(kept, listOf(rec("s-1", "my primary email")), hash)
+        assertEquals(listOf(1L, 2L), out.map { it.id })
+    }
+
+    @Test
+    fun foreignAccountAndIdentitylessRowsUntouched() {
+        val kept = listOf(
+            snippet(uuid = "s-1", trigger = "other", syncAccount = "other-account", id = 3L),
+            snippet(uuid = null, trigger = "other", id = 4L)
+        )
+        val out = decideSnippetSupersededDrops(kept, listOf(rec("s-1", "mine")), hash)
+        assertEquals(listOf(3L, 4L), out.map { it.id })
+    }
+}
+
 class SettingsApplyDecisionTest {
 
     @Test
@@ -176,7 +239,6 @@ class SettingsApplyDecisionTest {
 }
 
 class DictionaryLoadFilterTest {
-
     @Test
     fun quarantinedRowExcludedFromSyncStoreLoad() {
         val clean = CustomDictionaryEntry(
@@ -190,5 +252,100 @@ class DictionaryLoadFilterTest {
         val out = excludeQuarantined(listOf(clean, quarantined))
         assertEquals(listOf("u-clean"), out.map { it.syncId })
         assertFalse(out.any { it.quarantineReason != null })
+    }
+}
+
+class DictionarySupersededDeletionTest {
+
+    private fun entry(id: Long, spoken: String, syncId: String?, dirty: Boolean = false) =
+        CustomDictionaryEntry(
+            id = id,
+            spokenText = spoken,
+            replacementText = "x",
+            syncId = syncId,
+            syncAccount = "hash",
+            dirty = dirty
+        )
+
+    private fun rec(syncId: String, spoken: String) = DictionaryRecord(
+        syncId = syncId,
+        businessKey = DictionaryRecord.businessKeyOf(spoken),
+        spoken = spoken,
+        corrected = "x",
+        isEnabled = true,
+        updatedAt = 200L,
+        deletedAt = null,
+        deviceId = "d"
+    )
+
+    @Test
+    fun cleanGhostWithWinnerSyncIdButLoserKeyIsSelected() {
+        // Phase D (H3): "my email" was renamed to "my primary email", keeping
+        // syncId "s-1". The merge holds only the winner; the stale row must
+        // be selected for deletion or it stays visible forever.
+        val existing = listOf(
+            entry(id = 1L, spoken = "my email", syncId = "s-1"),
+            entry(id = 2L, spoken = "my primary email", syncId = "s-1")
+        )
+        val out = decideDictionarySupersededDeletions(existing, listOf(rec("s-1", "my primary email")))
+        assertEquals(listOf(1L), out.map { it.id })
+    }
+
+    @Test
+    fun dirtyGhostSurvivesForNextPut() {
+        // H5 invariant: a mid-pass edit of the stale row rides the next PUT
+        // instead of being dropped by the collapse reconcile.
+        val existing = listOf(
+            entry(id = 1L, spoken = "my email", syncId = "s-1", dirty = true),
+            entry(id = 2L, spoken = "my primary email", syncId = "s-1")
+        )
+        val out = decideDictionarySupersededDeletions(existing, listOf(rec("s-1", "my primary email")))
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun survivorAndUnrelatedRowsAreNeverSelected() {
+        val existing = listOf(
+            entry(id = 2L, spoken = "my primary email", syncId = "s-1"),
+            entry(id = 3L, spoken = "other", syncId = "s-9")
+        )
+        val out = decideDictionarySupersededDeletions(
+            existing,
+            listOf(rec("s-1", "my primary email"), rec("s-9", "other"))
+        )
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun rowAbsentFromMergeIsLeftToTheSyncIdLoop() {
+        // syncId not in the merge at all: the pre-existing sync-id-keyed
+        // hard-delete owns that case, not the supersede rule.
+        val existing = listOf(entry(id = 1L, spoken = "gone", syncId = "s-gone"))
+        val out = decideDictionarySupersededDeletions(existing, listOf(rec("s-1", "kept")))
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun keyComparisonIsCaseInsensitive() {
+        // Same business key modulo case/whitespace is the survivor, not a ghost.
+        val existing = listOf(entry(id = 1L, spoken = "  MY EMAIL ", syncId = "s-1"))
+        val out = decideDictionarySupersededDeletions(existing, listOf(rec("s-1", "my email")))
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun quarantinedGhostIsNeverSelected() {
+        // Quarantined rows are held for recovery and excluded from the merge
+        // input — a reconcile that never saw them must not hard-delete them,
+        // even when they match the supersede shape exactly.
+        val quarantined = entry(id = 1L, spoken = "my email", syncId = "s-1").copy(
+            quarantineReason = "collision"
+        )
+        val existing = listOf(
+            quarantined,
+            entry(id = 2L, spoken = "my primary email", syncId = "s-1")
+        )
+        val out = decideDictionarySupersededDeletions(existing, listOf(rec("s-1", "my primary email")))
+        assertTrue(out.isEmpty())
     }
 }

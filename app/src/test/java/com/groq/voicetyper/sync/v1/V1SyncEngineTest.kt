@@ -56,6 +56,33 @@ class V1SyncEngineTest {
         }
 
         fun failNextPutWithStaleVersion(live: String?) = staleInjections.addLast(live)
+
+        // ---- Minimal Stats-shard support (single-file legacy fakes stay legacy-only) ----
+        /** name -> (bytes, version); file id is derived as "id-$name". */
+        val shardStore = mutableMapOf<String, Pair<ByteArray, String>>()
+        /** (name, bytes, expectedVersion) per putStatsShard attempt. */
+        val shardPuts = mutableListOf<Triple<String, ByteArray, String?>>()
+        private var shardVersionSeq = 0
+
+        override fun listStatsShards(): List<StatsShardMeta> =
+            shardStore.map { (name, v) -> StatsShardMeta(name, "id-$name", v.second) }
+
+        override fun getStatsShardBytes(fileId: String): ByteArray? =
+            shardStore.entries.firstOrNull { "id-${it.key}" == fileId }?.value?.first?.copyOf()
+
+        override fun putStatsShard(
+            name: String,
+            bytes: ByteArray,
+            expectedVersion: String?,
+            preferredFileId: String?
+        ): String {
+            check(StatsShards.isStatsShardFileName(name)) { "test fake guards shard names" }
+            shardVersionSeq++
+            val v = "sv-$shardVersionSeq"
+            shardStore[name] = bytes.copyOf() to v
+            shardPuts.add(Triple(name, bytes.copyOf(), expectedVersion))
+            return v
+        }
     }
 
     /** Drive that never reflects a PUT on the next GET (eventual-consistency lag). */
@@ -294,13 +321,16 @@ class V1SyncEngineTest {
         assertFalse(sRes.skippedCorrupt)
         assertEquals("11", sDrive.putVersions.single())
 
-        // Stats
+        // Stats (sharded: corrupt LEGACY is never repaired; local rows route
+        // to the month shard, and the pass is degraded while shards succeed).
         val stStore = FakeStatStore().apply { rows += StatRecord(uuidOf("e1"), "2026-08-30", 10, 100, 200, "d") }
         val stDrive = FakeDrive(bytes = "{ not json".toByteArray(), version = "13")
         val stRes = V1SyncEngine.syncStats(stStore, stDrive, "hash", "device-a", MaxSeenRef(0L))
         assertTrue(stRes.uploaded)
-        assertFalse(stRes.skippedCorrupt)
-        assertEquals("13", stDrive.putVersions.single())
+        assertTrue("corrupt frozen legacy degrades the pass", stRes.skippedCorrupt)
+        assertEquals("legacy stats.json is never rewritten", 0, stDrive.putCount)
+        assertEquals(listOf("stats-2026-08.json"), stDrive.shardPuts.map { it.first })
+        assertEquals(null, stDrive.shardPuts.single().third)
 
         // Settings
         val setStore = FakeSettingsStore(mutableMapOf("language" to ("en" to 100L)))

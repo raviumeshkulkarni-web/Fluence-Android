@@ -254,7 +254,7 @@ class AppDataDriveStore(
         var pageToken: String? = null
         do {
             val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
-            call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version),nextPageToken&pageSize=1000$token")).use { resp ->
+            call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version,size),nextPageToken&pageSize=1000$token")).use { resp ->
                 val body = resp.body?.string().orEmpty()
                 classify(resp, resp.code) { body }
                 val page = parseFileListLite(body)
@@ -268,12 +268,12 @@ class AppDataDriveStore(
             if (targetName == dictName) {
                 val first = all.firstOrNull { it.name == dictName }
                 if (first != null) {
-                    val dup = FileMetaLite("${first.fileId}-dup", first.name, "999")
+                    val dup = FileMetaLite("${first.fileId}-dup", first.name, "999", first.size)
                     android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate listDomainFile: cloning ${first.fileId} -> ${dup.fileId}")
                     all.add(dup)
                 } else if (all.isNotEmpty()) {
                     val f = all[0]
-                    val dup = FileMetaLite("${f.fileId}-dup", f.name, "999")
+                    val dup = FileMetaLite("${f.fileId}-dup", f.name, "999", f.size)
                     android.util.Log.w("FluenceSync", "FAULT INJECTED duplicate listDomainFile: cloning ${f.fileId} -> ${dup.fileId}")
                     all.add(dup)
                 } else {
@@ -286,6 +286,114 @@ class AppDataDriveStore(
             }
         }
         return all
+    }
+
+    /**
+     * List ALL files in the v1 folder (no name predicate), paginated.
+     * Stats shard discovery filters this by [StatsShards.isStatsShardFileName];
+     * exact-name domains keep using [listDomainFile] so old behavior is
+     * untouched.
+     */
+    private fun listV1FilesAll(): List<FileMetaLite> {
+        val parent = ensureV1Folder()
+        val query = URLEncoder.encode("'$parent' in parents and trashed = false", "UTF-8")
+        val all = mutableListOf<FileMetaLite>()
+        var pageToken: String? = null
+        do {
+            val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+            call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version,size),nextPageToken&pageSize=1000$token")).use { resp ->
+                val body = resp.body?.string().orEmpty()
+                classify(resp, resp.code) { body }
+                val page = parseFileListLite(body)
+                all += page.first
+                pageToken = page.second
+            }
+        } while (pageToken != null)
+        return all
+    }
+
+    /**
+     * Stats shard siblings in v1 (legacy `stats.json` excluded), sorted by
+     * (month, part, fileId) for deterministic merges and CAS targets.
+     */
+    override fun listStatsShards(): List<StatsShardMeta> =
+        listV1FilesAll()
+            .filter { StatsShards.isStatsShardFileName(it.name) }
+            .sortedWith(compareBy(
+                { StatsShards.shardSortKey(it.name)!!.first },
+                { StatsShards.shardSortKey(it.name)!!.second },
+                { it.fileId }
+            ))
+            .map { StatsShardMeta(it.name, it.fileId, it.version, it.size) }
+
+    /**
+     * Shard bytes by file id. Null when vanished (404). Oversized payloads
+     * throw Rejected; the engine catches that per shard (skip + retain) so
+     * one oversized sibling never blocks the other months.
+     */
+    override fun getStatsShardBytes(fileId: String): ByteArray? {
+        val bytes = call(bearer("$apiBase/files/$fileId?alt=media")).use { resp ->
+            if (resp.code == 404) return null
+            val responseBody = resp.body?.bytes() ?: ByteArray(0)
+            classify(resp, resp.code) { responseBody.toString(Charsets.UTF_8) }
+            responseBody
+        }
+        if (bytes.size > MAX_DOMAIN_BYTES) {
+            throw SyncError.Rejected("stats shard payload ${bytes.size} bytes exceeds cap")
+        }
+        return bytes
+    }
+
+    /**
+     * CAS upload of one Stats shard file. Mirrors [putDomain] freshness logic
+     * (live version must match [expectedVersion]; create only when absent),
+     * but addresses an explicit shard name. Non-shard names are refused
+     * fail-closed — the frozen legacy `stats.json` can never be written here.
+     */
+    override fun putStatsShard(
+        name: String,
+        bytes: ByteArray,
+        expectedVersion: String?,
+        preferredFileId: String?
+    ): String {
+        if (!StatsShards.isStatsShardFileName(name)) {
+            throw SyncError.Rejected("refusing to upload non-shard stats file $name")
+        }
+        if (bytes.size > MAX_DOMAIN_BYTES) {
+            throw SyncError.Rejected("refusing to upload ${bytes.size} byte stats shard payload")
+        }
+        val parent = ensureV1Folder()
+        val existing = listV1FilesAll().filter { it.name == name }
+        val selected = if (preferredFileId != null) {
+            existing.firstOrNull { it.fileId == preferredFileId }
+                ?: if (expectedVersion != null) throw SyncError.StaleVersion(null)
+                else existing.minByOrNull { it.fileId }
+        } else {
+            existing.minByOrNull { it.fileId }
+        }
+        return if (selected != null) {
+            val fresh = when {
+                expectedVersion != null && selected.version != null -> expectedVersion == selected.version
+                expectedVersion != null || selected.version != null -> false
+                else -> true
+            }
+            if (!fresh) throw SyncError.StaleVersion(selected.version)
+            patchMultipart(selected.fileId, name, bytes)
+        } else {
+            val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(parent)).toString()
+            val body = relatedBody(metadata, name, bytes)
+            call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
+                val responseBody = resp.body?.string().orEmpty()
+                classify(resp, resp.code) { responseBody }
+                parseVersion(responseBody)
+                    ?: throw SyncError.Retryable("create succeeded but no file version was returned")
+            }
+        }
+    }
+
+    /** Delete one shard file (same-name valid-duplicate cleanup only; shards are never otherwise deleted). */
+    override fun deleteStatsShard(fileId: String) {
+        deleteDomainFile(fileId)
     }
 
     /**
@@ -315,9 +423,16 @@ class AppDataDriveStore(
 
         val valid = mutableListOf<Pair<FileMetaLite, ByteArray>>()
         var firstCorrupt: Pair<FileMetaLite, ByteArray>? = null
-        var largestOversized = 0
+        var largestOversized = 0L
         for (meta in files) {
-            // Synthetic duplicate file: return a valid but distinct envelope without touching Drive.
+            // F5: listing-reported oversize skips the download, not just the
+            // decode — the bytes would only be discarded. Unknown sizes still
+            // download and check below.
+            if (meta.listingReportsOversized()) {
+                largestOversized = maxOf(largestOversized, meta.size ?: 0L)
+                android.util.Log.w("FluenceSync", "domain $domain file ${meta.fileId} listed ${meta.size} bytes over cap; skipping download")
+                continue
+            }            // Synthetic duplicate file: return a valid but distinct envelope without touching Drive.
             // DIRECT PRODUCTION: debug-only.
             if (com.groq.voicetyper.BuildConfig.DEBUG && (meta.fileId.endsWith("-dup") || meta.fileId.startsWith("dup-"))) {
                 val synthetic = org.json.JSONObject().apply {
@@ -347,7 +462,7 @@ class AppDataDriveStore(
                 responseBody
             } ?: continue
             if (bytes.size > MAX_DOMAIN_BYTES) {
-                largestOversized = maxOf(largestOversized, bytes.size)
+                largestOversized = maxOf(largestOversized, bytes.size.toLong())
                 continue
             }
               val parseable = when (domain) {
@@ -601,8 +716,13 @@ class AppDataDriveStore(
             else -> null
         }
     }.getOrNull()
-
-    private fun parseFileListLite(json: String): Pair<List<FileMetaLite>, String?> {
+    /**
+     * F5: parses Drive's `size` field (int64 as a string; bare numbers
+     * tolerated). Absent or garbage sizes are unknown (`null`) — folders,
+     * Google-native files, trimmed listings — never a listing failure: the
+     * caller downloads and checks the bytes instead.
+     */
+    internal fun parseFileListLite(json: String): Pair<List<FileMetaLite>, String?> {
         val root = try { JSONObject(json) } catch (_: Exception) { throw SyncError.Rejected("corrupt listing") }
         val arr = root.optJSONArray("files") ?: throw SyncError.Rejected("missing files")
         val out = mutableListOf<FileMetaLite>()
@@ -615,12 +735,24 @@ class AppDataDriveStore(
                 is Number -> v.toString()
                 else -> null
             }
-            out.add(FileMetaLite(id, name, version))
+            val size = when (val v = o.opt("size")) {
+                is String -> v.toLongOrNull()
+                is Number -> v.toLong()
+                else -> null
+            }
+            out.add(FileMetaLite(id, name, version, size))
         }
         return out to root.optString("nextPageToken").ifEmpty { null }
     }
 
-    data class FileMetaLite(val fileId: String, val name: String, val version: String?)
+    data class FileMetaLite(val fileId: String, val name: String, val version: String?, val size: Long? = null) {
+        /**
+         * F5: the listing already reports over-cap — skip the content download
+         * entirely instead of re-fetching an oversized file every pass only to
+         * discard it. Unknown sizes download and check as before.
+         */
+        fun listingReportsOversized(): Boolean = size != null && size > MAX_DOMAIN_BYTES
+    }
 }
 
 /**

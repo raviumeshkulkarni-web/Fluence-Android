@@ -742,13 +742,19 @@ internal object AccountScope {
         hint: String,
     ) {
         if (!validAccountHash(accountHash)) return
-        val current = loadAgents(context, accountHash).toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
-        // dirty=true on BOTH paths: an edit to an already-synced row must be
-        // re-stamped with a fresh revision and uploaded on the next pass.
-        if (idx >= 0) current[idx] = current[idx].copy(name = name, hint = hint, dirty = true)
-        else current.add(AccountAgent(id = id, name = name, hint = hint, dirty = true))
-        saveAgents(context, accountHash, current)
+        // The same lock the sync pass holds while reconciling its merge result.
+        // Without it, an upsert landing mid-pass would be overwritten by the
+        // pass's pre-network snapshot - a row created during a pass then exists
+        // in no store at all.
+        synchronized(accountStoreLock) {
+            val current = loadAgents(context, accountHash).toMutableList()
+            val idx = current.indexOfFirst { it.id == id }
+            // dirty=true on BOTH paths: an edit to an already-synced row must be
+            // re-stamped with a fresh revision and uploaded on the next pass.
+            if (idx >= 0) current[idx] = current[idx].copy(name = name, hint = hint, dirty = true)
+            else current.add(AccountAgent(id = id, name = name, hint = hint, dirty = true))
+            saveAgents(context, accountHash, current)
+        }
     }
 
     /**
@@ -765,18 +771,22 @@ internal object AccountScope {
      */
     fun deleteAgent(context: Context, accountHash: String, id: String): Boolean {
         if (!validAccountHash(accountHash)) return false
-        val current = loadAgents(context, accountHash)
-        if (current.none { it.id == id }) return false
-        return context.getSharedPreferences(agentsPrefsName(accountHash), Context.MODE_PRIVATE)
-            .edit().putString(
-                AGENTS_KEY,
-                serializeAgents(
-                    current.map {
-                        if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it
-                    }
+        // Same lock as [upsertAgent]: a delete landing mid-pass must be seen by
+        // that pass's reconcile instead of being overwritten by its snapshot.
+        synchronized(accountStoreLock) {
+            val current = loadAgents(context, accountHash)
+            if (current.none { it.id == id }) return false
+            return context.getSharedPreferences(agentsPrefsName(accountHash), Context.MODE_PRIVATE)
+                .edit().putString(
+                    AGENTS_KEY,
+                    serializeAgents(
+                        current.map {
+                            if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it
+                        }
+                    )
                 )
-            )
-            .commit()
+                .commit()
+        }
     }
 
     /**
@@ -792,11 +802,14 @@ internal object AccountScope {
         hint: String,
     ) {
         if (!validAccountHash(accountHash)) return
-        val current = loadStyles(context, accountHash).toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
-        if (idx >= 0) current[idx] = current[idx].copy(name = name, hint = hint, dirty = true)
-        else current.add(AccountStyle(id = id, name = name, hint = hint, dirty = true))
-        saveStyles(context, accountHash, current)
+        // Same lock as [upsertAgent]; see the rationale there.
+        synchronized(accountStoreLock) {
+            val current = loadStyles(context, accountHash).toMutableList()
+            val idx = current.indexOfFirst { it.id == id }
+            if (idx >= 0) current[idx] = current[idx].copy(name = name, hint = hint, dirty = true)
+            else current.add(AccountStyle(id = id, name = name, hint = hint, dirty = true))
+            saveStyles(context, accountHash, current)
+        }
     }
 
     /**
@@ -807,16 +820,19 @@ internal object AccountScope {
      */
     fun deleteStyle(context: Context, accountHash: String, id: String): Boolean {
         if (!validAccountHash(accountHash)) return false
-        val current = loadStyles(context, accountHash)
-        if (current.none { it.id == id }) return false
-        return context.getSharedPreferences(stylesPrefsName(accountHash), Context.MODE_PRIVATE)
-            .edit().putString(
-                STYLES_KEY,
-                serializeStyles(
-                    current.map { if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it }
+        // Same lock as [upsertAgent]; see the rationale there.
+        synchronized(accountStoreLock) {
+            val current = loadStyles(context, accountHash)
+            if (current.none { it.id == id }) return false
+            return context.getSharedPreferences(stylesPrefsName(accountHash), Context.MODE_PRIVATE)
+                .edit().putString(
+                    STYLES_KEY,
+                    serializeStyles(
+                        current.map { if (it.id == id) it.copy(deletedAt = System.currentTimeMillis(), dirty = true) else it }
+                    )
                 )
-            )
-            .commit()
+                .commit()
+        }
     }
 
     // ---------------------------------------------------------------

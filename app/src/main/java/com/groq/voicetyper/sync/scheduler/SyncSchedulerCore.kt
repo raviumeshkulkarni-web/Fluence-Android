@@ -3,14 +3,20 @@ package com.groq.voicetyper.sync.scheduler
 /**
  * How a sync pass ended — the scheduler's only input (mirror of Windows
  * `PassOutcomeKind`, scheduler.rs).
+ *
+ * F4 Success-with-warning: DEGRADED means the pass converged on everything
+ * it could but skipped some remote state it retains untouched. It records
+ * the sync like a success (lastSyncAtMs advances, no backoff escalation —
+ * the condition is permanent) while keeping a clearable warning, instead of
+ * stalling the clock and parking a misleading error.
  */
-enum class PassOutcomeKind { SUCCESS, RETRYABLE, REJECTED, FATAL, AUTH_REQUIRED }
+enum class PassOutcomeKind { SUCCESS, DEGRADED, RETRYABLE, REJECTED, FATAL, AUTH_REQUIRED }
 
 /**
  * Order-independent "worst wins" aggregation of per-domain outcomes into the
  * pass outcome (mirror of Windows PassOutcomeKind precedence). A single doomed
  * domain must never hide what another domain reported: severity
- * SUCCESS < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED.
+ * SUCCESS < DEGRADED < RETRYABLE < REJECTED/FATAL < AUTH_REQUIRED.
  */
 fun worstOutcome(a: PassOutcomeKind, b: PassOutcomeKind): PassOutcomeKind {
     if (a == b) return a
@@ -25,10 +31,16 @@ fun worstOutcome(outcomes: Iterable<PassOutcomeKind>): PassOutcomeKind =
 
 private fun PassOutcomeKind.severity(): Int = when (this) {
     PassOutcomeKind.SUCCESS -> 0
-    PassOutcomeKind.RETRYABLE -> 1
-    PassOutcomeKind.REJECTED -> 2
-    PassOutcomeKind.FATAL -> 2
-    PassOutcomeKind.AUTH_REQUIRED -> 3
+    PassOutcomeKind.DEGRADED -> 1
+    PassOutcomeKind.RETRYABLE -> 2
+    // REJECTED/FATAL stay tied (a tie returns the left argument — equivalent
+    // for scheduling) and above RETRYABLE: the pre-existing order pinned by
+    // worstOutcome_is_order_independent_and_severity_ordered. (Windows checks
+    // retryable first instead; that cross-platform scheduler difference is
+    // out of scope — only the wire/store contract must match.)
+    PassOutcomeKind.REJECTED -> 3
+    PassOutcomeKind.FATAL -> 3
+    PassOutcomeKind.AUTH_REQUIRED -> 4
 }
 
 /**
@@ -64,6 +76,8 @@ class SyncBackoff(
  *   the next attempt time.
  * - [completePass] applies the outcome schedule:
  *   - SUCCESS → next attempt at now + cadence, backoff reset
+ *   - DEGRADED → like SUCCESS (lastSyncAtMs advances, cadence, reset) plus
+ *     a clearable warning flag; a warning is not an error
  *   - RETRYABLE → next attempt at now + backoff (1000 → 60s cap)
  *   - REJECTED → next attempt at now + cadence, backoff reset; the pass is
  *     surfaced non-success (lastSyncAtMs NOT advanced) but never backoff-
@@ -106,6 +120,14 @@ class SyncSchedulerCore(
         private set
     var lastOutcome: PassOutcomeKind? = null
         private set
+    /**
+     * F4 Success-with-warning: true while the latest finished pass converged
+     * with skipped remote state. Set by DEGRADED, cleared by the next clean
+     * SUCCESS; other outcomes leave it (a failed pass reports nothing new
+     * about convergence).
+     */
+    var degraded: Boolean = false
+        private set
     var nextAttemptMs: Long = 0L
         private set
 
@@ -121,6 +143,7 @@ class SyncSchedulerCore(
     /** Clear the previous account's result before enrolling a new account. */
     fun resetForAccountChange() {
         lastOutcome = null
+        degraded = false
         pending = false
         nextAttemptMs = 0L
         pendingRetryAfterMs = null
@@ -136,6 +159,17 @@ class SyncSchedulerCore(
                 lastSyncAtMs = now
                 nextAttemptMs = now + cadenceMs
                 backoff.reset()
+                degraded = false
+            }
+            PassOutcomeKind.DEGRADED -> {
+                // F4 Success-with-warning: converged data is recorded exactly
+                // like a success (the skipped state is permanent, never
+                // transient) while the warning stays visible until a clean
+                // pass. Never stalls the clock, never parks an error.
+                lastSyncAtMs = now
+                nextAttemptMs = now + cadenceMs
+                backoff.reset()
+                degraded = true
             }
             PassOutcomeKind.RETRYABLE -> {
                 // When the response carried an explicit `Retry-After`, wait at
