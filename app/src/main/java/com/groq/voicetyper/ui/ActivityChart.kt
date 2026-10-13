@@ -453,28 +453,18 @@ fun ActivityChartCard(
     series: ActivitySeries,
     modifier: Modifier = Modifier,
     plotHeight: Dp = ChartPlotMinHeight,
-    onChromeHeight: (Dp) -> Unit = {},
 ) {
-    val colors = PrecisionTheme.colors
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(colors.cardSurface, FluenceShapes.Medium)
-            .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
-            .padding(FluenceSpacing.Lg),
+    // Same shared header as the sibling pager pages ("Today", "By weekday"):
+    // the trend card used to render title-less, which read as orphaned next
+    // to them. Title + description follow the family pattern
+    // "<metric noun> · <scope>".
+    val metricNoun = if (metric == ChartMetric.WORDS) "Words" else "Sessions"
+    InsightCard(
+        title = "Activity",
+        description = "$metricNoun · ${range.rangeName}",
+        modifier = modifier,
     ) {
-        val density = LocalDensity.current
-        // No title here: "Activity" is hoisted into the dashboard's pinned
-        // control stack so it can head the range and metric selectors it
-        // scopes. That leaves this card as pure plot, which is why the card
-        // chrome is only the vertical padding.
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .onSizeChanged { onChromeHeight(with(density) { it.height.toDp() }) },
-        ) {
-        Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
-        }
+        val colors = PrecisionTheme.colors
         if (series.totalSessions == 0L) {
             Column(
                 modifier = Modifier

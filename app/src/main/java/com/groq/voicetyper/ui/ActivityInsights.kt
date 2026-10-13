@@ -238,7 +238,13 @@ private fun weekdayPeakLine(
 
 /** Card chrome identical to ActivityChartCard so the dashboard reads as one set. */
 @Composable
-private fun InsightCard(
+/**
+ * Shared card header treatment (Windows CardTitle parity): uppercased title +
+ * description + content. Used by every dashboard chart card so the pager
+ * pages read as one family. Internal so [ActivityChartCard] reuses the exact
+ * same header instead of re-implementing it.
+ */
+internal fun InsightCard(
     title: String,
     description: String,
     modifier: Modifier = Modifier,
