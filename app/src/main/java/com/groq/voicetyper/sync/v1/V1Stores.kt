@@ -8,8 +8,9 @@ import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.snippets.Snippet
 import androidx.room.withTransaction
 import com.groq.voicetyper.snippets.SnippetPreferences
+import com.groq.voicetyper.sync.SyncAccounts
 import com.groq.voicetyper.sync.auth.SyncAuthSession
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 
 /**
  * Concrete v1.2 store implementations over Room + SharedPreferences.
@@ -377,19 +378,157 @@ object V1Stores {
         FluenceDatabase.getInstance(context.applicationContext).syncMetadataDao()
 }
 
+/**
+ * Monotonic revision stamps for local user mutations.
+ *
+ * **#28 — the floor is read under the account the sync pass actually writes
+ * under.** The pass entry (`SyncManager`) resolves the identity from the live
+ * access token and publishes it through `SyncAccounts.publishAuthenticated`;
+ * [DriveIdentity] documents exactly what sourcing identity from a locally
+ * persisted string costs — "writing one account's payload into another
+ * account's appDataFolder". This function used to read `maxSeen` under
+ * `AccountHash.of(SyncAuthSession(...).accountEmail)` instead, so a
+ * persisted-vs-verified mismatch stamped local edits from the wrong
+ * partition's high-water mark. The invariant is now enforced here too, from the
+ * same accessor, instead of being assumed.
+ *
+ * **#30 — no `runBlocking` bridge.** Every caller is a user mutation reached
+ * from a Compose screen on `Main.immediate`, so bridging the metadata read with
+ * `runBlocking` performed synchronous disk I/O on the main thread for every
+ * dictionary/snippet edit (jank, ANR exposure). [next] is `suspend` and reads
+ * on the caller's dispatcher; [nextCached] is the zero-I/O variant for the
+ * non-suspending snippet writers, which reuse the floor the last suspending
+ * read cached.
+ *
+ * **Failures are surfaced, never silent.** The old body stacked three empty
+ * `catch` blocks, so an unreadable database degraded invisibly to a raw
+ * `System.currentTimeMillis()` — dropping the monotonic floor whose entire
+ * purpose is to stop LWW ties. The stamp is still produced (failing a user's
+ * save is worse than losing the floor for one edit) but the degradation is
+ * recorded in [lastFloorFailure] and logged.
+ */
 object MutationClock {
-    fun next(context: Context): Long {
+
+    /**
+     * Test seam: the `maxSeen` read. Production goes through
+     * [V1Stores.metadataDao]; tests substitute a deterministic reader so the
+     * floor is exercised without Room. `null` = production.
+     */
+    @Volatile
+    internal var maxSeenReader: (suspend (Context, String) -> Long?)? = null
+
+    /**
+     * Test seam for the PROVISIONAL identity, used only while no
+     * token-verified identity exists. Production reads the persisted sign-in
+     * email out of [SyncAuthSession].
+     */
+    @Volatile
+    internal var provisionalIdentity: (Context) -> String? = { ctx ->
+        AccountHash.of(SyncAuthSession(ctx.applicationContext).accountEmail)
+    }
+
+    /**
+     * Why the last metadata read failed, or `null` after a successful read.
+     * Diagnostic only — a mutation is never refused because of it.
+     */
+    @Volatile
+    var lastFloorFailure: String? = null
+        private set
+
+    /** Floor of the last successful read, and the partition it belongs to. */
+    @Volatile
+    private var cachedHash: String? = null
+
+    @Volatile
+    private var cachedMaxSeen: Long = 0L
+
+    /** Drop the cached floor and any test seams. */
+    internal fun resetForTest() {
+        maxSeenReader = null
+        provisionalIdentity = { AccountHash.of(SyncAuthSession(it.applicationContext).accountEmail) }
+        lastFloorFailure = null
+        cachedHash = null
+        cachedMaxSeen = 0L
+    }
+
+    /**
+     * Next revision stamp for a user mutation. Suspends on the caller's
+     * dispatcher — never blocks it — and refreshes [nextCached]'s floor.
+     */
+    suspend fun next(context: Context): Long {
+        val hash = resolveHash(context)
+        val seen = if (hash == null) 0L else readMaxSeen(context, hash)
+        return stamp(System.currentTimeMillis(), seen)
+    }
+
+    /**
+     * Zero-I/O variant for non-suspending UI writers (snippet save/delete).
+     *
+     * Uses the floor cached by the last [next] read, and only when it belongs
+     * to the account the current identity resolves to. With no cache (process
+     * start, no pass, no suspending read yet) the stamp falls back to the wall
+     * clock — which is the pre-existing cold-start behaviour, minus the
+     * main-thread disk read.
+     */
+    fun nextCached(): Long {
+        val hash = resolveHashCached()
+        val seen = if (hash != null && hash == cachedHash) cachedMaxSeen else 0L
+        return stamp(System.currentTimeMillis(), seen)
+    }
+
+    /**
+     * Same sticky-future-clock cap as [Clock.nextUpdatedAt]: a runaway wall
+     * clock must not inflate this edit's stamp forever.
+     */
+    internal fun stamp(wallMs: Long, maxSeen: Long): Long = Clock.nextUpdatedAt(wallMs, maxSeen)
+
+    /**
+     * The partition the floor is read under. A token-verified identity is
+     * authoritative and is NEVER mixed with the persisted one; only when no
+     * verified identity exists at all does the provisional value apply.
+     */
+    private fun resolveHash(context: Context): String? =
+        if (SyncAccounts.tokenVerified) {
+            SyncAccounts.currentAccountHash.value
+        } else {
+            try {
+                provisionalIdentity(context)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    /** Same rule as [resolveHash], reading only in-memory process state. */
+    private fun resolveHashCached(): String? =
+        if (SyncAccounts.tokenVerified) {
+            SyncAccounts.currentAccountHash.value
+        } else {
+            AccountHash.of(SyncAccounts.cachedAccount)
+        }
+
+    private suspend fun readMaxSeen(context: Context, hash: String): Long {
         return try {
-            val hash = try { AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail) } catch (_: Exception) { null }
-            val seen = if (hash != null) {
-                try { runBlocking { V1Stores.metadataDao(context).getByHash(hash)?.maxSeen ?: 0L } } catch (_: Exception) { 0L }
-            } else 0L
-            val wall = System.currentTimeMillis()
-            // Same sticky-future-clock cap as Clock.nextUpdatedAt: a runaway
-            // wall clock must not inflate this edit's stamp forever.
-            minOf(maxOf(wall, seen + 1L), wall + Clock.MAX_CLOCK_SKEW_MS)
-        } catch (_: Exception) {
-            System.currentTimeMillis()
+            val reader = maxSeenReader
+            val seen = if (reader != null) {
+                reader(context, hash)
+            } else {
+                V1Stores.metadataDao(context).getByHash(hash)?.maxSeen ?: 0L
+            } ?: 0L
+            lastFloorFailure = null
+            cachedHash = hash
+            cachedMaxSeen = seen
+            seen
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            val reason = "maxSeen read failed for $hash: ${t.javaClass.simpleName}: ${t.message}"
+            lastFloorFailure = reason
+            // android.util.Log is stubbed to defaults in JVM unit tests, but a
+            // diagnostic sink must never be the thing that throws.
+            runCatching { android.util.Log.w("MutationClock", reason) }
+            0L
         }
     }
 }
@@ -417,9 +556,12 @@ fun decideDictionaryApply(currentUpdatedAt: Long?, currentDeviceId: String?, cur
  * saw them. Input is `dao.getAllByAccount(hash)`, already account-scoped, so
  * no ownership clause is needed here.
  *
- * Snippet asymmetry note: snippets have no quarantine exclusion in their
- * load path, so a quarantined snippet enters the merge normally and needs no
- * equivalent guard in [decideSnippetSupersededDrops].
+ * Snippet parity note: this exemption was once claimed because "snippets have
+ * no quarantine exclusion in their load path". Commit 54d0277 added
+ * `it.quarantineReason == null` to `PrefsSnippetV1Store.loadByAccount`, which
+ * removed the premise and left the exemption behind — a quarantined snippet
+ * entered no merge and was then dropped by retention. Both snippet decisions
+ * now carry the same `quarantineReason` guard the dictionary paths do.
  */
 fun decideDictionarySupersededDeletions(
     existing: List<com.groq.voicetyper.dictionary.data.CustomDictionaryEntry>,
@@ -437,16 +579,20 @@ fun decideDictionarySupersededDeletions(
  * Pure retention decision for the snippet apply pass (dictionary-store
  * parity). Rows owned by a DIFFERENT account survive untouched (they belong
  * to a previous sign-in and must never be dropped by this account's pass);
- * rows with no wire identity or a pending local change survive even when
- * absent from the merge (unsynced new/edit — they ride the next PUT);
- * current-account clean rows survive only when the merge still holds them —
- * absence means a newer remote tombstone won elsewhere.
+ * QUARANTINED rows survive untouched (they are held for recovery and, since
+ * 54d0277, excluded from the merge input, so their sync id can never be in
+ * [mergedIds] — without this guard retention deleted exactly the rows the
+ * quarantine exists to hold); rows with no wire identity or a pending local
+ * change survive even when absent from the merge (unsynced new/edit — they
+ * ride the next PUT); current-account clean rows survive only when the merge
+ * still holds them — absence means a newer remote tombstone won elsewhere.
  */
 fun decideSnippetRetention(local: List<Snippet>, mergedIds: Set<String>, currentAccountHash: String): List<Snippet> {
     return local.filter { s ->
         val sid = s.effectiveSyncId()
         when {
             s.syncAccount != null && s.syncAccount != currentAccountHash -> true
+            s.quarantineReason != null -> true
             sid == null || s.dirty -> true
             else -> sid in mergedIds
         }
@@ -498,6 +644,74 @@ fun decideSnippetApply(current: Snippet, rec: SnippetRecord): Boolean {
 fun excludeQuarantined(rows: List<CustomDictionaryEntry>): List<CustomDictionaryEntry> =
     rows.filter { it.quarantineReason == null }
 
+/**
+ * Sync-id keyed hard-delete selection for the dictionary apply pass.
+ *
+ * A clean row whose `syncId` is absent from [mergedIds] lost LWW and is
+ * dropped. Two shapes must never be selected:
+ *
+ *  * **Dirty rows** — a create/edit/delete that landed after the pre-pass
+ *    snapshot. Retaining it is what stops a successful network pass from
+ *    erasing a concurrent local change; it reconciles on the next pass.
+ *  * **Quarantined rows** — they are held for recovery and are excluded from
+ *    the merge input by [excludeQuarantined], so their `syncId` can NEVER
+ *    appear in [mergedIds]. `quarantineBySyncId` does not set `dirty`, so a
+ *    quarantined CLEAN row satisfied both conditions and was hard-deleted,
+ *    destroying exactly the rows the quarantine exists to hold. Windows keeps
+ *    them — `stores.rs`: "F3: quarantined rows are held for recovery; the
+ *    wholesale replacement must not wipe them", pinned by
+ *    `save_merged_keeps_quarantined_dict_row`. This is the guard the sibling
+ *    [decideDictionarySupersededDeletions] already had and this primary path
+ *    was missing.
+ *
+ * A row with no `syncId` is unstamped and never selected: there is no id to
+ * delete by, and `stampUnstamped` gives it one. Input is
+ * `dao.getAllByAccount(hash)`, already account-scoped, so no ownership clause
+ * is needed here.
+ */
+fun decideDictionaryHardDeletes(
+    existing: List<CustomDictionaryEntry>,
+    mergedIds: Set<String>
+): List<String> = existing.mapNotNull { row ->
+    val syncId = row.syncId ?: return@mapNotNull null
+    if (row.dirty || row.quarantineReason != null) return@mapNotNull null
+    if (syncId in mergedIds) null else syncId
+}
+
+/**
+ * Business-key collision lookup for one merged winner that is new to this
+ * device (no local row carries its `syncId`).
+ *
+ * The identity is derived in KOTLIN, never in SQL. Stock Android SQLite's
+ * `lower()` folds ASCII only, so `lower(trim("Über"))` stays `"Über"` while
+ * the Kotlin key is `"über"`: the lookup missed, the insert branch ran,
+ * `@Insert(onConflict = IGNORE)` was swallowed by the unique
+ * `(spokenText, syncAccount)` index, `getBySyncId` returned null because the
+ * colliding row carries a different id, and the merged winner became
+ * INVISIBLE on the phone while Drive and desktop held it — permanently, with
+ * no error. ASCII `trim()` diverges the same way, so fixing case alone would
+ * leave the split. The Rust twin derives the key in Rust and has no `lower(`
+ * in SQL, which is why this was Android-only.
+ *
+ * [candidates] must be the account's rows INCLUDING tombstones — a newer
+ * remote winner has to be able to replace a tombstoned row, which is what
+ * `getByBusinessKeyIncludingDeleted` allowed. The lowest row id wins, so the
+ * choice is deterministic (the old `LIMIT 1` had no `ORDER BY`).
+ *
+ * Frozen contract: the key is recomputed from [DictionaryRecord.spoken]; the
+ * wire `businessKey` is never trusted.
+ */
+fun findBusinessKeyCollision(
+    candidates: List<CustomDictionaryEntry>,
+    rec: DictionaryRecord
+): CustomDictionaryEntry? {
+    val key = DictionaryRecord.businessKeyOf(rec.spoken)
+    if (key.isEmpty()) return null
+    return candidates
+        .filter { DictionaryRecord.businessKeyOf(it.spokenText) == key }
+        .minByOrNull { it.id }
+}
+
 // ----------------------------------------------------------------------
 // Dictionary
 // ----------------------------------------------------------------------
@@ -523,26 +737,35 @@ class RoomDictionaryV1Store(
         val meta = metaDao.getByHash(hash)
         val fallbackDeviceId = meta?.deviceId.orEmpty()
         val nextTs = Clock.nextUpdatedAt(Clock.nowWallMs(), meta?.maxSeen ?: 0L)
-        for (row in claimed) {
-            val owned = row.syncAccount == hash
-            val needsRepair = row.syncAccount == null ||
-                (owned && (row.syncId.isNullOrBlank() ||
-                    (row.updatedAt ?: 0L) <= 0L ||
-                    row.deviceId.isNullOrBlank()))
-            if (needsRepair) {
-                val updated = if ((row.updatedAt ?: 0L) <= 0L)
-                    (row.createdAt?.takeIf { it > 0 } ?: nextTs) else row.updatedAt
-                val fixed = row.copy(
-                    syncAccount = hash,
-                    syncId = row.syncId?.takeIf { it.isNotBlank() }
-                        ?: java.util.UUID.randomUUID().toString(),
-                    updatedAt = updated,
-                    deviceId = row.deviceId?.takeIf { it.isNotBlank() }
-                        ?: fallbackDeviceId.ifBlank { DeviceIdProvider.getDeviceId(context) },
-                    dirty = true,
-                    everPushed = false
-                )
-                dao.update(fixed)
+        // One transaction for the whole repair sweep. Each `dao.update` is
+        // otherwise its own implicit transaction — its own journal commit and
+        // fsync — so an account with N unenrolled rows cost N durable writes and
+        // a process kill mid-loop left a partially-stamped store: some rows
+        // carrying syncId/updatedAt and others still un-stamped, which then
+        // serialized with updatedAt=0 and failed cross-platform validation on the
+        // next pass. Every other multi-row operation in this file wraps its loop.
+        db.withTransaction {
+            for (row in claimed) {
+                val owned = row.syncAccount == hash
+                val needsRepair = row.syncAccount == null ||
+                    (owned && (row.syncId.isNullOrBlank() ||
+                        (row.updatedAt ?: 0L) <= 0L ||
+                        row.deviceId.isNullOrBlank()))
+                if (needsRepair) {
+                    val updated = if ((row.updatedAt ?: 0L) <= 0L)
+                        (row.createdAt?.takeIf { it > 0 } ?: nextTs) else row.updatedAt
+                    val fixed = row.copy(
+                        syncAccount = hash,
+                        syncId = row.syncId?.takeIf { it.isNotBlank() }
+                            ?: java.util.UUID.randomUUID().toString(),
+                        updatedAt = updated,
+                        deviceId = row.deviceId?.takeIf { it.isNotBlank() }
+                            ?: fallbackDeviceId.ifBlank { DeviceIdProvider.getDeviceId(context) },
+                        dirty = true,
+                        everPushed = false
+                    )
+                    dao.update(fixed)
+                }
             }
         }
     }
@@ -561,12 +784,12 @@ class RoomDictionaryV1Store(
         // Replace only clean rows that lost the merge. A dirty row may have
         // been created or edited after the pre-pass snapshot; retaining it is
         // required so a successful network pass cannot erase a concurrent
-        // local change. It will be reconciled on the next pass.
+        // local change. It will be reconciled on the next pass. Quarantined
+        // rows are held for recovery and are never in the merge input, so they
+        // are never selected — see decideDictionaryHardDeletes.
         val mergedIds = merged.map { it.syncId }.toSet()
-        for (row in existing) {
-            if (row.syncId !in mergedIds && !row.dirty) {
-                dao.hardDeleteBySyncId(row.syncId ?: continue)
-            }
+        for (syncId in decideDictionaryHardDeletes(existing, mergedIds)) {
+            dao.hardDeleteBySyncId(syncId)
         }
         // Phase D (H3): drop clean superseded rows — same syncId as the
         // winner, loser business key (rename). Deleted by row id:
@@ -578,7 +801,31 @@ class RoomDictionaryV1Store(
         for (row in decideDictionarySupersededDeletions(existing, merged)) {
             dao.deleteById(row.id)
         }
-        val bySyncId = dao.getAllByAccount(hash).associateBy { it.syncId }
+        // Fetched ONCE and reused as the collision source below. This was
+        // previously re-queried INSIDE the per-record loop, making a merge O(N)
+        // full-table reads (at the system's own 50k-item ceiling that is 50k
+        // queries, each result then linearly scanned, every key NFC-normalized)
+        // — on a background worker inside a 120 s timeout, so a large dictionary
+        // timed out on every attempt and reported RETRYABLE forever.
+        //
+        // Hoisting is behaviour-preserving, and the load-bearing reason is the
+        // enclosing `db.withTransaction { }`: Room serialises writers, so no
+        // concurrent write can land mid-loop and this snapshot is authoritative
+        // for the whole merge. The previous per-iteration query saw the
+        // transaction's own prior writes; the snapshot does not, and cannot need
+        // to — `merged` holds at most one record per business key (Rule A groups
+        // by key), so no two loop iterations collide on one; the collision branch
+        // always rewrites the matched row to `rec`'s key, which cannot recur
+        // later in the loop; rows the loop UPDATES are reached via `bySyncId`,
+        // i.e. the other branch; and `decideDictionarySupersededDeletions` has
+        // already run above.
+        //
+        // INVARIANT — if this call is ever moved out of `withTransaction`, or a
+        // caller invokes it without one, a real mid-pass staleness window opens
+        // for the `collision.dirty` guard below, which exists precisely to catch
+        // a concurrent edit. Re-check the snapshot before dropping the query.
+        val accountRows = dao.getAllByAccount(hash)
+        val bySyncId = accountRows.associateBy { it.syncId }
         val skipClear = mutableSetOf<String>()
         val appliedIds = mutableListOf<String>()
         for (rec in merged) {
@@ -606,7 +853,9 @@ class RoomDictionaryV1Store(
                 // Remote-won record new to this device. Replace a losing
                 // current-account row in place so the account-scoped unique
                 // key remains valid without silently ignoring the import.
-                val collision = dao.getByBusinessKeyIncludingDeleted(rec.businessKey, hash)
+                // The business key is derived in Kotlin, not by SQL `lower()`
+                // — see findBusinessKeyCollision.
+                val collision = findBusinessKeyCollision(accountRows, rec)
                 if (collision != null && collision.syncId != rec.syncId && collision.syncId != null) {
                     // Mid-pass LWW guard (mirrors decideDictionaryApply on the bySyncId
                     // path above): if a concurrent write made this collision row dirty

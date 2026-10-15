@@ -64,8 +64,17 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
 
     private fun activationBaselineUnchanged(hash: String, meta: JSONObject = loadMeta(hash)): Boolean {
         val baseline = activationBaseline(meta) ?: return false
+        // Fail CLOSED on an unreadable value. `getOrNull() ?: return@all true`
+        // treated a failed read as "matches the baseline", so an unreadable
+        // setting made the whole account look freshly-activated: `hasDirty`
+        // returned false, `loadByAccount` returned nothing, and the domain was
+        // silently skipped forever. Windows logs at error and reports dirty
+        // (`stores.rs:771-774`); this is the missing twin.
         return mappings().all { m ->
-            val current = runCatching { m.read() }.getOrNull() ?: return@all true
+            val current = runCatching { m.read() }.getOrElse {
+                android.util.Log.e("FluenceSync", "settings key '${m.syncKey}' unreadable; failing closed (treating baseline as changed)")
+                return@all false
+            }
             baseline.optString(m.syncKey, "") == current
         }
     }
@@ -209,8 +218,17 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
         if (activationBaseline(meta) != null && activationBaselineUnchanged(hash, meta)) return false
         return mappings().any { m ->
             val current = runCatching { m.read() }.getOrNull()
+            // Fail CLOSED: an unreadable value means "not observed", never
+            // "unchanged". `current != null && …` silently dropped the key, so a
+            // settings read failure reported the account CLEAN and the pass
+            // concluded there was nothing to do. Windows returns true here
+            // (`stores.rs:1100-1106`).
+            if (current == null) {
+                android.util.Log.e("FluenceSync", "settings key '${m.syncKey}' unreadable; reporting dirty (failing closed)")
+                return@any true
+            }
             val known = getMeta(meta, m.syncKey)
-            current != null && (known == null || known.first != current)
+            known == null || known.first != current
         }
     }
 
@@ -221,6 +239,8 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
     ) {
         if (!isActiveAccount(hash)) return
         val activationPending = activationBaseline(loadMeta(hash)) != null
+        // "at least one winner did not land" — either a mid-pass concurrent edit
+        // (deferred) or a failed write. Gates clearing the activation baseline.
         var deferredForConcurrentEdit = false
         val meta = loadMeta(hash)
         val byKey = merged.associateBy { it.key }
@@ -237,7 +257,35 @@ class PrefsSettingsV1Store(private val context: Context) : V1SyncEngine.Settings
                 continue
             }
             if (!isActiveAccount(hash)) return
-            runCatching { m.write(rec.value) }
+            // Audit #19 parity (Windows stores.rs:908-911, 949-965). A failed
+            // value write must NOT advance the baseline. The previous code did
+            // `runCatching { m.write(...) }` and then `setMeta` unconditionally,
+            // so on failure the LIVE store kept the old local value while meta
+            // recorded the REMOTE winner. The next pass then read
+            // `known.first != current`, misclassified the untouched local value
+            // as a user edit, stamped it with `MutationClock.next()` (above every
+            // honest timestamp), and uploaded it — where it WON LWW on every peer
+            // in the account and the setting reverted fleet-wide, permanently
+            // and silently.
+            //
+            // Leaving the baseline un-advanced is self-healing: the next pass
+            // re-merges the same remote winner (which still beats the old
+            // baseline) and retries the write, without ever re-uploading the
+            // stale local value at a higher timestamp.
+            val wrote = runCatching { m.write(rec.value) }.isSuccess
+            if (!wrote) {
+                android.util.Log.e(
+                    "FluenceSync",
+                    "settings key '${m.syncKey}' could not be persisted; winner NOT recorded — " +
+                        "the next pass will re-apply it. Refusing to advance the meta baseline, " +
+                        "which would re-upload the stale local value above every peer timestamp."
+                )
+                // Windows parity: `apply_merged` returns Err before
+                // `meta.activation_baseline = None` (stores.rs:949-968), so a
+                // failed write also leaves the activation baseline armed.
+                deferredForConcurrentEdit = true
+                continue
+            }
             setMeta(hash, m.syncKey, rec.value, rec.updatedAt)
         }
         if (activationPending && !deferredForConcurrentEdit) clearActivationBaseline(hash)

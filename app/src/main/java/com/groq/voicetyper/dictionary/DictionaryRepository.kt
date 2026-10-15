@@ -140,6 +140,32 @@ object DictionaryRepository {
         saveEntryResolved(getDao(context), context, spokenText, replacementText, isEnabled, id)
 
     /**
+     * Canonical spoken-text lookup against a candidate list, resolved in Kotlin.
+     *
+     * The identity is `DictionaryRecord.businessKeyOf` (Unicode trim + NFC +
+     * lowercase). This used to be `LOWER(spokenText) = LOWER(:spokenText)` in
+     * SQL, and stock Android SQLite folds nothing outside A-Z: typing "über"
+     * while "Über" existed missed the row, INSERTed a second one (the raw
+     * values differ, so the unique `(spokenText, syncAccount)` index never
+     * fired), and left TWO live rows for one word — both returned by
+     * `getAllEnabledSyncForAccount`, so both corrections applied. ASCII `trim()`
+     * diverges the same way, so case alone was not the whole defect.
+     *
+     * Mirrors [com.groq.voicetyper.sync.v1.findBusinessKeyCollision] on the
+     * sync side. [candidates] must be the account's rows plus unowned ones and
+     * must include tombstones, so a tombstoned row is still revived in place.
+     */
+    internal fun findBySpokenKey(
+        candidates: List<CustomDictionaryEntry>,
+        spokenText: String
+    ): CustomDictionaryEntry? {
+        val key = com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(spokenText)
+        return candidates.firstOrNull {
+            com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(it.spokenText) == key
+        }
+    }
+
+    /**
      * Scheduler-free core of [saveEntry] behind an injectable DAO, mirroring
      * the `deleteEntryResolved` seam: identical lookup, resolve, insert,
      * update (including the H3 rename branch below), and persistence, but no
@@ -153,8 +179,8 @@ object DictionaryRepository {
         val currentHash = runCatching {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
         }.getOrNull()
-        val existing = currentHash?.let { dao.getBySpokenTextForAccount(trimmedSpoken, it) }
-            ?: dao.getBySpokenTextUnstamped(trimmedSpoken)
+        val existing = currentHash?.let { findBySpokenKey(dao.getRowsForAccountOrUnowned(it), trimmedSpoken) }
+            ?: findBySpokenKey(dao.getSyncRowsUnstamped(), trimmedSpoken)
         val targetId = if (existing != null && existing.deletedAt != null && id == 0L) existing.id else id
         return when (resolveSaveAction(existing, id)) {
             SaveAction.INSERT -> {
@@ -270,8 +296,8 @@ object DictionaryRepository {
         val currentHash = runCatching {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
         }.getOrNull()
-        val existing = currentHash?.let { dao.getBySpokenTextForAccount(spokenText.trim(), it) }
-            ?: dao.getBySpokenTextUnstamped(spokenText.trim())
+        val existing = currentHash?.let { findBySpokenKey(dao.getRowsForAccountOrUnowned(it), spokenText.trim()) }
+            ?: findBySpokenKey(dao.getSyncRowsUnstamped(), spokenText.trim())
             ?: return
         if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
             dao.update(

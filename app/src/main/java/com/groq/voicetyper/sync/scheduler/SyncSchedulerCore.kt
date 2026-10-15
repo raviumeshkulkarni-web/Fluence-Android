@@ -138,6 +138,16 @@ class SyncSchedulerCore(
     /** Clear an in-flight pass without touching the outcome schedule (cancellation). */
     fun cancelPass() {
         running = false
+        // A cancelled pass recorded NO outcome, so any `Retry-After` it collected
+        // belongs to a pass that never finished and must not survive it. Leaving
+        // the hint armed let it be consumed by a LATER pass — e.g. one that gave
+        // up waiting on the single-flight gate and recorded RETRYABLE, which then
+        // inherited `maxOf(backoff.next(), staleHour)` and slept an hour it had no
+        // reason to. This is the same stale-hint class that `completePass` clears
+        // unconditionally; a cancellation is just the other way a pass can end
+        // without an outcome. `resetForAccountChange` clears it for the same
+        // reason.
+        pendingRetryAfterMs = null
     }
 
     /** Clear the previous account's result before enrolling a new account. */
@@ -154,6 +164,21 @@ class SyncSchedulerCore(
         running = false
         lastOutcome = outcome
         val now = nowMs()
+        // Consume the `Retry-After` hint on EVERY outcome, not just RETRYABLE.
+        // It used to be cleared only in the RETRYABLE arm, so a pass that picked
+        // up a one-hour header and then ended AUTH_REQUIRED / FATAL / REJECTED /
+        // SUCCESS left it armed — and the next retryable pass, possibly days
+        // later, inherited `maxOf(backoff.next(), thatStaleHour)` and slept an
+        // hour it had no reason to. Windows takes both hints unconditionally at
+        // the top of `finish` (scheduler.rs:400-401) precisely for this.
+        //
+        // Deliberate consequence: if one domain is rate-limited and a LATER
+        // domain still succeeds, the pass ends SUCCESS and the hint is dropped.
+        // That is correct — the pass succeeded, the limit was transient and
+        // absorbed, and the next cadence is the right schedule. Carrying a
+        // stale hour forward would be worse.
+        val retryAfter = pendingRetryAfterMs
+        pendingRetryAfterMs = null
         when (outcome) {
             PassOutcomeKind.SUCCESS -> {
                 lastSyncAtMs = now
@@ -174,8 +199,6 @@ class SyncSchedulerCore(
             PassOutcomeKind.RETRYABLE -> {
                 // When the response carried an explicit `Retry-After`, wait at
                 // least that long too (never sooner than the header demands).
-                val retryAfter = pendingRetryAfterMs
-                pendingRetryAfterMs = null
                 val delay = retryAfter?.let { maxOf(backoff.next(), it) } ?: backoff.next()
                 nextAttemptMs = now + delay
             }

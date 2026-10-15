@@ -3,9 +3,65 @@ package com.groq.voicetyper.sync.v1
 import java.text.Normalizer
 
 /**
+ * Unicode `White_Space` property (exactly 25 code points) — the trim set that
+ * Rust's `str::trim` uses, and therefore the set every identity derivation in
+ * this package MUST use.
+ *
+ * Kotlin's `String.trim()` removes every char `<= U+0020`, which DISAGREES with
+ * Rust in both directions, and both halves are data corruption:
+ *
+ *  - Rust trims, Kotlin does not: NBSP U+00A0 (pasted from a web page/PDF),
+ *    U+202F, U+3000 (CJK dictation), U+1680, U+205F, U+2028/9, and NEL
+ *    U+0085. A word arriving with one of those on a single device derives a
+ *    DIFFERENT business key than the bare word, so the two platforms see two
+ *    unrelated records for one word and they never reconcile.
+ *  - Kotlin trims, Rust does not: every C0 control below U+0020 that is not
+ *    TAB/LF/VT/FF/CR — NUL, SOH, BEL, backspace... A binary blob or a
+ *    control-char-prefixed key trimmed here but not on Windows is equally
+ *    divergent.
+ *
+ * The JDK predicates are both wrong for this job and neither may be used:
+ * `Character.isWhitespace` EXCLUDES NBSP U+00A0 (the web-paste case) and NEL
+ * U+0085; `Character.isSpaceChar` covers the Zs/Zl/Zp separator categories but
+ * MISSES NEL U+0085 (a Cc control, not a separator), so it is incomplete on its
+ * own. Either one substituted for this table silently drops a code point Rust
+ * trims, which re-keys a business account-wide.
+ *
+ * NOTE for future editors: U+2007 FIGURE SPACE *is* in Unicode `White_Space`
+ * (it lies inside the U+2000..U+200A run below) and is therefore deliberately
+ * included above. Do not "correct" it out — doing so re-opens a live
+ * cross-platform business-key split.
+ */
+internal fun Char.isUnicodeWhiteSpace(): Boolean = when (code) {
+    0x09, 0x0A, 0x0B, 0x0C, 0x0D, // TAB, LF, VT, FF, CR
+    0x20,                         // SPACE
+    0x85,                         // NEL - NEXT LINE
+    0xA0,                         // NO-BREAK SPACE
+    0x1680,                       // OGHAM SPACE MARK
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A,
+    0x2028,                       // LINE SEPARATOR
+    0x2029,                       // PARAGRAPH SEPARATOR
+    0x202F,                       // NARROW NO-BREAK SPACE
+    0x205F,                       // MEDIUM MATHEMATICAL SPACE
+    0x3000                        // IDEOGRAPHIC SPACE
+    -> true
+    else -> false
+}
+
+/**
+ * `String.trim()` over the Unicode `White_Space` property — the exact twin of
+ * Rust's `str::trim`, so identity and validation agree on both platforms.
+ * Only the two ENDS are touched; interior whitespace is payload and is never
+ * altered (frozen contract: `spoken`/`corrected` are stored byte-exact).
+ */
+internal fun unicodeTrim(s: String): String = s.trim { it.isUnicodeWhiteSpace() }
+
+/**
  * Frozen Sync v1.2 domain models — deterministic, cross-platform.
- * BusinessKey = NFC(lower(trim(spoken|trigger))) — single winner per key, always
- * recomputed from content (never trusted from the wire). NFC symmetric on both platforms.
+ * BusinessKey = NFC(lower(unicodeTrim(spoken|trigger))) — single winner per key,
+ * always recomputed from content (never trusted from the wire). NFC symmetric on
+ * both platforms; the trim set is Unicode `White_Space`, NOT Kotlin's
+ * `String.trim()` (see [unicodeTrim]).
  * Clock: wall UTC ms + maxSeen floor; winner = max(updatedAt, deviceId).
  * Tombstones are ordinary records: they win exactly when they are newest.
  */
@@ -23,7 +79,7 @@ data class DictionaryRecord(
     val tombstoneBit: Int get() = if (deletedAt != null) 1 else 0
     companion object {
         fun businessKeyOf(spoken: String): String =
-            Normalizer.normalize(spoken.trim(), Normalizer.Form.NFC).lowercase()
+            Normalizer.normalize(unicodeTrim(spoken), Normalizer.Form.NFC).lowercase()
     }
 }
 
@@ -40,7 +96,7 @@ data class SnippetRecord(
     val tombstoneBit: Int get() = if (deletedAt != null) 1 else 0
     companion object {
         fun businessKeyOf(trigger: String): String =
-            Normalizer.normalize(trigger.trim(), Normalizer.Form.NFC).lowercase()
+            Normalizer.normalize(unicodeTrim(trigger), Normalizer.Form.NFC).lowercase()
     }
 }
 

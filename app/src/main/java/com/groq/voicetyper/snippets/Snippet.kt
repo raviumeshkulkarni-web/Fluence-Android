@@ -1,5 +1,7 @@
 package com.groq.voicetyper.snippets
 
+import com.groq.voicetyper.sync.v1.SnippetRecord
+
 /**
  * A user-defined voice snippet.
  *
@@ -38,6 +40,16 @@ data class Snippet(
     /** Wire identity (v1.2 name for the legacy [uuid] field). */
     fun effectiveSyncId(): String? = uuid
 
-    /** Canonical business key — always derived from content, NFC-normalized. */
-    fun businessKey(): String = java.text.Normalizer.normalize(trigger.trim(), java.text.Normalizer.Form.NFC).lowercase()
+    /**
+     * Canonical business key — always derived from content, NFC-normalized.
+     *
+     * Delegates to [SnippetRecord.businessKeyOf] rather than re-deriving it here.
+     * The previous local copy used Kotlin's ASCII `String.trim()`, which trims only
+     * `<= U+0020` and therefore DISAGREED with Rust's `str::trim` (Unicode
+     * `White_Space`) in both directions. One trigger could then carry two different
+     * business keys on this device — Rule A grouping, the canonical wire form, and
+     * the Rule B `syncId` collapse would all disagree with Windows, producing a
+     * permanent two-platform PUT ping-pong. One canonical derivation, one caller.
+     */
+    fun businessKey(): String = SnippetRecord.businessKeyOf(trigger)
 }

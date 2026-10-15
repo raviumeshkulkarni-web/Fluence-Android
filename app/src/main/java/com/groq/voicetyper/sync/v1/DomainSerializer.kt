@@ -63,6 +63,77 @@ object DomainSerializer {
     // Windows accepts, admitting records asymmetrically.
     private fun validUuid(s: String): Boolean = isStrictUuid(s)
 
+    // ---- Canonical record bodies (RULE A level 4 of `Merge`) -------------
+    //
+    // These build the frozen wire object of ONE record: compact separators,
+    // frozen key order, `null` for an absent `deletedAt` — byte-for-byte what
+    // `serialize*` writes into an envelope and byte-for-byte what Windows'
+    // `serde_json::to_string` produces for the same record.
+    //
+    // They are the SINGLE writer for both jobs on purpose. `Merge` uses them as
+    // the last-resort tiebreak between two records that tie on
+    // (updatedAt, deviceId, syncId); if that comparison used a hand-built or
+    // differently-configured writer, any field-order / whitespace / escaping /
+    // number-format drift between the merge path and the emit path would
+    // silently reintroduce the split-brain the tiebreak exists to prevent.
+    // A drift between the two PLATFORMS' writers is equally fatal, so the key
+    // order below is the frozen contract's order verbatim and must not be
+    // reordered.
+
+    internal fun canonicalDictionaryEntry(e: DictionaryRecord): String {
+        val sb = StringBuilder(128)
+        sb.append("{\"syncId\":").append(jsonString(e.syncId))
+        sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
+        sb.append(",\"spoken\":").append(jsonString(e.spoken))
+        sb.append(",\"corrected\":").append(jsonString(e.corrected))
+        sb.append(",\"isEnabled\":").append(e.isEnabled)
+        sb.append(",\"updatedAt\":").append(e.updatedAt)
+        sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
+        sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
+        sb.append("}")
+        return sb.toString()
+    }
+
+    internal fun canonicalSnippetEntry(e: SnippetRecord): String {
+        val sb = StringBuilder(128)
+        sb.append("{\"syncId\":").append(jsonString(e.syncId))
+        sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
+        sb.append(",\"trigger\":").append(jsonString(e.trigger))
+        sb.append(",\"expansion\":").append(jsonString(e.expansion))
+        sb.append(",\"isEnabled\":").append(e.isEnabled)
+        sb.append(",\"updatedAt\":").append(e.updatedAt)
+        sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
+        sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
+        sb.append("}")
+        return sb.toString()
+    }
+
+    internal fun canonicalAgentEntry(e: AgentRecord): String {
+        val sb = StringBuilder(128)
+        sb.append("{\"syncId\":").append(jsonString(e.syncId))
+        sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
+        sb.append(",\"name\":").append(jsonString(e.name))
+        sb.append(",\"hint\":").append(jsonString(e.hint))
+        sb.append(",\"updatedAt\":").append(e.updatedAt)
+        sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
+        sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
+        sb.append("}")
+        return sb.toString()
+    }
+
+    internal fun canonicalStyleEntry(e: StyleRecord): String {
+        val sb = StringBuilder(128)
+        sb.append("{\"syncId\":").append(jsonString(e.syncId))
+        sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
+        sb.append(",\"name\":").append(jsonString(e.name))
+        sb.append(",\"hint\":").append(jsonString(e.hint))
+        sb.append(",\"updatedAt\":").append(e.updatedAt)
+        sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
+        sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
+        sb.append("}")
+        return sb.toString()
+    }
+
     /**
      * The envelope version `bytes` declares, or null when the payload is not a
      * readable JSON object with an integer `v`.
@@ -71,10 +142,30 @@ object DomainSerializer {
      * "this file is corrupt, repair it": `parse*` returns null for either
      * cause, and repairing a future envelope would destroy the newer client's
      * data. Mirrors Windows `declared_envelope_version`.
+     *
+     * SATURATE, never truncate — the exact twin of `domain.rs`. The previous
+     * `optInt("v", 0)` narrowed through `intValue()`, which silently truncated:
+     * `{"v":4294967297}` became `1`, so a future envelope was misclassified as
+     * v1 — i.e. "corrupt", which the sync pass IS allowed to overwrite, destroying
+     * the newer client's data. Every value `>= 2^31` now saturates to
+     * [Int.MAX_VALUE] and is correctly recognised as future.
+     *
+     * A JSON float is rejected (null), mirroring Rust's `as_i64()`, which yields
+     * None for a non-integer Number. Note the resulting classification: null
+     * means `isFutureEnvelope` is false, so an unreadable `v` is treated as
+     * CORRUPT-and-repairable rather than as owned by a future client — the same
+     * as Windows. That is deliberate parity, not an oversight: only an
+     * unambiguous integer version can prove a newer client owns the file.
      */
     private fun declaredEnvelopeVersion(bytes: ByteArray): Int? = try {
-        val o = JSONObject(String(bytes, Charsets.UTF_8))
-        if (o.has("v") && !o.isNull("v")) o.optInt("v", 0).takeIf { it != 0 || o.get("v") == 0 } else null
+        val raw = JSONObject(String(bytes, Charsets.UTF_8)).opt("v")
+        val asLong: Long? = when (raw) {
+            null -> null // absent or JSON null — Rust `.get("v")?` / `as_i64()` -> None
+            is Double, is Float -> null // non-integer Number — Rust `as_i64()` -> None
+            is Number -> raw.toLong()
+            else -> null // String/Boolean/etc. — Rust `as_i64()` -> None
+        }
+        asLong?.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())?.toInt()
     } catch (_: Exception) {
         null
     }
@@ -98,17 +189,9 @@ object DomainSerializer {
         // Document ends with exactly one trailing \n (frozen contract, Windows parity frozen.rs:236).
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
-            sb.append("{\"syncId\":").append(jsonString(e.syncId))
-            sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
-            sb.append(",\"spoken\":").append(jsonString(e.spoken))
-            sb.append(",\"corrected\":").append(jsonString(e.corrected))
-            sb.append(",\"isEnabled\":").append(e.isEnabled)
-            sb.append(",\"updatedAt\":").append(e.updatedAt)
-            sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
-            sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
-            sb.append("}")
+            sb.append(canonicalDictionaryEntry(e))
         }
         sb.append("]}")
         sb.append("\n")
@@ -135,7 +218,16 @@ object DomainSerializer {
                         businessKey = DictionaryRecord.businessKeyOf(spoken),
                         spoken = spoken,
                         corrected = corrected,
-                        isEnabled = e.optBoolean("isEnabled", true),
+                        // `getBoolean`, NOT `optBoolean(…, true)`: Windows
+                        // declares `is_enabled: bool` with NO `#[serde(default)]`,
+                        // so serde treats a missing (or null) field as a hard
+                        // error and the record is SKIPPED. `optBoolean(…, true)`
+                        // silently admitted it as enabled, so one platform
+                        // ingested a record the other always drops — and ingest
+                        // is asymmetric on the same bytes by construction.
+                        // Throwing here is skipped by the enclosing runCatching,
+                        // which is exactly serde's per-record skip.
+                        isEnabled = e.getBoolean("isEnabled"),
                         updatedAt = e.getLong("updatedAt"),
                         deletedAt = if (e.isNull("deletedAt")) null else e.getLong("deletedAt"),
                         deviceId = e.getString("deviceId")
@@ -153,17 +245,9 @@ object DomainSerializer {
         // Document ends with exactly one trailing \n (frozen contract, Windows parity frozen.rs:268).
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
-            sb.append("{\"syncId\":").append(jsonString(e.syncId))
-            sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
-            sb.append(",\"trigger\":").append(jsonString(e.trigger))
-            sb.append(",\"expansion\":").append(jsonString(e.expansion))
-            sb.append(",\"isEnabled\":").append(e.isEnabled)
-            sb.append(",\"updatedAt\":").append(e.updatedAt)
-            sb.append(",\"deletedAt\":").append(e.deletedAt?.toString() ?: "null")
-            sb.append(",\"deviceId\":").append(jsonString(e.deviceId))
-            sb.append("}")
+            sb.append(canonicalSnippetEntry(e))
         }
         sb.append("]}")
         sb.append("\n")
@@ -189,7 +273,12 @@ object DomainSerializer {
                         businessKey = SnippetRecord.businessKeyOf(trigger),
                         trigger = trigger,
                         expansion = e.getString("expansion"),
-                        isEnabled = e.optBoolean("isEnabled", true),
+                        // `getBoolean`, NOT `optBoolean(…, true)` — see the
+                        // dictionary parser above. Windows `is_enabled: bool` has
+                        // no serde default, so a missing/null field skips the
+                        // record there; `optBoolean` admitted it here, making
+                        // ingest asymmetric on the same bytes.
+                        isEnabled = e.getBoolean("isEnabled"),
                         updatedAt = e.getLong("updatedAt"),
                         deletedAt = if (e.isNull("deletedAt")) null else e.getLong("deletedAt"),
                         deviceId = e.getString("deviceId")
@@ -308,7 +397,7 @@ object DomainSerializer {
     fun serializeAgents(domain: AgentDomain): String {
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
             sb.append("{\"syncId\":").append(jsonString(e.syncId))
             sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
@@ -356,7 +445,7 @@ object DomainSerializer {
     fun serializeStyles(domain: StyleDomain): String {
         val sb = StringBuilder(512)
         sb.append("{\"v\":").append(domain.v).append(",\"entries\":[")
-        domain.entries.sortedWith(compareBy({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
+        domain.entries.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId })).forEachIndexed { idx, e ->
             if (idx > 0) sb.append(",")
             sb.append("{\"syncId\":").append(jsonString(e.syncId))
             sb.append(",\"businessKey\":").append(jsonString(e.businessKey))
@@ -408,18 +497,30 @@ object DomainSerializer {
     private fun DictionaryRecord.isValid(): Boolean =
         validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt > 0) &&
-            spoken.isNotBlank() && corrected.isNotEmpty() &&
+            // Rust twin (domain.rs): `spoken.trim().is_empty() || corrected.trim().is_empty()`.
+            // `unicodeTrim`, NOT `isNotBlank`: Java's `Character.isWhitespace` EXCLUDES
+            // NBSP U+00A0 while Rust's `str::trim` (Unicode White_Space) INCLUDES it, so
+            // `isNotBlank()` accepted an all-NBSP `spoken` that Windows rejects.
+            unicodeTrim(spoken).isNotEmpty() && unicodeTrim(corrected).isNotEmpty() &&
             spoken.codePointCount(0, spoken.length) <= 4096 && corrected.codePointCount(0, corrected.length) <= 4096
 
     private fun SnippetRecord.isValid(): Boolean =
         validUuid(syncId) && deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt > 0) &&
-            trigger.isNotBlank() && expansion.isNotEmpty() &&
+            // Rust twin (domain.rs): `trigger.trim().is_empty() || expansion.is_empty()`.
+            // Note `trigger` is TRIMMED but `expansion` is NOT - that asymmetry is
+            // deliberate upstream and mirroring it exactly is the point.
+            unicodeTrim(trigger).isNotEmpty() && expansion.isNotEmpty() &&
             trigger.codePointCount(0, trigger.length) <= 4096 && expansion.codePointCount(0, expansion.length) <= 8192
 
     private fun StatRecord.isValid(): Boolean =
         validUuid(eventId) &&
-            day.length == 10 &&
+            // Reuse the SHARD-ROUTING validator rather than a second copy. A length-10
+            // check alone let "2026-99-99" and "2026-02-30" through; `monthOfDay` is the
+            // same strict calendar parse (LocalDate/ISO) that decides shard membership,
+            // and it already mirrors the Windows NaiveDate check. One predicate, so the
+            // ingest rule and the routing rule cannot drift apart.
+            StatsShards.monthOfDay(day) != null &&
             timestampMs >= 0 &&
             wordCount in 0..1_000_000 &&
             chars in 0..10_000_000 &&
@@ -440,7 +541,13 @@ object DomainSerializer {
         validUuid(syncId) && AgentRecord.isValidBusinessKey(businessKey) &&
             deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt >= 0) &&
-            name.isNotBlank() &&
+            // Rust twin (domain.rs): `self.name.trim().is_empty() { return false }`.
+            // `unicodeTrim`, NOT `isNotBlank` — same divergence class the
+            // dictionary/snippet validators above already fixed: `Char.isBlank`
+            // uses Kotlin's whitespace set, which disagrees with Rust's Unicode
+            // `White_Space` in BOTH directions (it accepts U+00A0/U+0085 that Rust
+            // trims, and rejects U+001C..U+001F that Rust does not trim).
+            unicodeTrim(name).isNotEmpty() &&
             name.codePointCount(0, name.length) <= 1024 &&
             hint.codePointCount(0, hint.length) <= 8192
 
@@ -448,7 +555,7 @@ object DomainSerializer {
         validUuid(syncId) && StyleRecord.isValidBusinessKey(businessKey) &&
             deviceId.isNotEmpty() && updatedAt > 0 && !isFuture(updatedAt) &&
             (deletedAt == null || deletedAt >= 0) &&
-            name.isNotBlank() &&
+            unicodeTrim(name).isNotEmpty() &&
             name.codePointCount(0, name.length) <= 1024 &&
             hint.codePointCount(0, hint.length) <= 8192
 }

@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.os.SystemClock
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -76,18 +77,84 @@ internal object PassAccountGuard {
  *  - no persisted identity -> [SyncError.AuthRequired]
  *  - persisted != token-verified -> [SyncError.Retryable] (fail closed)
  *
- * Comparison is trimmed and case-folded, matching Windows. There is
- * deliberately NO automatic rename migration: the trigger is a Google email
- * rename, where the persisted value legitimately lags the token, and the only
- * resolutions are re-authentication or explicit user reconciliation.
+ * Comparison is trimmed and folded with the SINGLE shared rule
+ * [AccountHash.normalizeAccountKey] — full-Unicode case folding, byte-identical
+ * to Windows `metadata::normalize_account_key` (`trim()` + Rust
+ * `str::to_lowercase`). An ASCII-only fold (Windows' former
+ * `eq_ignore_ascii_case`) called `ÜSER@…` and `üser@…` two identities and
+ * aborted a perfectly healthy account on every pass.
+ *
+ * There is deliberately NO automatic rename migration: the trigger is a Google
+ * email rename, where the persisted value legitimately lags the token, and the
+ * only resolutions are re-authentication or explicit user reconciliation.
  */
 internal fun identityDivergenceOutcome(persisted: String?, verified: String): SyncError? = when {
     persisted == null -> SyncError.AuthRequired
-    persisted.trim().lowercase() != verified.trim().lowercase() -> SyncError.Retryable(
+    AccountHash.normalizeAccountKey(persisted) != AccountHash.normalizeAccountKey(verified) -> SyncError.Retryable(
         "token identity differs from the persisted sign-in; " +
             "refusing to sync under a stale key"
     )
     else -> null
+}
+
+/**
+ * The outcome a pass failure may be RECORDED as, or `null` when the failure is
+ * a cancellation and nothing at all may be recorded.
+ *
+ * F18: `CancellationException` is an ordinary `Exception`, so the pass body's
+ * catch-all happily swallowed it, let the `finally` complete the pass with the
+ * `SUCCESS` sentinel the variable was initialized to, advanced `lastSyncAtMs`
+ * and persisted "Last synced" — for a pass that never finished. A cancelled
+ * pass is now classified FIRST and reported as "record nothing", so the caller
+ * clears `running` without completing a pass, and the cancellation keeps
+ * propagating so structured concurrency still sees it.
+ *
+ * Every other failure keeps its existing classification.
+ */
+internal fun passFailureOutcome(e: Throwable): PassOutcomeKind? {
+    if (e is kotlinx.coroutines.CancellationException) return null
+    return when (e) {
+        is com.groq.voicetyper.sync.v1.SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
+        is com.groq.voicetyper.sync.v1.SyncError.RateLimited -> PassOutcomeKind.RETRYABLE
+        is com.groq.voicetyper.sync.v1.SyncError.Retryable,
+        is com.groq.voicetyper.sync.v1.SyncError.StaleVersion -> PassOutcomeKind.RETRYABLE
+        is com.groq.voicetyper.sync.v1.SyncError.Fatal,
+        is com.groq.voicetyper.sync.v1.SyncError.Rejected -> PassOutcomeKind.FATAL
+        else -> PassOutcomeKind.RETRYABLE
+    }
+}
+
+/**
+ * Run [pass] and report its outcome exactly once.
+ *
+ * [onSettled] receives the outcome to record, or `null` when the pass was
+ * cancelled — in which case it MUST NOT be treated as a completed pass (the
+ * scheduler clears `running` instead of advancing the clock). Cancellation is
+ * always rethrown so the enclosing coroutine still observes it.
+ *
+ * Extracted from [SyncManager.runPass] so the cancellation contract is
+ * unit-testable without a `Context`, an auth session or a network.
+ */
+internal suspend fun guardedPass(
+    pass: suspend () -> PassOutcomeKind,
+    onSettled: (PassOutcomeKind?) -> Unit,
+): PassOutcomeKind {
+    // Inferred `PassOutcomeKind`: the catch branch either throws (cancellation)
+    // or yields a classified failure, so the success path can never be null.
+    val outcome = try {
+        pass()
+    } catch (e: Throwable) {
+        val failure = passFailureOutcome(e)
+        if (failure == null) {
+            // Cancelled: record NOTHING, then keep the cancellation alive.
+            onSettled(null)
+            throw e
+        }
+        android.util.Log.e("FluenceSync", "v1.2 pass failed: ${e::class.simpleName} ${e.message}")
+        failure
+    }
+    onSettled(outcome)
+    return outcome
 }
 
 class SyncManager(
@@ -217,7 +284,47 @@ class SyncManager(
         scheduler.beginPass()
         publish()
         try {
-            SyncPassGate.mutex.withLock {
+            // Bound the WAIT for the single-flight gate — and only the wait.
+            //
+            // `beginPass()` sets `running` BEFORE the gate so a manual "Sync now"
+            // shows "Syncing…" immediately, which means a pass queued behind a
+            // stuck head-of-line pass holds `running` for as long as it waits.
+            // Unbounded, the UI stayed on "Syncing…" forever, the button stayed
+            // disabled, the 1s poll loop spun, and no error was ever surfaced:
+            // sync was dead until the process was killed.
+            //
+            // `tryLock()` POLLING, not `withTimeoutOrNull { mutex.lock() }`.
+            // That alternative has a TOCTOU: if the holder releases at the same
+            // instant the deadline fires, `lock()` ACQUIRES the mutex and
+            // `withTimeoutOrNull` still returns null — so the caller took the
+            // "not acquired" branch and the inner try/finally (the only place
+            // the unlock lives) was never entered. The mutex stayed held forever
+            // and every later pass timed out: the permanent wedge, reintroduced
+            // in a much rarer form. `tryLock` is atomic, so "true" unambiguously
+            // means held, and this block cannot leak the lock.
+            val deadline = SystemClock.elapsedRealtime() + GATE_WAIT_TIMEOUT_MS
+            var locked = false
+            while (!locked) {
+                locked = SyncPassGate.mutex.tryLock()
+                if (!locked) {
+                    if (SystemClock.elapsedRealtime() >= deadline) break
+                    delay(GATE_POLL_INTERVAL_MS)
+                }
+            }
+            if (!locked) {
+                android.util.Log.w(
+                    "FluenceSync",
+                    "pass gave up after ${GATE_WAIT_TIMEOUT_MS}ms waiting for the single-flight gate; " +
+                        "a head-of-line pass is wedged. Retrying with backoff."
+                )
+                // Record the outcome rather than merely clearing `running`, so
+                // this backs off like every other failure instead of retrying at
+                // bare cadence.
+                scheduler.completePass(PassOutcomeKind.RETRYABLE)
+                publish()
+                return@withContext PassOutcomeKind.RETRYABLE
+            }
+            try {
                 auth.reloadFromStorage()
                 // A recovered keystore can restore a previously committed email
                 // mid-process, so refresh the ownership cache when the persisted
@@ -237,40 +344,58 @@ class SyncManager(
                 if (!auth.isSignedIn()) {
                     scheduler.completePass(PassOutcomeKind.AUTH_REQUIRED)
                     publish()
-                    return@withLock PassOutcomeKind.AUTH_REQUIRED
+                    // The gate was acquired by hand, so `finally` releases it.
+                    return@withContext PassOutcomeKind.AUTH_REQUIRED
                 }
-                var outcome = PassOutcomeKind.SUCCESS
-                try {
-                    outcome = runV12Pass()
-                } catch (e: com.groq.voicetyper.sync.v1.SyncError) {
-                    android.util.Log.e("FluenceSync", "v1.2 pass failed: ${e::class.simpleName} ${e.message}")
-                    outcome = when (e) {
-                        is com.groq.voicetyper.sync.v1.SyncError.AuthRequired -> PassOutcomeKind.AUTH_REQUIRED
-                        is com.groq.voicetyper.sync.v1.SyncError.RateLimited -> {
+                // F18: the outcome recorded for this pass comes from
+                // `guardedPass`, which reports `null` ("record nothing, just
+                // clear `running`") when the coroutine was CANCELLED inside
+                // `runV12Pass`. Seeding a SUCCESS sentinel and completing the
+                // pass from a `finally` instead advanced `lastSyncAtMs` and
+                // persisted "Last synced" for a pass that never finished.
+                val outcome = guardedPass(
+                    pass = {
+                        try {
+                            runV12Pass()
+                        } catch (e: com.groq.voicetyper.sync.v1.SyncError.RateLimited) {
+                            // Preserve an explicit Drive Retry-After so the
+                            // scheduler gates the next attempt on it, same as
+                            // the per-domain RateLimited arm in `runDomain`.
                             scheduler.noteRetryAfter(e.retryAfterMs)
-                            PassOutcomeKind.RETRYABLE
+                            throw e
                         }
-                        is com.groq.voicetyper.sync.v1.SyncError.Retryable,
-                        is com.groq.voicetyper.sync.v1.SyncError.StaleVersion -> PassOutcomeKind.RETRYABLE
-                        is com.groq.voicetyper.sync.v1.SyncError.Fatal,
-                        is com.groq.voicetyper.sync.v1.SyncError.Rejected -> PassOutcomeKind.FATAL
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("FluenceSync", "v1.2 pass failed unexpectedly: ${e::class.simpleName} ${e.message}", e)
-                    outcome = PassOutcomeKind.RETRYABLE
-                } finally {
-                    scheduler.completePass(outcome)
-                    // F4: DEGRADED recorded the sync like a success, so its
-                    // timestamp must survive process death too.
-                    if (outcome == PassOutcomeKind.SUCCESS || outcome == PassOutcomeKind.DEGRADED) {
-                        persistLastSyncAt(scheduler.lastSyncAtMs)
-                    }
-                    publish()
-                }
+                    },
+                    onSettled = { settled ->
+                        if (settled == null) {
+                            // Cancelled: clear the running flag so the UI never
+                            // sticks on "Syncing…" and no pass is recorded.
+                            scheduler.cancelPass()
+                        } else {
+                            scheduler.completePass(settled)
+                            // F4: DEGRADED recorded the sync like a success, so
+                            // its timestamp must survive process death too.
+                            if (settled == PassOutcomeKind.SUCCESS || settled == PassOutcomeKind.DEGRADED) {
+                                persistLastSyncAt(scheduler.lastSyncAtMs)
+                            }
+                        }
+                        publish()
+                    },
+                )
                 outcome
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancelled mid-pass (e.g. activity stopped): clear the running
+                // flag so the UI never sticks on "Syncing…".
+                scheduler.cancelPass()
+                publish()
+                throw e
+            } finally {
+                // Released on EVERY exit path, including cancellation — the
+                // mutex is process-wide, so leaking it would wedge every future
+                // pass on both the foreground and worker paths.
+                SyncPassGate.mutex.unlock()
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // Cancelled while waiting for the gate (e.g. activity stopped):
+            // Cancelled while WAITING for the gate (e.g. activity stopped):
             // clear the running flag so the UI never sticks on "Syncing…".
             scheduler.cancelPass()
             publish()
@@ -395,7 +520,9 @@ class SyncManager(
                         throw SyncError.Retryable("refresh identity: ${r.reason}")
                     }
                 }
-                if (!refreshedIdentity.equals(authenticatedEmail, ignoreCase = true)) {
+                if (AccountHash.normalizeAccountKey(refreshedIdentity) !=
+                    AccountHash.normalizeAccountKey(authenticatedEmail)
+                ) {
                     android.util.Log.w(
                         "FluenceSync",
                         "refreshed token belongs to a different Drive account; aborting pass"
@@ -557,6 +684,26 @@ class SyncManager(
         private const val PREFS_NAME = "fluence_prefs"
         private const val KEY_SYNC_ENABLED = "sync_enabled"
         private const val KEY_LAST_SYNC_AT = "last_sync_at_ms"
+
+        /**
+         * How long a pass waits for the single-flight gate before giving up.
+         *
+         * Only the WAIT is bounded, never the pass itself — see `runPass`. An
+         * uncontended `Mutex.lock()` returns immediately, so this is many times
+         * longer than any healthy pass needs and only fires when a head-of-line
+         * pass is genuinely wedged (e.g. a token mint that never returns).
+         * Generous enough that a slow-but-progressing head-of-line pass is never
+         * displaced, tight enough that the UI cannot stick on "Syncing…" forever.
+         */
+        private const val GATE_WAIT_TIMEOUT_MS = 45_000L
+
+        /**
+         * Poll interval while waiting for the single-flight gate.
+         *
+         * Short enough that the 45 s deadline is honoured to within ~50 ms, long
+         * enough not to spin. `tryLock` is atomic, so polling is safe to repeat.
+         */
+        private const val GATE_POLL_INTERVAL_MS = 50L
 
         fun isSyncEnabled(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

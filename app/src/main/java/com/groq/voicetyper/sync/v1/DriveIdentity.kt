@@ -33,8 +33,15 @@ import java.util.concurrent.TimeUnit
  *
  * This mirrors the Windows reference implementation exactly:
  *   - `sync/scheduler.rs:57`  — `SYNC_ABOUT_URL = ".../about?fields=user"`
- *   - `sync/scheduler.rs:730` — `parse_account_email` (pure parser, blank -> None)
- *   - `sync/metadata.rs:163`  — `account_hash_from_email` = SHA-256 of lower(trim(email))
+ *   - `sync/scheduler.rs` `parse_account_email` (pure parser, blank -> None)
+ *   - `sync/metadata.rs` `account_hash_from_email` = SHA-256 of the folded email
+ *     via `normalize_account_key` = `trim()` + full-Unicode `to_lowercase()`
+ *
+ * F10: the fold rule is `AccountHash.normalizeAccountKey` on this side and
+ * `metadata::normalize_account_key` on the Windows side, and the two are
+ * byte-identical. Windows used to compare with `eq_ignore_ascii_case`
+ * (ASCII-only) while Android used full-Unicode `lowercase()`, so a non-ASCII
+ * local part was two identities on Windows and one on Android.
  *
  * The persisted `accountEmail` remains as a *display cache only*. It is never
  * trusted as the authoritative sync identity.

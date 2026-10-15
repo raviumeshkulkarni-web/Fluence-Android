@@ -1,0 +1,105 @@
+{
+  "name": "s31-full-tie-canonical-content",
+  "devices": {
+    "dev-a": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f01",
+        "spoken": "tie",
+        "corrected": "AAA",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f11",
+        "trigger": "tie-snip",
+        "expansion": "AAA",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      }
+    ],
+    "dev-b": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f01",
+        "spoken": "tie",
+        "corrected": "BBB",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f11",
+        "trigger": "tie-snip",
+        "expansion": "BBB",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      }
+    ],
+    "dev-c": [
+      {
+        "kind": "dict",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f01",
+        "spoken": "tie",
+        "corrected": "CCC",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      },
+      {
+        "kind": "snip",
+        "op": "put",
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f11",
+        "trigger": "tie-snip",
+        "expansion": "CCC",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deviceId": "dev",
+        "deletedAt": null
+      }
+    ]
+  },
+  "expected": {
+    "dictionary": [
+      {
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f01",
+        "businessKey": "tie",
+        "spoken": "tie",
+        "corrected": "CCC",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deletedAt": null,
+        "deviceId": "dev"
+      }
+    ],
+    "snippets": [
+      {
+        "syncId": "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f11",
+        "businessKey": "tie-snip",
+        "trigger": "tie-snip",
+        "expansion": "CCC",
+        "isEnabled": true,
+        "updatedAt": 1713471000123,
+        "deletedAt": null,
+        "deviceId": "dev"
+      }
+    ],
+    "settings": [],
+    "stats": []
+  }
+}

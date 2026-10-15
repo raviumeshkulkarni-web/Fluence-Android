@@ -1,6 +1,9 @@
 package com.groq.voicetyper.sync.v1
 
 import com.groq.voicetyper.sync.auth.GoogleOAuth
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import okhttp3.MediaType.Companion.toMediaType
@@ -45,6 +48,24 @@ class AppDataDriveStore(
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
         .writeTimeout(java.time.Duration.ofSeconds(60))
+        // An OVERALL deadline, which the three socket timeouts above are not:
+        // they bound each individual socket operation, so a peer that dribbles a
+        // response in under the read timeout forever holds `execute()` open
+        // indefinitely. Every Drive call runs inside `SyncPassGate.mutex`, so one
+        // stuck call wedged the whole sync engine — the UI stayed on "Syncing…",
+        // "Sync Now" was disabled, and no error was ever surfaced, until the
+        // process was killed. Windows bounds each call with reqwest's
+        // `.timeout(30s)`, so this restores parity.
+        //
+        // 90s, and it MUST stay below the worker's own budget: `SyncWorker`
+        // wraps the pass in `withTimeout(120_000L)`, so any deadline above 120s
+        // can never fire in the worker path — it would be inert exactly where the
+        // wedge is most likely. 90s leaves headroom under that budget while
+        // still being 3x the read timeout. It is also deliberately far more
+        // generous than Windows' 30s total, because `callTimeout` spans the WHOLE
+        // call including upload: at 8 MiB per pass this allows ~91 KB/s, so a
+        // merely slow link still completes while a genuinely dead one fails fast.
+        .callTimeout(java.time.Duration.ofSeconds(90))
         .build(),
     private val apiBase: String = API_BASE,
     private val uploadBase: String = UPLOAD_BASE
@@ -85,6 +106,15 @@ class AppDataDriveStore(
 
         /** Maximum records accepted in one envelope (corruption/abuse guard). */
         const val MAX_ENVELOPE_ITEMS = 50_000
+
+        /**
+         * F14: bytes of a FAILURE body we keep. Drive's error JSON is a few
+         * hundred bytes; past this it is an abuse page or a proxy error and
+         * carries no classification signal worth buffering. Success bodies use
+         * the far larger [MAX_DOMAIN_BYTES] instead — a folder listing
+         * legitimately returns ~1000 rows, well past a diagnostic-sized cap.
+         */
+        const val MAX_DIAGNOSTIC_BODY_BYTES = 64 * 1024
     }
 
     private fun bearer(url: String): Request.Builder =
@@ -115,18 +145,87 @@ class AppDataDriveStore(
         throw SyncError.Retryable(e.message ?: "Drive transport failure")
     }
 
+    // -----------------------------------------------------------------------
+    // F14 — bounded response bodies (mirror of Windows `drive.rs`).
+    //
+    // The payload cap used to be enforced on download only AFTER the whole body
+    // had already been buffered, so a single oversized (or simply lying) remote
+    // cost one unbounded allocation before anything could refuse it, and the
+    // listing / metadata / error bodies had no ceiling at all. Two guards close
+    // that:
+    //   1. the declared Content-Length is checked BEFORE a byte is read;
+    //   2. the body is streamed under a hard ceiling, so an absent, chunked or
+    //      simply wrong Content-Length still costs a bounded allocation.
+    // Both are needed: the header is only a claim, the ceiling is the guarantee.
+    // -----------------------------------------------------------------------
+
+    /**
+     * Read this response under a hard byte ceiling and classify it.
+     *
+     * The success cap is the domain cap (listing, media, about); a failure body
+     * is only read to CLASSIFY the failure, so it gets the small diagnostic cap
+     * and a hostile error page can never make us buffer megabytes.
+     */
+    private fun Response.readBoundedBody(): BoundedBody {
+        val cap = if (code in 200..299) MAX_DOMAIN_BYTES else MAX_DIAGNOSTIC_BODY_BYTES
+        val bodyNow = body ?: return BoundedBody.Complete(ByteArray(0))
+        val src = bodyNow.byteStream() ?: return BoundedBody.Complete(ByteArray(0))
+        val bytes = try {
+            readBodyCapped(bodyNow.contentLength(), src, cap)
+        } catch (e: IOException) {
+            throw SyncError.Retryable(e.message ?: "Drive body read failure")
+        }
+        return if (bytes == null) BoundedBody.Truncated else BoundedBody.Complete(bytes)
+    }
+
+    /** Whole body as text, under the same two guards (see [readBoundedBody]). */
+    private fun Response.readTextBounded(): String = decodedBoundedBody(code, readBoundedBody())
+
+    /**
+     * One bounded media read, shared by [getDomain] and [getStatsShardBytes].
+     *
+     * CRITICAL: an over-cap body is [BoundedRead.OverCap], NEVER [BoundedRead.Absent].
+     * The engine reads "absent" as "safe to (re)create", so returning null for an
+     * oversized remote would pick that very file as the CAS write target and
+     * overwrite it — the opposite of the keep-the-remote-intact contract.
+     */
+    private fun readMedia(url: String, label: String): BoundedRead =
+        call(bearer(url)).use { resp ->
+            if (resp.code == 404) return@use BoundedRead.Absent
+            when (val bounded = resp.readBoundedBody()) {
+                is BoundedBody.Complete -> {
+                    classify(resp, resp.code) { bounded.bytes.toString(Charsets.UTF_8) }
+                    BoundedRead.Complete(bounded.bytes)
+                }
+
+                is BoundedBody.Truncated -> {
+                    if (resp.code in 200..299) {
+                        android.util.Log.w("FluenceSync", "$label body passed the $MAX_DOMAIN_BYTES byte cap, abandoned unread")
+                        BoundedRead.OverCap
+                    } else {
+                        // Failure path: the body is only diagnostic. Discard it
+                        // and classify from the status + headers alone, which
+                        // preserves the documented fail-safe (an unparseable 403
+                        // is Retryable, never the Fatal "not ours" latch).
+                        classify(resp, resp.code) { "" }
+                        BoundedRead.Absent
+                    }
+                }
+            }
+        }
+
     /**
      * Map an HTTP status to a [SyncError]. Non-2xx statuses that carry a body
      * only read it via [bodyProvider], and only when classified (403) — a
      * success path never consumes the stream, so callers can still read it.
-     * A 429 surfacing a `Retry-After` header becomes [SyncError.RateLimited]
-     * so the scheduler honors the explicit delay.
+     * A 429 OR a quota-shaped 403 surfacing a `Retry-After` header becomes
+     * [SyncError.RateLimited] so the scheduler honors the explicit delay.
      */
     private fun classify(response: Response, status: Int, bodyProvider: () -> String = { "" }) {
         when (status) {
             in 200..299 -> return
             401 -> throw SyncError.AuthRequired
-            403 -> throw classifyForbidden(bodyProvider())
+            403 -> throw classifyForbidden(bodyProvider(), readRetryAfterMs(response))
             429 -> {
                 val retryAfterMs = readRetryAfterMs(response)
                 if (retryAfterMs != null) throw SyncError.RateLimited(retryAfterMs)
@@ -147,7 +246,7 @@ class AppDataDriveStore(
         val fluenceId = ensureFluenceFolder()
         val query = URLEncoder.encode("'$fluenceId' in parents and mimeType = '$FOLDER_MIME' and name = 'v1' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.readTextBounded()
             classify(resp, resp.code) { body }
             val id = parseFirstId(body)
             v1FolderId = id ?: createFolder("v1", fluenceId)
@@ -159,7 +258,7 @@ class AppDataDriveStore(
         fluenceFolderId?.let { return it }
         val query = URLEncoder.encode("name = 'fluence' and mimeType = '$FOLDER_MIME' and trashed = false and 'appDataFolder' in parents", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.readTextBounded()
             classify(resp, resp.code) { body }
             val id = parseFirstId(body)
             fluenceFolderId = id ?: createFolder("fluence", "appDataFolder")
@@ -172,7 +271,7 @@ class AppDataDriveStore(
             .put("parents", org.json.JSONArray().put(parent)).toString()
             .toRequestBody("application/json".toMediaType())
         call(bearer("$apiBase/files?fields=id").post(body)).use { resp ->
-            val responseBody = resp.body?.string().orEmpty()
+            val responseBody = resp.readTextBounded()
             classify(resp, resp.code) { responseBody }
             return parseId(responseBody) ?: throw SyncError.Retryable("folder create missing id")
         }
@@ -255,7 +354,7 @@ class AppDataDriveStore(
         do {
             val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
             call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version,size),nextPageToken&pageSize=1000$token")).use { resp ->
-                val body = resp.body?.string().orEmpty()
+                val body = resp.readTextBounded()
                 classify(resp, resp.code) { body }
                 val page = parseFileListLite(body)
                 all += page.first
@@ -302,7 +401,7 @@ class AppDataDriveStore(
         do {
             val token = pageToken?.let { "&pageToken=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
             call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name,version,size),nextPageToken&pageSize=1000$token")).use { resp ->
-                val body = resp.body?.string().orEmpty()
+                val body = resp.readTextBounded()
                 classify(resp, resp.code) { body }
                 val page = parseFileListLite(body)
                 all += page.first
@@ -331,18 +430,24 @@ class AppDataDriveStore(
      * throw Rejected; the engine catches that per shard (skip + retain) so
      * one oversized sibling never blocks the other months.
      */
-    override fun getStatsShardBytes(fileId: String): ByteArray? {
-        val bytes = call(bearer("$apiBase/files/$fileId?alt=media")).use { resp ->
-            if (resp.code == 404) return null
-            val responseBody = resp.body?.bytes() ?: ByteArray(0)
-            classify(resp, resp.code) { responseBody.toString(Charsets.UTF_8) }
-            responseBody
+    override fun getStatsShardBytes(fileId: String): ByteArray? =
+        when (val read = readMedia("$apiBase/files/$fileId?alt=media", "stats shard $fileId")) {
+            is BoundedRead.Complete -> {
+                // Defence in depth: `readCapped` already guarantees this, but
+                // the cap is the load-bearing invariant of this function and
+                // must not depend on one call site's correctness.
+                if (read.bytes.size > MAX_DOMAIN_BYTES) {
+                    throw SyncError.Rejected("stats shard payload ${read.bytes.size} bytes exceeds cap")
+                }
+                read.bytes
+            }
+            // Rejected, never `null`: null reads as "absent", and the engine
+            // would then create/replace this very shard with our own rows.
+            is BoundedRead.OverCap -> throw SyncError.Rejected(
+                "stats shard $fileId payload exceeds the $MAX_DOMAIN_BYTES byte cap"
+            )
+            is BoundedRead.Absent -> null
         }
-        if (bytes.size > MAX_DOMAIN_BYTES) {
-            throw SyncError.Rejected("stats shard payload ${bytes.size} bytes exceeds cap")
-        }
-        return bytes
-    }
 
     /**
      * CAS upload of one Stats shard file. Mirrors [putDomain] freshness logic
@@ -383,7 +488,7 @@ class AppDataDriveStore(
             val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(parent)).toString()
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
-                val responseBody = resp.body?.string().orEmpty()
+                val responseBody = resp.readTextBounded()
                 classify(resp, resp.code) { responseBody }
                 parseVersion(responseBody)
                     ?: throw SyncError.Retryable("create succeeded but no file version was returned")
@@ -423,6 +528,7 @@ class AppDataDriveStore(
 
         val valid = mutableListOf<Pair<FileMetaLite, ByteArray>>()
         var firstCorrupt: Pair<FileMetaLite, ByteArray>? = null
+        var firstUnusableReadable: Pair<FileMetaLite, ByteArray>? = null
         var largestOversized = 0L
         for (meta in files) {
             // F5: listing-reported oversize skips the download, not just the
@@ -455,26 +561,51 @@ class AppDataDriveStore(
                 valid.add(meta to synthetic)
                 continue
             }
-            val bytes = call(bearer("$apiBase/files/${meta.fileId}?alt=media")).use { resp ->
-                if (resp.code == 404) return@use null
-                val responseBody = resp.body?.bytes() ?: ByteArray(0)
-                classify(resp, resp.code) { responseBody.toString(Charsets.UTF_8) }
-                responseBody
-            } ?: continue
+            val bytes = when (
+                val read = readMedia("$apiBase/files/${meta.fileId}?alt=media", "domain $domain file ${meta.fileId}")
+            ) {
+                is BoundedRead.Complete -> read.bytes
+                // Over-cap: never "absent". An absent file would be reported as
+                // `DomainFetch(null, …)` below only when NOTHING is usable —
+                // and here the file is counted so the caller raises Rejected
+                // and leaves the remote intact.
+                is BoundedRead.OverCap -> {
+                    largestOversized = maxOf(largestOversized, MAX_DOMAIN_BYTES + 1L)
+                    continue
+                }
+                is BoundedRead.Absent -> continue
+            }
             if (bytes.size > MAX_DOMAIN_BYTES) {
                 largestOversized = maxOf(largestOversized, bytes.size.toLong())
                 continue
             }
-              val parseable = when (domain) {
-                  DomainFile.DICTIONARY -> DomainSerializer.parseDictionary(bytes) != null
-                  DomainFile.SNIPPETS -> DomainSerializer.parseSnippets(bytes) != null
-                  DomainFile.STATS -> DomainSerializer.parseStats(bytes) != null
-                  DomainFile.SETTINGS -> DomainSerializer.parseSettings(bytes) != null
-                  DomainFile.AGENTS -> DomainSerializer.parseAgents(bytes) != null
-                  DomainFile.STYLES -> DomainSerializer.parseStyles(bytes) != null
+            val parsedEntries: List<*>? = when (domain) {
+                  DomainFile.DICTIONARY -> DomainSerializer.parseDictionary(bytes)?.entries
+                  DomainFile.SNIPPETS -> DomainSerializer.parseSnippets(bytes)?.entries
+                  DomainFile.STATS -> DomainSerializer.parseStats(bytes)?.entries
+                  DomainFile.SETTINGS -> DomainSerializer.parseSettings(bytes)?.entries
+                  DomainFile.AGENTS -> DomainSerializer.parseAgents(bytes)?.entries
+                  DomainFile.STYLES -> DomainSerializer.parseStyles(bytes)?.entries
               }
-            if (parseable) valid.add(meta to bytes)
-            else if (firstCorrupt == null) firstCorrupt = meta to bytes
+            if (parsedEntries != null) {
+                if (parsedEntries.isNotEmpty()) {
+                    valid.add(meta to bytes)
+                } else if (firstUnusableReadable == null) {
+                    // FENCE (Windows frozen.rs:259-279, `let usable = !items.is_empty();`).
+                    // Per-record isolation means an envelope whose every record is
+                    // structurally malformed decodes to an EMPTY list rather than
+                    // `null`. That is still a READABLE file, so it must NOT be
+                    // recorded as a VALID duplicate: consolidation DELETES valid
+                    // duplicates, and we cannot tell "the user emptied this file"
+                    // apart from "every record in it was garbage this client could
+                    // not parse". Registering it would let a pass DELETE a sibling
+                    // whose real contents we simply failed to read. It contributes
+                    // its (empty) records to the merge, is never a delete target,
+                    // and is never shed.
+                    android.util.Log.w("FluenceSync", "domain $domain file ${meta.fileId} decoded to zero valid records; holding it as readable-but-unusable (not a delete target)")
+                    firstUnusableReadable = meta to bytes
+                }
+            } else if (firstCorrupt == null) firstCorrupt = meta to bytes
         }
 
         if (valid.isNotEmpty()) {
@@ -489,13 +620,31 @@ class AppDataDriveStore(
             return DomainFetch(bytes, target.version, valid.size > 1)
         }
 
-        preferredDomainFileIds[key] = files.first().fileId
+        // Deliberately NO `preferredDomainFileIds[key] = files.first().fileId`
+        // here. Every path that actually returns content sets the target from
+        // the pair it returns (below), and the two early-exit paths must not set
+        // it at all:
+        //  - the oversized `throw` escapes immediately;
+        //  - `DomainFetch(null, null)` is reached only when every listed file
+        //    VANISHED between list and get, so `files.first().fileId` is a dead
+        //    id. Recording it made the caller treat a vanished file as the PUT
+        //    target for a "remote absent" create — pointing a write at a file
+        //    that no longer exists.
+        // Leaving a wrong entry is worse than leaving none.
         validDuplicateFileIds.remove(key)
         if (largestOversized > 0) {
             throw SyncError.Rejected("domain payload $largestOversized bytes exceeds cap")
         }
-        val corrupt = firstCorrupt ?: return DomainFetch(null, null)
-        return DomainFetch(corrupt.second, corrupt.first.version)
+        val unusable = firstCorrupt ?: firstUnusableReadable ?: return DomainFetch(null, null)
+        // The PUT target and the CAS version MUST describe the SAME file.
+        // `files.first()` is listing order and can differ from `unusable` when a
+        // domain has several same-name files — then the caller PUTs to one file
+        // while CAS-checking a revision belonging to another, which either
+        // livelocks on a spurious StaleVersion or, if two revisions happen to
+        // coincide, permits an unguarded overwrite. Deriving the target from the
+        // pair actually returned makes target and version inseparable.
+        preferredDomainFileIds[key] = unusable.first.fileId
+        return DomainFetch(unusable.second, unusable.first.version)
     }
 
     /**
@@ -552,7 +701,7 @@ class AppDataDriveStore(
             val metadata = JSONObject().put("name", name).put("parents", org.json.JSONArray().put(parent)).toString()
             val body = relatedBody(metadata, name, bytes)
             call(bearer("$uploadBase/files?uploadType=multipart&fields=id,version").post(body)).use { resp ->
-                val responseBody = resp.body?.string().orEmpty()
+                val responseBody = resp.readTextBounded()
                 classify(resp, resp.code) { responseBody }
                 parseVersion(responseBody)
                     ?: throw SyncError.Retryable("create succeeded but no file version was returned")
@@ -580,7 +729,7 @@ class AppDataDriveStore(
         val metadata = JSONObject().put("name", name).toString()
         val body = relatedBody(metadata, name, bytes)
         call(bearer("$uploadBase/files/$fileId?uploadType=multipart&fields=version").patch(body)).use { resp ->
-            val responseBody = resp.body?.string().orEmpty()
+            val responseBody = resp.readTextBounded()
             classify(resp, resp.code) { responseBody }
             val newVersion = parseVersion(responseBody)
             if (newVersion != null) return newVersion
@@ -588,54 +737,98 @@ class AppDataDriveStore(
         // Defensive fallback: fetch the version explicitly so staleness
         // detection stays armed for the next pass.
         call(bearer("$apiBase/files/$fileId?fields=version")).use { resp ->
-            val responseBody = resp.body?.string().orEmpty()
+            val responseBody = resp.readTextBounded()
             classify(resp, resp.code) { responseBody }
             return parseVersion(responseBody)
                 ?: throw SyncError.Retryable("update succeeded but no file version was returned")
         }
     }
 
-    private fun mergeValidDuplicatePayloads(domain: DomainFile, payloads: List<ByteArray>): ByteArray {
+    /**
+     * Consolidate same-name VALID siblings through the shared LWW authority.
+     *
+     * F24: this used to `!!` the re-parse of every payload. It was safe only
+     * because [getDomain] pre-proved parseability ~130 lines earlier, an
+     * invariant nothing recorded — so a single drift between the two parses
+     * would crash the pass with a `NullPointerException` from a merge path.
+     *
+     * The parse is now total: an unparseable payload is SKIPPED, and a batch
+     * where nothing parses is refused outright rather than uploading an empty
+     * envelope over data we merely failed to read (which would delete the very
+     * rows the consolidation exists to preserve).
+     */
+    internal fun mergeValidDuplicatePayloads(domain: DomainFile, payloads: List<ByteArray>): ByteArray {
+        fun survived(parsed: Int) {
+            if (parsed == 0) {
+                // Nothing survived the re-parse: refuse rather than upload an
+                // empty envelope. Skipping the write keeps the remote siblings
+                // intact, which is exactly what consolidation must never undo.
+                throw SyncError.Retryable(
+                    "no duplicate $domain payload survived the consolidation re-parse; leaving the remote intact"
+                )
+            }
+        }
+        fun logSkipped(parsed: Int) {
+            val skipped = payloads.size - parsed
+            if (skipped > 0) {
+                android.util.Log.w(
+                    "FluenceSync",
+                    "duplicate $domain payload re-parse dropped $skipped of ${payloads.size}; merging the rest"
+                )
+            }
+        }
         return when (domain) {
-            DomainFile.DICTIONARY -> DomainSerializer.serializeDictionary(
-                DictionaryDomain(entries = Merge.mergeDictionaries(
-                    emptyList(), payloads.flatMap { DomainSerializer.parseDictionary(it)!!.entries }
-                ))
-            )
-            DomainFile.SNIPPETS -> DomainSerializer.serializeSnippets(
-                SnippetDomain(entries = Merge.mergeSnippets(
-                    emptyList(), payloads.flatMap { DomainSerializer.parseSnippets(it)!!.entries }
-                ))
-            )
-            DomainFile.STATS -> DomainSerializer.serializeStats(
-                StatsDomain(entries = Merge.mergeStats(
-                    emptyList(), payloads.flatMap { DomainSerializer.parseStats(it)!!.entries }
-                ))
-            )
-              DomainFile.SETTINGS -> DomainSerializer.serializeSettings(
-                  SettingsDomain(entries = Merge.mergeSettings(
-                      emptyList(), payloads.flatMap { DomainSerializer.parseSettings(it)!!.entries }
-                  ))
-              )
-              // Duplicate valid files are consolidated through the SAME 2B LWW
-              // authority as every other keyed domain — no agent-specific rule.
-              DomainFile.AGENTS -> DomainSerializer.serializeAgents(
-                  AgentDomain(entries = Merge.mergeAgents(
-                      emptyList(), payloads.flatMap { DomainSerializer.parseAgents(it)!!.entries }
-                  ))
-              )
-              DomainFile.STYLES -> DomainSerializer.serializeStyles(
-                  StyleDomain(entries = Merge.mergeStyles(
-                      emptyList(), payloads.flatMap { DomainSerializer.parseStyles(it)!!.entries }
-                  ))
-              )
-          }.toByteArray()
+            DomainFile.DICTIONARY -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseDictionary(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeDictionary(
+                    DictionaryDomain(entries = Merge.mergeDictionaries(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+            DomainFile.SNIPPETS -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseSnippets(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeSnippets(
+                    SnippetDomain(entries = Merge.mergeSnippets(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+            DomainFile.STATS -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseStats(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeStats(
+                    StatsDomain(entries = Merge.mergeStats(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+            DomainFile.SETTINGS -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseSettings(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeSettings(
+                    SettingsDomain(entries = Merge.mergeSettings(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+            // Duplicate valid files are consolidated through the SAME 2B LWW
+            // authority as every other keyed domain — no agent-specific rule.
+            DomainFile.AGENTS -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseAgents(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeAgents(
+                    AgentDomain(entries = Merge.mergeAgents(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+            DomainFile.STYLES -> {
+                val parsed = payloads.mapNotNull { DomainSerializer.parseStyles(it) }
+                logSkipped(parsed.size); survived(parsed.size)
+                DomainSerializer.serializeStyles(
+                    StyleDomain(entries = Merge.mergeStyles(emptyList(), parsed.flatMap { it.entries }))
+                )
+            }
+        }.toByteArray()
     }
 
     private fun deleteDomainFile(fileId: String) {
         call(bearer("$apiBase/files/$fileId").delete()).use { resp ->
             if (resp.code == 404) return
-            classify(resp, resp.code) { resp.body?.string().orEmpty() }
+            classify(resp, resp.code) { resp.readTextBounded() }
         }
     }
 
@@ -684,7 +877,7 @@ class AppDataDriveStore(
         val v1 = ensureV1Folder()
         val query = URLEncoder.encode("'$v1' in parents and mimeType = '$FOLDER_MIME' and name = '$name' and trashed = false", "UTF-8")
         call(bearer("$apiBase/files?q=$query&spaces=appDataFolder&fields=files(id,name)&pageSize=10")).use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.readTextBounded()
             classify(resp, resp.code) { body }
             val id = parseFirstId(body)
             val resolved = id ?: createFolder(name, v1)
@@ -766,21 +959,153 @@ fun parseRetryAfterMs(headerValue: String?): Long? {
     val trimmed = headerValue?.trim() ?: return null
     val secs = trimmed.toLongOrNull() ?: return null
     if (secs <= 0L) return null
-    return secs * 1000L
+    // Saturating multiply, exactly as Windows `read_retry_after_ms` does
+    // (`secs.saturating_mul(1000)`). A plain `secs * 1000L` overflowed to a
+    // NEGATIVE delay for any header above ~2.3e16 seconds, which the scheduler
+    // would then treat as "retry immediately" instead of the requested wait.
+    return if (secs > Long.MAX_VALUE / 1000L) Long.MAX_VALUE else secs * 1000L
+}
+
+// ---------------------------------------------------------------------------
+// F14 — bounded bodies, exactly as Windows `drive.rs` shapes them.
+//
+//   BoundedBody::Complete  <->  BoundedBody.Complete
+//   BoundedBody::Truncated <->  BoundedBody.Truncated
+//   content_length_over_cap<->  contentLengthOverCap
+//   read_capped             <->  readCapped
+//   read_body_capped        <->  readBodyCapped
+//   decoded_bounded_body    <->  decodedBoundedBody
+// ---------------------------------------------------------------------------
+
+/**
+ * A response body read under a hard byte ceiling.
+ *
+ * [Truncated] means the body passed the cap and was abandoned mid-stream; at
+ * most `cap + 1` bytes were ever held. It is a DISTINCT outcome from "absent":
+ * an over-cap body can never be decoded into valid state, and treating it as a
+ * missing file would make the engine pick that file as a CAS write target.
+ */
+internal sealed interface BoundedBody {
+    /** The whole body arrived and is <= the cap. */
+    class Complete(val bytes: ByteArray) : BoundedBody
+
+    /** The body exceeded the cap and was abandoned unread. */
+    object Truncated : BoundedBody
+}
+
+/** Outcome of one bounded media read, as the sync engine consumes it. */
+internal sealed interface BoundedRead {
+    /** The file is gone (404). Reads as absent to the engine. */
+    object Absent : BoundedRead
+
+    /**
+     * The body passed the cap. NEVER reads as absent — see [BoundedBody.Truncated].
+     */
+    object OverCap : BoundedRead
+
+    /** The complete body, guaranteed <= the success cap. */
+    class Complete(val bytes: ByteArray) : BoundedRead
 }
 
 /**
- * Pure Drive 403 classification — mirrors Windows `classify_forbidden`
- * (drive.rs): transient/quota reasons surface as [SyncError.Retryable] so the
- * next pass (with backoff) handles them, while a genuine ownership/scope
- * denial stays [SyncError.Fatal]. An unparseable body is assumed transient
- * (Fail-closed retry is safer than wedging the account).
+ * Whether a declared `Content-Length` already exceeds [cap].
+ *
+ * Pre-read half of the guard: when the length is declared we refuse before a
+ * single body byte is buffered. `null` — absent, chunked, or simply a lie —
+ * falls through to the streaming ceiling, which is what actually holds.
  */
-fun classifyForbidden(body: String): SyncError {
+internal fun contentLengthOverCap(contentLength: Long?, cap: Int): Long? =
+    contentLength?.takeIf { it > cap.toLong() }
+
+/**
+ * Stream [source] into memory, abandoning it the moment the body passes [cap].
+ *
+ * Streaming half of the guard. `null` = exceeded `cap`; a `ByteArray` = the
+ * complete body, guaranteed <= `cap`. At most `cap + 1` bytes are ever held, so
+ * an unbounded or hostile body costs a bounded allocation. Reads through a
+ * plain [InputStream], so it is exercisable offline with a byte counter.
+ */
+internal fun readCapped(source: InputStream, cap: Int): ByteArray? {
+    require(cap >= 0) { "cap must be non-negative" }
+    val out = ByteArrayOutputStream(minOf(cap, READ_CHUNK_BYTES).coerceAtLeast(1))
+    val chunk = ByteArray(READ_CHUNK_BYTES)
+    var total = 0
+    while (true) {
+        // `total <= cap` holds here (we return as soon as it exceeds), so
+        // `room >= 1` and the read never asks for a zero-length buffer.
+        val want = minOf(cap + 1 - total, chunk.size)
+        val n = source.read(chunk, 0, want)
+        if (n < 0) return out.toByteArray()
+        out.write(chunk, 0, n)
+        total += n
+        if (total > cap) return null
+    }
+}
+
+/**
+ * The whole two-guard read as a pure function of (declared length, stream).
+ *
+ * Guard 1 checks the declared `Content-Length` before a byte is read; guard 2
+ * streams under the ceiling for the case where that header is absent, chunked
+ * or simply wrong. `null` means "do not use this body" for either reason.
+ */
+internal fun readBodyCapped(contentLength: Long?, source: InputStream, cap: Int): ByteArray? {
+    if (contentLengthOverCap(contentLength, cap) != null) return null
+    return readCapped(source, cap)
+}
+
+/**
+ * Decode a [BoundedBody] for parsing or classification.
+ *
+ * A truncated SUCCESS body cannot yield valid state, so it is
+ * [SyncError.Rejected] — never decoded, never handed to the engine. A truncated
+ * FAILURE body decodes to an empty string so the status and headers alone still
+ * classify the failure, which keeps the documented fail-safe (an unparseable
+ * 403 is Retryable, never the "not ours" fatal latch).
+ */
+internal fun decodedBoundedBody(status: Int, body: BoundedBody): String = when (body) {
+    is BoundedBody.Complete -> String(body.bytes, Charsets.UTF_8)
+    is BoundedBody.Truncated -> {
+        if (status in 200..299) {
+            throw SyncError.Rejected(
+                "response body exceeds the ${AppDataDriveStore.MAX_DOMAIN_BYTES} byte cap"
+            )
+        }
+        ""
+    }
+}
+
+/** Streaming chunk for [readCapped]; also the initial buffer hint. */
+private const val READ_CHUNK_BYTES = 16 * 1024
+
+/**
+ * Pure Drive 403 classification — mirrors Windows `classify_forbidden_with_retry_after`
+ * (drive.rs): transient/quota reasons surface as a retryable error so the next
+ * pass (with backoff) handles them, while a genuine ownership/scope denial stays
+ * [SyncError.Fatal]. An unparseable body is assumed transient (fail-closed retry
+ * is safer than wedging the account).
+ *
+ * `retryAfterMs` is the response's `Retry-After`, when present. A quota-shaped
+ * 403 that arrived with an explicit delay becomes [SyncError.RateLimited] so the
+ * scheduler honors it. Without this the `dailyLimitExceeded` header is dropped on
+ * the floor and the scheduler re-polls on its 60 s exponential cap forever against
+ * a server that asked for a day (~1,440 doomed requests/day, each re-tripping the
+ * quota counter). With `retryAfterMs = null` the classification is identical to
+ * the previous behaviour — the only change is that a present header now survives.
+ */
+fun classifyForbidden(body: String, retryAfterMs: Long? = null): SyncError {
     val reason = forbiddenReason(body)
     return when {
         reason == null -> SyncError.Retryable("Drive HTTP 403")
-        reason in TRANSIENT_403_REASONS -> SyncError.Retryable("Drive rate limited ($reason)")
+        reason in TRANSIENT_403_REASONS -> when {
+            // RateLimited takes the same retryable scheduling path as Retryable
+            // (see SyncManager's outcome mapping); it only carries the delay.
+            retryAfterMs != null -> SyncError.RateLimited(retryAfterMs)
+            else -> SyncError.Retryable("Drive rate limited ($reason)")
+        }
+        // A `Retry-After` on a genuine permission denial must NOT convert the
+        // fatal stop into a retry loop (Windows pins this: drive.rs tests
+        // `non_quota_403_ignores_retry_after_and_stays_not_ours`).
         else -> SyncError.Fatal("Drive access not permitted ($reason)")
     }
 }

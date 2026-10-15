@@ -1,6 +1,65 @@
 package com.groq.voicetyper.sync.v1
 
 /**
+ * UTF-8 BYTE order comparison — the ONLY string ordering this package may use
+ * for merge tiebreaks.
+ *
+ * TRAP: Kotlin's `String.compareTo` is UTF-16 code-unit order, which places a
+ * supplementary-plane character (U+10000+, encoded as a surrogate pair whose
+ * lead unit is 0xD800-0xDBFF) BELOW U+E000..U+FFFF. UTF-8 byte order — and
+ * therefore Rust's `str::cmp` / `Ord on &[u8]` — places it ABOVE. The two
+ * orders DISAGREE, so a `compareTo` here makes this platform pick a different
+ * merge winner than Windows on exactly the tie these comparators exist to make
+ * deterministic, which is permanent split-brain plus an endless re-upload loop.
+ *
+ * Honest clients mint ASCII UUID device ids, so this is latent — but it is the
+ * same rule `Merge` already had to learn the hard way, and a second copy in the
+ * same package is how the bug recurs. Length is the final tiebreak, matching
+ * Rust's lexicographic `Ord` on `&[u8]` (equal prefix, shorter is smaller).
+ */
+internal fun compareUtf8(a: String, b: String): Int {
+    val x = a.toByteArray(Charsets.UTF_8)
+    val y = b.toByteArray(Charsets.UTF_8)
+    val n = if (x.size < y.size) x.size else y.size
+    for (i in 0 until n) {
+        val d = (x[i].toInt() and 0xFF) - (y[i].toInt() and 0xFF)
+        if (d != 0) return d
+    }
+    return x.size - y.size
+}
+
+/**
+ * Total order over records by one or two STRING keys, compared in UTF-8 byte
+ * order — the exact twin of Windows' `BTreeMap<K>` iteration, which is
+ * lexicographic `Ord` on the key's bytes.
+ *
+ * Use this for every sort on a `businessKey` (and its `syncId` tiebreak).
+ * `compareBy({ it.a }, { it.b })` and `sortedBy { it.key }` use Kotlin's
+ * natural `String` ordering, which is UTF-16 code-unit order and DISAGREES with
+ * UTF-8 for supplementary-plane characters. That divergence has two costs, both
+ * permanent:
+ *
+ *  1. In `DomainSerializer` the sort decides the ORDER OF BYTES ON THE WIRE.
+ *     The frozen contract mandates deterministic sorting, and Windows sorts the
+ *     same envelope in UTF-8 order, so a single emoji in a `spoken` form makes
+ *     the two platforms emit the same logical envelope as DIFFERENT BYTES.
+ *  2. In `Merge` it decides the Rule-B residual tie and the merge-fold order,
+ *     so the two platforms can pick different winners for a rename and then
+ *     re-PUT each other's bytes indefinitely.
+ *
+ * ASCII-only keys (`day`, `eventId`, settings `key`) are provably unaffected
+ * because they are validated as ASCII, and may keep the cheaper comparators.
+ */
+internal fun <T> utf8Comparator(first: (T) -> String, second: (T) -> String): Comparator<T> =
+    Comparator { a, b ->
+        val c = compareUtf8(first(a), first(b))
+        if (c != 0) c else compareUtf8(second(a), second(b))
+    }
+
+internal fun <T> utf8Comparator(single: (T) -> String): Comparator<T> =
+    Comparator { a, b -> compareUtf8(single(a), single(b)) }
+
+/**
  * Wall-clock UTC ms + maxSeen monotonic clock (frozen v1.2).
  * Winner ordering is pure LWW: max(updatedAt, deviceId). Tombstones are
  * ordinary records — they win exactly when they are newest, so a newer
@@ -41,7 +100,8 @@ object Clock {
         bUpdatedAt: Long, bDeviceId: String
     ): Int {
         if (aUpdatedAt != bUpdatedAt) return if (aUpdatedAt > bUpdatedAt) 1 else -1
-        return aDeviceId.compareTo(bDeviceId)
+        // UTF-8 byte order, NOT String.compareTo. See [compareUtf8].
+        return compareUtf8(aDeviceId, bDeviceId)
     }
 
     /**
@@ -63,7 +123,7 @@ object Clock {
     ): Int {
         val primary = compareWinner(aUpdatedAt, aDeviceId, bUpdatedAt, bDeviceId)
         if (primary != 0) return primary
-        return aValue.compareTo(bValue)
+        return compareUtf8(aValue, bValue)
     }
 
     /**
@@ -84,7 +144,7 @@ object Clock {
     ): Int {
         val primary = compareWinner(aUpdatedAt, aDeviceId, bUpdatedAt, bDeviceId)
         if (primary != 0) return primary
-        var ord = aDay.compareTo(bDay)
+        var ord = compareUtf8(aDay, bDay)
         if (ord != 0) return ord
         ord = aTimestampMs.compareTo(bTimestampMs)
         if (ord != 0) return ord

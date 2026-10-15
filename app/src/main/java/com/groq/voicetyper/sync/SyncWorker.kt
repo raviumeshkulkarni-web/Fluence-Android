@@ -33,7 +33,16 @@ class SyncWorker(
         val auth = SyncAuthSession(applicationContext)
         if (!auth.isSignedIn()) return Result.success()
         if (!SyncManager.isSyncEnabled(applicationContext)) return Result.success()
-        val manager = SyncManager(applicationContext, auth, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO))
+        // F32: this scope used to be created inline and never cancelled, so every
+        // worker run left a SupervisorJob behind. The manager only needs the
+        // scope for its poll loop, which a one-shot worker never starts, but the
+        // job is cancelled explicitly so the worker's lifetime is bounded by
+        // the work request no matter what.
+        val workerJob = kotlinx.coroutines.SupervisorJob()
+        val workerScope = kotlinx.coroutines.CoroutineScope(
+            workerJob + kotlinx.coroutines.Dispatchers.IO
+        )
+        val manager = SyncManager(applicationContext, auth, workerScope)
         return try {
             val outcome = withTimeout(120_000L) { manager.runPass() }
             when (outcome) { PassOutcomeKind.RETRYABLE -> Result.retry(); else -> Result.success() }
@@ -43,6 +52,8 @@ class SyncWorker(
         } catch (e: Exception) {
             android.util.Log.w("FluenceSync", "worker pass failed: ${e.message}")
             Result.retry()
+        } finally {
+            workerJob.cancel()
         }
     }
 

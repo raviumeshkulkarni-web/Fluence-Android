@@ -80,9 +80,18 @@ class SyncAuthSession(
             recoveryIntent = e.intent // surface to UI for consent dialog
             throw SyncError.AuthRequired
         } catch (e: com.google.android.gms.auth.GoogleAuthException) {
-            throw SyncError.Retryable("token: ${e.message}")
+            // Log the provider's own text; never put it in the user-visible
+            // status. Windows routes `last_error` through `sanitize_status_error`
+            // (URL stripping, raw-body cut, 160-char bound) and Android had no
+            // equivalent, so an unredacted provider string reached the sync
+            // surface. OAuth exception text is not a token in practice, but the
+            // asymmetry is the bug: a future message carrying a request URL or an
+            // account identifier would surface verbatim.
+            android.util.Log.w("FluenceSync", "token mint failed (GoogleAuthException): ${e.message}")
+            throw SyncError.Retryable("Could not reach Google to refresh sync access")
         } catch (e: java.io.IOException) {
-            throw SyncError.Retryable("token: ${e.message}")
+            android.util.Log.w("FluenceSync", "token mint failed (IOException): ${e.message}")
+            throw SyncError.Retryable("Could not reach Google to refresh sync access")
         }
         expiresAtMs.set(System.currentTimeMillis() + 55 * 60_000L)
     }

@@ -113,14 +113,47 @@ object SnippetPreferences {
      * completely untouched and the read yields empty; quarantining it would
      * delete a newer build's data and propagate a downgrade to Drive.
      */
+    /**
+     * The schema version `json` declares, or 0 when it declares none we can read.
+     *
+     * SATURATE, never truncate — the exact rule of
+     * `DomainSerializer.declaredEnvelopeVersion`, which this twin missed.
+     * `optInt("v", 0)` narrows through `intValue()`, so `{"v":4294967297}`
+     * became `1`, which the gate below ACCEPTS. A document owned by a newer
+     * build therefore sailed through the version check, failed to deserialize
+     * against this build's schema, and was QUARANTINED — deleting the live key
+     * and stashing a newer build's document under a backup key. That is exactly
+     * the outcome this function's own contract says must never happen.
+     *
+     * 0 is returned for absent / non-integer / non-numeric `v`, preserving the
+     * previous `optInt(…, 0)` accept/reject behaviour for every other input.
+     */
+    private fun declaredVersion(json: String): Long {
+        val raw = JSONObject(json).opt("v")
+        return when (raw) {
+            null -> 0L
+            // Non-integer Numbers are unreadable, as on Windows (`as_i64()` -> None).
+            // `BigDecimal` is listed explicitly because org.json can surface a
+            // decimal as either `Double` or `BigDecimal` depending on the
+            // implementation; without this arm a `1.5` would fall through to
+            // `toLong()` and truncate to `1`, which is the accepted value — the
+            // very truncation this function exists to prevent.
+            is Double, is Float, is java.math.BigDecimal -> 0L
+            is Number -> raw.toLong()
+            else -> 0L
+        }
+    }
+
     private fun readUsable(context: Context, json: String): List<Snippet> {
         val version = try {
-            JSONObject(json).optInt("v", 0)
+            declaredVersion(json)
         } catch (_: Exception) {
             quarantineCorrupt(context, json)
             return emptyList()
         }
-        if (version != 1 && version != JSON_VERSION) return emptyList()
+        // A version strictly newer than this build owns the document: leave it
+        // completely untouched and read as empty. Never quarantine it.
+        if (version != 1L && version != JSON_VERSION.toLong()) return emptyList()
         // Supported version but unreadable body (missing/not-an-array
         // "snippets", malformed entries section): unambiguously corruption,
         // since the version gate above already passed. Quarantine like the
@@ -224,7 +257,11 @@ object SnippetPreferences {
             trigger = trimmedTrigger,
             expansion = trimmedExpansion,
             uuid = old.uuid ?: UUID.randomUUID().toString(),
-            updatedAt = MutationClock.next(context),
+            // #30: zero-I/O stamp. These writers are called straight from a
+            // Compose onClick on Main.immediate and cannot suspend, so they
+            // reuse the floor cached by MutationClock's suspending read
+            // instead of bridging a metadata read with runBlocking.
+            updatedAt = MutationClock.nextCached(),
             deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
             dirty = true
         )
@@ -244,8 +281,8 @@ object SnippetPreferences {
         if (!belongsToCurrentAccount(entry, currentAccountHash(context))) return
         if (entry.everPushed || entry.serverFileId != null) {
             all[index] = entry.copy(
-                deletedAt = MutationClock.next(context),
-                updatedAt = MutationClock.next(context),
+                deletedAt = MutationClock.nextCached(),
+                updatedAt = MutationClock.nextCached(),
                 deviceId = entry.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                 dirty = true,
                 everPushed = true
@@ -262,8 +299,8 @@ object SnippetPreferences {
             trigger = trigger,
             expansion = expansion,
             uuid = UUID.randomUUID().toString(),
-            createdAt = MutationClock.next(context),
-            updatedAt = MutationClock.next(context),
+            createdAt = MutationClock.nextCached(),
+            updatedAt = MutationClock.nextCached(),
             deletedAt = null,
             deviceId = com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
             isEnabled = true,
@@ -334,8 +371,8 @@ object SnippetPreferences {
     internal fun deserialize(json: String): List<Snippet>? {
         return try {
             val root = JSONObject(json)
-            val version = root.optInt("v", 0)
-            if (version != 1 && version != JSON_VERSION) return null
+            val version = declaredVersion(json)
+            if (version != 1L && version != JSON_VERSION.toLong()) return null
             val array = root.getJSONArray("snippets")
             val result = ArrayList<Snippet>(array.length())
             for (i in 0 until array.length()) {

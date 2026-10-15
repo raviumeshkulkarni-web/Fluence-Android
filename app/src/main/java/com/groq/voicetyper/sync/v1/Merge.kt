@@ -1,7 +1,8 @@
 package com.groq.voicetyper.sync.v1
 
 /**
- * Frozen v1.2 LWW merge: winner = max(updatedAt, deviceId).
+ * Frozen v1.2 LWW merge: per business key the winner is the max of
+ * (updatedAt, deviceId, syncId, canonical wire body) — see [pickDictionaryWinner].
  *
  * A tombstone is an ordinary state transition — it wins exactly when it is
  * the newest record for a business key. This makes delete/re-create symmetric:
@@ -16,21 +17,59 @@ package com.groq.voicetyper.sync.v1
  */
 object Merge {
 
+    /**
+     * RULE A level 4 — the per-business-key winner, larger canonical wire form
+     * on a full `(updatedAt, deviceId, syncId)` tie.
+     */
     fun pickDictionaryWinner(a: DictionaryRecord, b: DictionaryRecord): DictionaryRecord =
-        if (compareKeyed(a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId) >= 0) a else b
+        if (pickOrder(a, b, a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId,
+                DomainSerializer::canonicalDictionaryEntry) >= 0
+        ) a else b
 
     fun pickSnippetWinner(a: SnippetRecord, b: SnippetRecord): SnippetRecord =
+        if (pickOrder(a, b, a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId,
+                DomainSerializer::canonicalSnippetEntry) >= 0
+        ) a else b
+
+    /** RULE B — collapse keeps levels 1-3 only (no content level). */
+    private fun pickDictionaryByKeyOrder(a: DictionaryRecord, b: DictionaryRecord): DictionaryRecord =
         if (compareKeyed(a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId) >= 0) a else b
 
-    /** Pure LWW ordering: updatedAt first, deviceId as deterministic tiebreak. */
+    private fun pickSnippetByKeyOrder(a: SnippetRecord, b: SnippetRecord): SnippetRecord =
+        if (compareKeyed(a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId) >= 0) a else b
+
+    /**
+     * RULE A, all four levels. [canonical] MUST be the record's own frozen
+     * wire body from `DomainSerializer` — the same writer `serialize*` emits
+     * with — so level 4 can never drift from what actually goes on the wire.
+     */
+    private fun <T> pickOrder(
+        a: T, b: T,
+        aTime: Long, aDev: String, aSyncId: String,
+        bTime: Long, bDev: String, bSyncId: String,
+        canonical: (T) -> String
+    ): Int {
+        val keyOrder = compareKeyed(aTime, aDev, aSyncId, bTime, bDev, bSyncId)
+        if (keyOrder != 0) return keyOrder
+        return compareUtf8(canonical(a), canonical(b))
+    }
+
+/**
+     * UTF-8 BYTE order is used throughout this package via the single
+     * top-level `compareUtf8` in `Clock.kt` — NOT `String.compareTo`, which is
+     * UTF-16 code-unit order and disagrees with Windows' `str::cmp` for
+     * supplementary-plane characters. The private copy that used to live here
+     * was deleted so the rule cannot drift in one file and not the other.
+     */
+    /** Pure LWW ordering: updatedAt first, deviceId (UTF-8 bytes) as tiebreak. */
     private fun compareWinner(aTime: Long, aDev: String, bTime: Long, bDev: String): Int {
         if (aTime != bTime) return if (aTime > bTime) 1 else -1
-        return aDev.compareTo(bDev)
+        return compareUtf8(aDev, bDev)
     }
 
     /**
-     * LWW for keyed domains (dictionary, snippets) with a final `syncId`
-     * tiebreak, making the order *total*.
+     * LWW for keyed domains (dictionary, snippets): `updatedAt` → `deviceId`
+     * → `syncId`, levels 1-3 of the RULE A order.
      *
      * [compareWinner] alone is not a total order: two records can share both
      * `updatedAt` and `deviceId` while differing in payload. A partial order
@@ -40,7 +79,8 @@ object Merge {
      * on every record, and identical on both platforms and both sides of the
      * wire, so it is a safe final discriminator.
      *
-     * Mirrors Windows `clock::cmp_keyed_winner`.
+     * Mirrors Windows `clock::cmp_keyed_winner`, levels 1-3. Both string
+     * levels compare UTF-8 BYTES ([compareUtf8]), not UTF-16 code units.
      */
     private fun compareKeyed(
         aTime: Long, aDev: String, aSyncId: String,
@@ -48,7 +88,7 @@ object Merge {
     ): Int {
         val primary = compareWinner(aTime, aDev, bTime, bDev)
         if (primary != 0) return primary
-        return aSyncId.compareTo(bSyncId)
+        return compareUtf8(aSyncId, bSyncId)
     }
 
     /**
@@ -63,7 +103,12 @@ object Merge {
      * outcome is independent of merge side/order. Tombstones ride the same
      * comparator, preserving delete-vs-edit semantics across keys: the newest
      * record wins regardless of which key it sits under. [pick] must
-     * implement the per-key winner rule for the record type.
+     * implement levels 1-3 of the record type's RULE A order.
+     *
+     * RULE B — NO level 4 here, deliberately. Cross-key partners differ in
+     * businessKey by construction, and Windows collapses on the key order
+     * only; adding the content level would let the two platforms collapse a
+     * rename to different records.
      *
      * Residual-tie determinism: inside one syncId group the syncId tiebreak
      * is inert, reducing the order to (updatedAt, deviceId). Winners are
@@ -86,18 +131,25 @@ object Merge {
     }
 
     private fun pickAgentWinner(a: AgentRecord, b: AgentRecord): AgentRecord =
-        if (compareKeyed(
+        if (pickOrder(a, b,
                 a.updatedAt, a.deviceId, a.syncId,
-                b.updatedAt, b.deviceId, b.syncId
-            ) >= 0
+                b.updatedAt, b.deviceId, b.syncId,
+                DomainSerializer::canonicalAgentEntry) >= 0
         ) a else b
 
     private fun pickStyleWinner(a: StyleRecord, b: StyleRecord): StyleRecord =
-        if (compareKeyed(
+        if (pickOrder(a, b,
                 a.updatedAt, a.deviceId, a.syncId,
-                b.updatedAt, b.deviceId, b.syncId
-            ) >= 0
+                b.updatedAt, b.deviceId, b.syncId,
+                DomainSerializer::canonicalStyleEntry) >= 0
         ) a else b
+
+    /** RULE B — agents/styles collapse on levels 1-3 only. */
+    private fun pickAgentByKeyOrder(a: AgentRecord, b: AgentRecord): AgentRecord =
+        if (compareKeyed(a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId) >= 0) a else b
+
+    private fun pickStyleByKeyOrder(a: StyleRecord, b: StyleRecord): StyleRecord =
+        if (compareKeyed(a.updatedAt, a.deviceId, a.syncId, b.updatedAt, b.deviceId, b.syncId) >= 0) a else b
 
     /** Merge local + remote dictionaries: one winner per businessKey */
     fun mergeDictionaries(local: List<DictionaryRecord>, remote: List<DictionaryRecord>): List<DictionaryRecord> {
@@ -109,9 +161,9 @@ object Merge {
         }
         // Pre-sorted so a residual full tie keeps the smallest business key
         // (Windows parity — see collapseBySyncId).
-        val ordered = map.values.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickDictionaryWinner(a, b) })
-            .sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+        val ordered = map.values.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickDictionaryByKeyOrder(a, b) })
+            .sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
     }
 
     fun mergeSnippets(local: List<SnippetRecord>, remote: List<SnippetRecord>): List<SnippetRecord> {
@@ -123,19 +175,19 @@ object Merge {
         }
         // Pre-sorted so a residual full tie keeps the smallest business key
         // (Windows parity — see collapseBySyncId).
-        val ordered = map.values.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickSnippetWinner(a, b) })
-            .sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+        val ordered = map.values.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickSnippetByKeyOrder(a, b) })
+            .sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
     }
 
     /**
-     * Phase 6 — Agents/Styles reuse [compareKeyed] verbatim.
+     * Phase 6 — Agents/Styles reuse the keyed RULE A order verbatim.
      *
-     * There is deliberately NO agent/style-specific merge rule: 2B LWW
-     * (updatedAt → deviceId → syncId) is the single total order for every keyed
-     * domain, so a duplicate agent id cannot resolve differently from a duplicate
-     * dictionary key. Tombstones ride the same comparator — they are ordinary
-     * records and win exactly when newest.
+     * There is deliberately NO agent/style-specific merge rule: the keyed LWW
+     * order (updatedAt → deviceId → syncId → canonical wire body) is the single
+     * total order for every keyed domain, so a duplicate agent id cannot resolve
+     * differently from a duplicate dictionary key. Tombstones ride the same
+     * comparator — they are ordinary records and win exactly when newest.
      */
     fun mergeAgents(local: List<AgentRecord>, remote: List<AgentRecord>): List<AgentRecord> {
         val map = mutableMapOf<String, AgentRecord>()
@@ -145,9 +197,9 @@ object Merge {
         }
         // Pre-sorted so a residual full tie keeps the smallest business key
         // (Windows parity — see collapseBySyncId).
-        val ordered = map.values.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickAgentWinner(a, b) })
-            .sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+        val ordered = map.values.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickAgentByKeyOrder(a, b) })
+            .sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
     }
 
     fun mergeStyles(local: List<StyleRecord>, remote: List<StyleRecord>): List<StyleRecord> {
@@ -158,9 +210,9 @@ object Merge {
         }
         // Pre-sorted so a residual full tie keeps the smallest business key
         // (Windows parity — see collapseBySyncId).
-        val ordered = map.values.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickStyleWinner(a, b) })
-            .sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+        val ordered = map.values.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+        return collapseBySyncId(ordered, { it.syncId }, { a, b -> pickStyleByKeyOrder(a, b) })
+            .sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
     }
 
     private fun effectiveSettingsTime(t: Long): Long = if (t == 1700000000000L) 0L else t

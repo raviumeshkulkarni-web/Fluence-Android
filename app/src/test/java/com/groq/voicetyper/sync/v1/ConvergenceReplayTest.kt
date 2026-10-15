@@ -6,9 +6,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * Convergence harness — replay of 30 randomized scenarios.
+ * Convergence harness — replay of 31 randomized scenarios.
  * Asserts identical final state regardless of merge order, exactly-once stats, no resurrection.
  * Reference semantics must match generator (see WINDOWS/examples/sync/convergence/generate_convergence.py).
+ *
+ * scenario-31 (added by sync audit #5) is the FULL-TIE case: three devices hold
+ * the same business key with IDENTICAL updatedAt, deviceId and syncId and
+ * differing only in payload. It pins RULE A level 4 (canonical wire form), which
+ * is what makes the winner independent of merge side. This file is a byte-identical
+ * copy of WINDOWS/examples/sync/convergence/scenario-31.json — if the two diverge,
+ * the corpus stops proving cross-platform agreement and this test becomes theatre.
  *
  * If production Merge disagrees with reference (e.g. t==0 settings), that is a FINDING — leave failing test.
  */
@@ -16,11 +23,13 @@ class ConvergenceReplayTest {
 
     companion object {
         const val FIXED_STAMP = 1700000000000L
+        // 30 generated scenarios + scenario-31 (audit #5, full tie).
+        const val SCENARIO_COUNT = 31
     }
 
     @Test
     fun convergence_replay_all_scenarios() {
-        for (idx in 1..30) {
+        for (idx in 1..SCENARIO_COUNT) {
             val fname = String.format("/convergence/scenario-%02d.json", idx)
             val stream = javaClass.getResourceAsStream(fname)
             assertNotNull("missing resource $fname", stream)

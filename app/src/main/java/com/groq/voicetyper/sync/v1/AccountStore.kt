@@ -13,8 +13,15 @@ import androidx.security.crypto.MasterKey
  * with plain SharedPreferences returns null/garbage (keys are SIV-encrypted)
  * and would silently break accountHash stamping.
  *
- * accountHash = full 64-char lowercase hex SHA-256 of lower(trim(email)) —
+ * accountHash = full 64-char lowercase hex SHA-256 of
+ * [AccountHash.normalizeAccountKey] — trim + FULL-Unicode lowercase, the same
+ * fold rule both platforms now use for the sign-in identity comparison — and
  * the single canonical format used for stamping and sync_metadata keys.
+ *
+ * F10: the fold used to be specified ad-hoc in three places and the platforms
+ * disagreed (Windows `eq_ignore_ascii_case`, ASCII-only, vs Kotlin `lowercase()`,
+ * full Unicode). It now lives in one function per platform so the comparison and
+ * the partition key can never disagree.
  *
  * CORRECTION (Stage 1): an earlier version of this comment claimed the hash
  * was "truncated to 16 hex chars". The code never truncated. `AccountHash.of`

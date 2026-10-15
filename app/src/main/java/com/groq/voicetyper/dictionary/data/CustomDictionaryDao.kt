@@ -38,17 +38,35 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE spokenText = :spokenText LIMIT 1")
     suspend fun getBySpokenText(spokenText: String): CustomDictionaryEntry?
 
+    // ── Canonical spoken-text identity (spec §30.4) ──────────────────────
+    //
+    // WARNING — the `LOWER(...)`/`lower(trim(...))` queries below are ASCII
+    // ONLY. Stock Android SQLite folds nothing outside A-Z, so they silently
+    // miss non-ASCII case and non-ASCII whitespace ("Über" vs "über"), which
+    // is exactly the Unicode identity the wire contract requires. Dictionary
+    // identity is resolved in Kotlin via
+    // `DictionaryRecord.businessKeyOf(spokenText)` (unicodeTrim + NFC +
+    // lowercase) against the candidate lists fetched here. Do not use these
+    // queries to match dictionary identity.
+
     // Canonical dictionary identity (spec §30.4): spoken is matched after trim +
     // case-folding, mirroring the case-insensitive application regex `(?i)\b…\b`
     // and the Windows `spoken_collides` rule. Used wherever a collision against a
     // *live* row must be detected so duplicate-identical rows absorb (§10) and
     // genuine conflicts latch instead of silently diverging between platforms.
+    //
+    // ASCII-ONLY (see the warning above). Superseded by
+    // [getRowsForAccountOrUnowned] + Kotlin `businessKeyOf`.
     @Query("SELECT * FROM custom_dictionary WHERE deletedAt IS NULL AND LOWER(spokenText) = LOWER(:spokenText) LIMIT 1")
     suspend fun getBySpokenTextIgnoreCase(spokenText: String): CustomDictionaryEntry?
 
+    // ASCII-ONLY (see the warning above). Superseded by
+    // [getRowsForAccountOrUnowned] + Kotlin `businessKeyOf`.
     @Query("SELECT * FROM custom_dictionary WHERE LOWER(spokenText) = LOWER(:spokenText) AND (syncAccount IS NULL OR syncAccount = :hash) LIMIT 1")
     suspend fun getBySpokenTextForAccount(spokenText: String, hash: String): CustomDictionaryEntry?
 
+    // ASCII-ONLY (see the warning above). Superseded by
+    // [getSyncRowsUnstamped] + Kotlin `businessKeyOf`.
     @Query("SELECT * FROM custom_dictionary WHERE LOWER(spokenText) = LOWER(:spokenText) AND syncAccount IS NULL LIMIT 1")
     suspend fun getBySpokenTextUnstamped(spokenText: String): CustomDictionaryEntry?
 
@@ -108,6 +126,22 @@ interface CustomDictionaryDao {
     @Query("DELETE FROM custom_dictionary WHERE syncId = :syncId")
     suspend fun hardDeleteBySyncId(syncId: String): Int
 
+    /**
+     * Candidate rows for spoken-text identity resolution, account-scoped and
+     * TOMBSTONE-INCLUSIVE.
+     *
+     * Same predicate the old `LOWER(spokenText) = LOWER(:spokenText) AND
+     * (syncAccount IS NULL OR syncAccount = :hash)` lookup used — this
+     * account's rows plus unowned ones — so a tombstoned row can still be
+     * revived in place and an unstamped duplicate is still seen. The matching
+     * itself happens in Kotlin with `DictionaryRecord.businessKeyOf`, because
+     * SQLite's `lower()`/`trim()` fold ASCII only; the dictionary is small
+     * enough for a full candidate scan. Callers:
+     * `DictionaryRepository.findBySpokenKey`.
+     */
+    @Query("SELECT * FROM custom_dictionary WHERE syncAccount IS NULL OR syncAccount = :hash")
+    suspend fun getRowsForAccountOrUnowned(hash: String): List<CustomDictionaryEntry>
+
     // ── Frozen v1.2 store queries ────────────────────────────────────────
 
     @Query("SELECT * FROM custom_dictionary WHERE syncAccount = :hash")
@@ -119,11 +153,21 @@ interface CustomDictionaryDao {
     @Query("SELECT * FROM custom_dictionary WHERE syncAccount = :hash AND dirty = 1")
     suspend fun getDirtyByAccount(hash: String): List<CustomDictionaryEntry>
 
-    /** Business-key lookup; the key is always lower(trim(spokenText)). */
+    /**
+     * ASCII-ONLY lookup: SQLite `lower(trim(...))` folds nothing outside A-Z
+     * and trims nothing outside ASCII whitespace, while the wire business key
+     * is Unicode (`DictionaryRecord.businessKeyOf`). Never use this to resolve
+     * dictionary identity — use [getAllByAccount] + Kotlin `businessKeyOf`
+     * (`findBusinessKeyCollision`).
+     */
     @Query("SELECT * FROM custom_dictionary WHERE lower(trim(spokenText)) = :businessKey AND syncAccount = :hash AND deletedAt IS NULL LIMIT 1")
     suspend fun getByBusinessKey(businessKey: String, hash: String): CustomDictionaryEntry?
 
-    /** Includes tombstones so a newer remote winner can replace the old row. */
+    /**
+     * ASCII-ONLY — see [getByBusinessKey]. Superseded by [getAllByAccount] +
+     * Kotlin `businessKeyOf` (`findBusinessKeyCollision`), which also folds
+     * case and trims whitespace for the whole Unicode range.
+     */
     @Query("SELECT * FROM custom_dictionary WHERE lower(trim(spokenText)) = :businessKey AND syncAccount = :hash LIMIT 1")
     suspend fun getByBusinessKeyIncludingDeleted(businessKey: String, hash: String): CustomDictionaryEntry?
 

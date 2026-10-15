@@ -547,7 +547,20 @@ fun SyncScreen(
 internal fun syncOutcomeMessage(lastError: String?): String = when (lastError) {
     null -> ""
     "RETRYABLE" -> "Sync will retry automatically"
-    "FATAL" -> "Sync paused. Tap Sync now to try again"
+    // Truthful copy for what the scheduler actually does. `SyncSchedulerCore
+    // .completePass(FATAL)` sets `nextAttemptMs = now + cadenceMs` and resets the
+    // backoff — it does NOT park, and Windows' `wait_for_command` latch has no
+    // Android twin. So "Sync paused. Tap Sync now to try again" promised a pause
+    // that never happens and an action that is neither necessary nor sufficient:
+    // a fresh pass was already scheduled 5 minutes later.
+    //
+    // It also does not promise RECOVERY. `SyncError.Rejected` maps to FATAL
+    // (SyncManager), and a `Rejected` such as an oversized remote payload can
+    // never heal on its own — every retry fails identically. So this says we
+    // WILL retry and MAY need attention, and never says the retry will fix it.
+    // (Making FATAL latch like Windows is the parity alternative; it changes
+    // scheduling behaviour, so it is a separate decision, not a copy fix.)
+    "FATAL" -> "Sync hit a problem. We'll keep retrying — but this may need your attention"
     "AUTH_REQUIRED" -> "Please reconnect your Google account"
     "REJECTED" -> "Data too large to sync"
     else -> "Sync needs attention"

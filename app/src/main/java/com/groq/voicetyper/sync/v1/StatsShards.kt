@@ -89,7 +89,13 @@ object StatsShards {
 
     private fun isValidMonth(month: String): Boolean {
         if (month.length != 7 || month[4] != '-') return false
-        if (!month.substring(0, 4).all { it.isDigit() } || !month.substring(5).all { it.isDigit() }) return false
+        // ASCII digits ONLY, mirroring Rust's `is_ascii_digit()`. Kotlin's
+        // `Char.isDigit()` accepts the whole Unicode `Nd` category, so
+        // `٢٠٢٦-٠٨` (Arabic-Indic) passed here: `toIntOrNull()` parses those, the
+        // month validated, and the file became a Stats SHARD on Android while
+        // Rust rejected the same name outright — so the two platforms unioned and
+        // deleted different file sets under the same name.
+        if (!month.substring(0, 4).all { it in '0'..'9' } || !month.substring(5).all { it in '0'..'9' }) return false
         val m = month.substring(5).toIntOrNull() ?: return false
         return m in 1..12
     }
@@ -114,7 +120,10 @@ object StatsShards {
             val part = middle.substring(sepAt + SHARD_PART_SEP.length)
             if (!isValidMonth(month)) return null
             // Forward-tolerant on read: 2+ ASCII digits, never zero.
-            if (part.length < 2 || !part.all { it.isDigit() }) return null
+            // ASCII-only for the same reason as `isValidMonth` above — Rust's
+            // twin uses `is_ascii_digit()`, so Unicode `Nd` part numbers must be
+            // rejected here too or the platforms route the same name differently.
+            if (part.length < 2 || !part.all { it in '0'..'9' }) return null
             val n = part.toIntOrNull() ?: return null
             if (n == 0) return null
             return month to n

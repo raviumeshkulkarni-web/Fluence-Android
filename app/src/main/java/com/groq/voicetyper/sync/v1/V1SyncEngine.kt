@@ -104,7 +104,7 @@ object V1SyncEngine {
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
                     remoteDomain?.entries ?: emptyList()
                 )
-                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val remoteSorted = remoteDomain?.entries?.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
                     ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
@@ -117,17 +117,15 @@ object V1SyncEngine {
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(false, true, attemptsUsed = attempts)
                 }
-                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes = DomainSerializer.serializeDictionary(DictionaryDomain(entries = sorted)).toByteArray()
-                // Tolerant self-check: count + businessKey/syncId set must survive roundtrip.
-                // Full record equality is intentionally avoided — org.json null/number quirks
-                // cause false Rejected on device vs JVM test. Desktop has no guard.
-                DomainSerializer.parseDictionary(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()) {
-                        throw SyncError.Rejected("dictionary roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("dictionary roundtrip produced null")
+                val sorted = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val dictDomain = DictionaryDomain(entries = sorted)
+                val bytes = DomainSerializer.serializeDictionary(dictDomain).toByteArray()
+                // F31: never upload an envelope that does not re-read into the
+                // identical canonical bytes (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "dictionary", dictDomain,
+                    DomainSerializer::serializeDictionary, DomainSerializer::parseDictionary,
+                )
                 val uploadedVersion = try {
                     drive.putDomain(DomainFile.DICTIONARY, bytes, fetch.version)
                 } catch (e: SyncError.StaleVersion) {
@@ -145,11 +143,13 @@ object V1SyncEngine {
                 val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
                 val merged = Merge.mergeDictionaries(local, emptyList())
                 if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
-                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes2 = DomainSerializer.serializeDictionary(DictionaryDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseDictionary(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("dictionary roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("dictionary roundtrip null")
+                val sorted2 = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val dictDomain2 = DictionaryDomain(entries = sorted2)
+                val bytes2 = DomainSerializer.serializeDictionary(dictDomain2).toByteArray()
+                assertCanonicalRoundtrip(
+                    "dictionary", dictDomain2,
+                    DomainSerializer::serializeDictionary, DomainSerializer::parseDictionary,
+                )
                 val createdVersion = drive.putDomain(DomainFile.DICTIONARY, bytes2, null)
                 if (!uploadIsLive(drive, DomainFile.DICTIONARY, createdVersion)) {
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -188,7 +188,7 @@ object V1SyncEngine {
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
                     remoteDomain?.entries ?: emptyList()
                 )
-                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val remoteSorted = remoteDomain?.entries?.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
                     ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
@@ -201,14 +201,14 @@ object V1SyncEngine {
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(false, true, attemptsUsed = attempts)
                 }
-                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes = DomainSerializer.serializeSnippets(SnippetDomain(entries = sorted)).toByteArray()
-                DomainSerializer.parseSnippets(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()) {
-                        throw SyncError.Rejected("snippets roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("snippets roundtrip null")
+                val sorted = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val snippetDomain = SnippetDomain(entries = sorted)
+                val bytes = DomainSerializer.serializeSnippets(snippetDomain).toByteArray()
+                // F31: structural roundtrip gate (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "snippets", snippetDomain,
+                    DomainSerializer::serializeSnippets, DomainSerializer::parseSnippets,
+                )
                 val uploadedVersion = try {
                     drive.putDomain(DomainFile.SNIPPETS, bytes, fetch.version)
                 } catch (e: SyncError.StaleVersion) {
@@ -224,11 +224,13 @@ object V1SyncEngine {
             } else {
                 val merged = Merge.mergeSnippets(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
                 if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
-                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes2 = DomainSerializer.serializeSnippets(SnippetDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseSnippets(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("snippets roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("snippets roundtrip null")
+                val sorted2 = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val snippetDomain2 = SnippetDomain(entries = sorted2)
+                val bytes2 = DomainSerializer.serializeSnippets(snippetDomain2).toByteArray()
+                assertCanonicalRoundtrip(
+                    "snippets", snippetDomain2,
+                    DomainSerializer::serializeSnippets, DomainSerializer::parseSnippets,
+                )
                 val createdVersion = drive.putDomain(DomainFile.SNIPPETS, bytes2, null)
                 if (!uploadIsLive(drive, DomainFile.SNIPPETS, createdVersion)) {
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -371,6 +373,7 @@ object V1SyncEngine {
             val validEntries = mutableListOf<StatRecord>()
             val validIds = mutableListOf<String>()
             var preferred: StatsShardMeta? = null
+            var unusableReadable: StatsShardMeta? = null
             var repairTarget: StatsShardMeta? = null
             var skipped = false
             for (meta in files) {
@@ -388,9 +391,22 @@ object V1SyncEngine {
                 } ?: continue // vanished between list and get
                 val parsed = DomainSerializer.parseStats(bytes)
                 if (parsed != null) {
+                    // FENCE (Windows frozen.rs:739-759 for the shard loop):
+                    // a readable envelope that decodes to ZERO valid records is
+                    // held, never registered as a valid duplicate. Per-record
+                    // isolation makes an all-malformed envelope decode to an
+                    // empty list rather than null, and consolidation DELETES
+                    // valid duplicates — so registering it would let this pass
+                    // delete a sibling shard whose real records we merely failed
+                    // to parse. Its (empty) records still join the merge.
                     validEntries += parsed.entries
-                    validIds += meta.fileId
-                    if (preferred == null) preferred = meta
+                    if (parsed.entries.isNotEmpty()) {
+                        validIds += meta.fileId
+                        if (preferred == null) preferred = meta
+                    } else if (unusableReadable == null) {
+                        android.util.Log.w("FluenceSync", "shard $name file ${meta.fileId} decoded to zero valid records; holding as readable-but-unusable (not a delete target)")
+                        unusableReadable = meta
+                    }
                 } else if (DomainSerializer.isFutureEnvelope(bytes)) {
                     skipped = true
                 } else if (repairTarget == null) {
@@ -398,7 +414,12 @@ object V1SyncEngine {
                 }
             }
             if (skipped) anyShardSkipped = true
-            remoteByName[name] = RemoteShard(validEntries, validIds, preferred, repairTarget, skipped)
+            // Windows parity (frozen.rs:289-292): a USABLE file always wins the
+            // write target; the readable-but-unusable file is only a fallback
+            // when nothing readable-with-records exists at all. Letting it win
+            // over a usable sibling would PUT over one file and DELETE the other.
+            val target = preferred ?: unusableReadable
+            remoteByName[name] = RemoteShard(validEntries, validIds, target, repairTarget, skipped)
         }
 
         // 3. Deterministic global merge: local, legacy, then shards by name.
@@ -430,13 +451,13 @@ object V1SyncEngine {
                     ?.also { StatsShards.sortStatsRecords(it) } ?: emptyList()
                 val dupes = (remote?.validIds?.size ?: 0) > 1
                 if (remoteSorted == wantSorted && !dupes) continue
-                val bytes = DomainSerializer.serializeStats(StatsDomain(entries = wantSorted)).toByteArray()
-                DomainSerializer.parseStats(bytes)?.let { parsed ->
-                    if (parsed.entries.size != wantSorted.size ||
-                        parsed.entries.map { it.eventId }.toSet() != wantSorted.map { it.eventId }.toSet()) {
-                        throw SyncError.Rejected("stats shard $name roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("stats shard $name roundtrip null")
+                val statsDomain = StatsDomain(entries = wantSorted)
+                val bytes = DomainSerializer.serializeStats(statsDomain).toByteArray()
+                // F31: structural roundtrip gate (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "stats shard $name", statsDomain,
+                    DomainSerializer::serializeStats, DomainSerializer::parseStats,
+                )
                 val (expectedVersion, preferredFileId) = when {
                     remote?.preferred != null -> remote.preferred!!.version to remote.preferred!!.fileId
                     remote?.repairTarget != null -> remote.repairTarget!!.version to remote.repairTarget!!.fileId
@@ -529,13 +550,13 @@ object V1SyncEngine {
                     return SyncResult(false, true, attemptsUsed = attempts)
                 }
                 val sorted = merged.sortedBy { it.key }
-                val bytes = DomainSerializer.serializeSettings(SettingsDomain(entries = sorted)).toByteArray()
-                DomainSerializer.parseSettings(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.key }.toSet() != sorted.map { it.key }.toSet()) {
-                        throw SyncError.Rejected("settings roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("settings roundtrip null")
+                val settingsDomain = SettingsDomain(entries = sorted)
+                val bytes = DomainSerializer.serializeSettings(settingsDomain).toByteArray()
+                // F31: structural roundtrip gate (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "settings", settingsDomain,
+                    DomainSerializer::serializeSettings, DomainSerializer::parseSettings,
+                )
                 val uploadedVersion = try {
                     drive.putDomain(DomainFile.SETTINGS, bytes, fetch.version)
                 } catch (e: SyncError.StaleVersion) {
@@ -552,10 +573,12 @@ object V1SyncEngine {
                 val merged = Merge.mergeSettings(localStore.loadByAccount(accountHash).map { it.toRecord() }, emptyList())
                 if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
                 val sorted2 = merged.sortedBy { it.key }
-                val bytes2 = DomainSerializer.serializeSettings(SettingsDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseSettings(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("settings roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("settings roundtrip null")
+                val settingsDomain2 = SettingsDomain(entries = sorted2)
+                val bytes2 = DomainSerializer.serializeSettings(settingsDomain2).toByteArray()
+                assertCanonicalRoundtrip(
+                    "settings", settingsDomain2,
+                    DomainSerializer::serializeSettings, DomainSerializer::parseSettings,
+                )
                 val createdVersion = drive.putDomain(DomainFile.SETTINGS, bytes2, null)
                 if (!uploadIsLive(drive, DomainFile.SETTINGS, createdVersion)) {
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -606,7 +629,7 @@ object V1SyncEngine {
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
                     remoteDomain?.entries ?: emptyList()
                 )
-                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val remoteSorted = remoteDomain?.entries?.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
                     ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
@@ -617,15 +640,14 @@ object V1SyncEngine {
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(false, true, attemptsUsed = attempts)
                 }
-                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes = DomainSerializer.serializeAgents(AgentDomain(entries = sorted)).toByteArray()
-                DomainSerializer.parseAgents(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()
-                    ) {
-                        throw SyncError.Rejected("agents roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("agents roundtrip produced null")
+                val sorted = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val agentDomain = AgentDomain(entries = sorted)
+                val bytes = DomainSerializer.serializeAgents(agentDomain).toByteArray()
+                // F31: structural roundtrip gate (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "agents", agentDomain,
+                    DomainSerializer::serializeAgents, DomainSerializer::parseAgents,
+                )
                 val uploadedVersion = try {
                     drive.putDomain(DomainFile.AGENTS, bytes, fetch.version)
                 } catch (e: SyncError.StaleVersion) {
@@ -642,11 +664,13 @@ object V1SyncEngine {
                 val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
                 val merged = Merge.mergeAgents(local, emptyList())
                 if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
-                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes2 = DomainSerializer.serializeAgents(AgentDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseAgents(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("agents roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("agents roundtrip null")
+                val sorted2 = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val agentDomain2 = AgentDomain(entries = sorted2)
+                val bytes2 = DomainSerializer.serializeAgents(agentDomain2).toByteArray()
+                assertCanonicalRoundtrip(
+                    "agents", agentDomain2,
+                    DomainSerializer::serializeAgents, DomainSerializer::parseAgents,
+                )
                 val createdVersion = drive.putDomain(DomainFile.AGENTS, bytes2, null)
                 if (!uploadIsLive(drive, DomainFile.AGENTS, createdVersion)) {
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -682,7 +706,7 @@ object V1SyncEngine {
                     localStore.loadByAccount(accountHash).map { it.toRecord() },
                     remoteDomain?.entries ?: emptyList()
                 )
-                val remoteSorted = remoteDomain?.entries?.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
+                val remoteSorted = remoteDomain?.entries?.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
                     ?: emptyList()
                 val needsPut = localStore.hasDirty(accountHash) || merged != remoteSorted || fetch.hasDuplicateValidFiles
                 if (!needsPut) {
@@ -693,15 +717,14 @@ object V1SyncEngine {
                     advanceMaxSeen(maxSeenRef, merged.maxOfOrNull { it.updatedAt } ?: 0L)
                     return SyncResult(false, true, attemptsUsed = attempts)
                 }
-                val sorted = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes = DomainSerializer.serializeStyles(StyleDomain(entries = sorted)).toByteArray()
-                DomainSerializer.parseStyles(bytes)?.let { parsed ->
-                    if (parsed.entries.size != sorted.size ||
-                        parsed.entries.map { it.businessKey }.toSet() != sorted.map { it.businessKey }.toSet()
-                    ) {
-                        throw SyncError.Rejected("styles roundtrip key mismatch")
-                    }
-                } ?: throw SyncError.Rejected("styles roundtrip produced null")
+                val sorted = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val styleDomain = StyleDomain(entries = sorted)
+                val bytes = DomainSerializer.serializeStyles(styleDomain).toByteArray()
+                // F31: structural roundtrip gate (Windows frozen.rs parity).
+                assertCanonicalRoundtrip(
+                    "styles", styleDomain,
+                    DomainSerializer::serializeStyles, DomainSerializer::parseStyles,
+                )
                 val uploadedVersion = try {
                     drive.putDomain(DomainFile.STYLES, bytes, fetch.version)
                 } catch (e: SyncError.StaleVersion) {
@@ -718,11 +741,13 @@ object V1SyncEngine {
                 val local = localStore.loadByAccount(accountHash).map { it.toRecord() }
                 val merged = Merge.mergeStyles(local, emptyList())
                 if (merged.isEmpty()) return SyncResult(false, true, attemptsUsed = attempts)
-                val sorted2 = merged.sortedWith(compareBy({ it.businessKey }, { it.syncId }))
-                val bytes2 = DomainSerializer.serializeStyles(StyleDomain(entries = sorted2)).toByteArray()
-                DomainSerializer.parseStyles(bytes2)?.let { parsed ->
-                    if (parsed.entries.size != sorted2.size) throw SyncError.Rejected("styles roundtrip size mismatch")
-                } ?: throw SyncError.Rejected("styles roundtrip null")
+                val sorted2 = merged.sortedWith(utf8Comparator({ it.businessKey }, { it.syncId }))
+                val styleDomain2 = StyleDomain(entries = sorted2)
+                val bytes2 = DomainSerializer.serializeStyles(styleDomain2).toByteArray()
+                assertCanonicalRoundtrip(
+                    "styles", styleDomain2,
+                    DomainSerializer::serializeStyles, DomainSerializer::parseStyles,
+                )
                 val createdVersion = drive.putDomain(DomainFile.STYLES, bytes2, null)
                 if (!uploadIsLive(drive, DomainFile.STYLES, createdVersion)) {
                     return SyncResult(false, true, attemptsUsed = attempts)
@@ -927,6 +952,53 @@ object V1SyncEngine {
 }
 
 fun generateDeviceId(): String = UUID.randomUUID().toString()
+
+/**
+ * F31 — the structural roundtrip gate. Windows refuses to upload an envelope it
+ * cannot re-read into identical state (`frozen.rs`: `decode(&bytes) != Some(merged)`
+ * -> `Fatal`). Android had a weaker stand-in: record COUNT plus the
+ * businessKey/eventId SET, which cannot see a dropped `corrected`, a flipped
+ * `isEnabled`, or a lost tombstone.
+ *
+ * ## Why comparing the canonical STRING is device-safe
+ *
+ * The original comment here claimed full record equality is impossible because
+ * "org.json null/number quirks cause false Rejected on device vs JVM test".
+ * That is true of comparing two `JSONObject` graphs (`JSONObject.equals` is
+ * number-type sensitive: an `Int` from the device parse never equals the `Long`
+ * the record holds). It is NOT true of this comparison, because the serializer is
+ * a pure hand-written `StringBuilder` writer and NEITHER side of the comparison
+ * ever touches `org.json`:
+ *
+ *     serialize(parse(serialize(x)))  ==  serialize(x)
+ *
+ * Both operands come from the same `DomainSerializer.serialize*` function, so the
+ * device and the JVM execute byte-identical code over a value type that carries no
+ * JSON library semantics. The projection is normalized (deterministic key order,
+ * deterministic sort, fixed escaping), which makes it equivalent to full
+ * structural equality: any field the parse drops or rewrites changes the
+ * re-serialized bytes.
+ *
+ * If this ever needs to grow into a real `JSONObject` comparison, the
+ * device/JVM null-and-number asymmetry comes straight back — keep it a string.
+ */
+internal fun <T> assertCanonicalRoundtrip(
+    label: String,
+    domain: T,
+    serialize: (T) -> String,
+    parse: (ByteArray) -> T?,
+) {
+    val expected = serialize(domain)
+    val parsed = parse(expected.toByteArray())
+        ?: throw SyncError.Rejected("$label roundtrip produced null")
+    val actual = serialize(parsed)
+    if (actual != expected) {
+        // F5 actionability, matching Windows: this only ever fires on bytes WE
+        // encoded, nothing has been uploaded, and local data is intact — the
+        // remedy is an app update, which is why it stays Rejected (-> FATAL).
+        throw SyncError.Rejected("$label roundtrip is not canonical; upload refused, local data intact")
+    }
+}
 
 private const val STALE_RETRY_BASE_MS = 50L
 private const val STALE_RETRY_MAX_MS = 600L
