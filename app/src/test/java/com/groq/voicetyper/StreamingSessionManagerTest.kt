@@ -525,4 +525,49 @@ class StreamingSessionManagerTest {
         assertNull(TranscriptionSessionManager.activeAgentId)
         verify { listener.onError(match { it.contains("API Key is missing for Agent provider") || it.contains("API key") }) }
     }
+
+    // ---- Session ownership: stale results under a newer session --------------
+
+    @Test
+    fun batchResultAfterStopAndRestart_neverDeliversOrSavesIntoNewSession() {
+        // Session ownership: a batch network flight that outlives its session
+        // (stop; cancel; start a new session) must never deliver into, or save
+        // into, the session that replaced it. The generation is captured when
+        // stop is issued and threaded through delivery; delivery must not
+        // re-read the current generation to identify itself.
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns java.io.File.createTempFile("ownership-test", ".wav")
+        val gate = CompletableDeferred<Result<String>>()
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } coAnswers { gate.await() }
+        val listenerA = mockk<SessionListener>(relaxed = true)
+        val listenerB = mockk<SessionListener>(relaxed = true)
+
+        // Session A: record -> stop (batch upload in flight, gated) -> X.
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listenerA, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.cancelRecording(context)
+        awaitState(RecordingState.IDLE)
+
+        // Session B replaces A before the network responds.
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listenerB, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+
+        // The network flight for session A lands while B owns the session.
+        gate.complete(Result.success("stale batch"))
+        // Let the resumed coroutine run its whole delivery chain.
+        Thread.sleep(600)
+
+        verify(exactly = 0) { listenerA.onTranscription(any()) }
+        verify(exactly = 0) { listenerB.onTranscription(any()) }
+        coVerify(exactly = 0) { HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) }
+        // Session B keeps its own state: a stale delivery cannot disturb it.
+        assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
+    }
 }

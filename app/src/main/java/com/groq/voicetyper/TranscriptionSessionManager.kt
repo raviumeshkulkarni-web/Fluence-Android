@@ -640,7 +640,7 @@ object TranscriptionSessionManager {
                                 val durationMs = if (recordingStartTimestampMs > 0L) {
                                     (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
                                 } else 0L
-                                deliverTranscript(context, processedText, sttPreset, model, language, durationMs)
+                                deliverTranscript(context, generation, processedText, sttPreset, model, language, durationMs)
                             } else {
                                 withContext(Dispatchers.Main) {
                                     if (sessionGeneration == generation) {
@@ -833,9 +833,13 @@ object TranscriptionSessionManager {
                 }
             }
         } else {
+            // Session ownership: capture the generation on the synchronous stop
+            // path, BEFORE any async hop. The in-flight upload belongs to this
+            // session; a cancel plus a new session afterwards must not adopt it.
+            val generation = sessionGeneration
             val file = audioRecorder?.stopRecording()
             if (file != null) {
-                transcribeAudioOnline(context, file, durationMs)
+                transcribeAudioOnline(context, file, durationMs, generation)
             } else {
                 _recordingState.value = RecordingState.IDLE
                 _isAgentMode.value = false
@@ -896,7 +900,7 @@ object TranscriptionSessionManager {
         unregisterNoisyReceiver(context)
     }
 
-    private fun transcribeAudioOnline(context: Context, file: File, durationMs: Long) {
+    private fun transcribeAudioOnline(context: Context, file: File, durationMs: Long, generation: Long) {
         val sttPreset = SecurityUtils.getSttPreset(context)
         val sttKey = SecurityUtils.getProviderApiKey(context, "stt", sttPreset)
         if (sttKey.isNullOrBlank()) {
@@ -918,7 +922,6 @@ object TranscriptionSessionManager {
         }
 
         scope.launch {
-            val generation = sessionGeneration
             val languageCode = getEffectiveLanguage(context)
             val sttBaseUrl = SecurityUtils.getSttBaseUrl(context, sttPreset)
             val sttModel = SecurityUtils.getSttModel(context, sttPreset)
@@ -937,7 +940,7 @@ object TranscriptionSessionManager {
                         // bypass post-processing entirely (verbatim for the agent pipeline).
                         val text = if (_isAgentMode.value) dictedOnline
                         else applyTranscriptionPostProcessing(context, dictedOnline, isOfflineActive = false)
-                        deliverTranscript(context, text, sttPreset, sttModel, languageCode, durationMs)
+                        deliverTranscript(context, generation, text, sttPreset, sttModel, languageCode, durationMs)
                     } else {
                         if (sessionGeneration == generation) {
                             _recordingState.value = RecordingState.IDLE
@@ -964,16 +967,22 @@ object TranscriptionSessionManager {
      * batch path ([transcribeAudioOnline]) and the streaming Final path so Agent Mode
      * behaves identically in both transcription modes. Generation-guarded on every
      * async hop; a newer session can never receive a stale transcript.
+     *
+     * The generation arrives from the caller (captured synchronously at record-stop
+     * for batch, at stream-start for streaming). Delivery never re-reads the current
+     * [sessionGeneration] to identify which session a transcript belongs to - a
+     * re-read would let a flight that outlived its session deliver into, or save
+     * into, the session that replaced it.
      */
     private suspend fun deliverTranscript(
         context: Context,
+        generation: Long,
         text: String,
         sttPreset: String,
         model: String,
         language: String,
         durationMs: Long
     ) {
-        val generation = sessionGeneration
         val isAgent = _isAgentMode.value
         val listener = currentListener ?: run {
             completeWithoutExternalDelivery(generation)
