@@ -209,7 +209,7 @@ class FluenceAccessibilityService : AccessibilityService() {
             return
         }
         if (isSecureField(node)) {
-            BubbleController.hideBubble()
+            BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
         } else {
             BubbleController.showBubble(this, node)
         }

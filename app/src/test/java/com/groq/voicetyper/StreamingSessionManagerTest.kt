@@ -570,4 +570,145 @@ class StreamingSessionManagerTest {
         // Session B keeps its own state: a stale delivery cannot disturb it.
         assertEquals(RecordingState.RECORDING, TranscriptionSessionManager.recordingState.value)
     }
+
+    @Test
+    fun xDuringBatchTranscribing_discardsCompletedResult() {
+        // Explicit user discard (X) during batch transcription must never
+        // persist or deliver the result, even though the network flight
+        // completes after the cancel. Characterization guard for the
+        // persistence work below.
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns java.io.File.createTempFile("discard-test", ".wav")
+        val gate = CompletableDeferred<Result<String>>()
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } coAnswers { gate.await() }
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.cancelRecording(context)
+        awaitState(RecordingState.IDLE)
+
+        gate.complete(Result.success("discarded result"))
+        Thread.sleep(600)
+
+        verify(exactly = 0) { listener.onTranscription(any()) }
+        coVerify(exactly = 0) { HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) }
+        assertEquals(RecordingState.IDLE, TranscriptionSessionManager.recordingState.value)
+    }
+
+    @Test
+    fun incidentalTeardownDuringBatchTranscribing_persistsCompletedResult() {
+        // Teardown paths that remove the SessionListener while a batch upload
+        // is still in flight (bubble service stop, IME destroy - destroy() is
+        // the mgr-level trigger) must salvage the completed transcript into
+        // history instead of silently dropping it. Explicit user discard (X)
+        // and privacy suppression remain discard semantics.
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns java.io.File.createTempFile("salvage-test", ".wav")
+        val gate = CompletableDeferred<Result<String>>()
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } coAnswers { gate.await() }
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startImeRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.destroy()
+        awaitState(RecordingState.IDLE)
+
+        gate.complete(Result.success("salvage me"))
+        Thread.sleep(600)
+
+        coVerify(exactly = 1) {
+            HistoryRepository.save(any(), eq("salvage me"), eq("groq"), any(), any(), any(), eq(false))
+        }
+        verify(exactly = 0) { listener.onTranscription(any()) }
+    }
+
+    @Test
+    fun privacyCancelDuringBatchTranscribing_doesNotPersistCompletedResult() {
+        // Fail-closed privacy: the IME's privacy suppression passes
+        // PRIVACY_GUARD. A completed transcript whose session was
+        // privacy-suppressed is discarded on delivery - never delivered, never
+        // saved - exactly like an explicit user X during transcription.
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns java.io.File.createTempFile("privacy-test", ".wav")
+        val gate = CompletableDeferred<Result<String>>()
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } coAnswers { gate.await() }
+        val listener = mockk<SessionListener>(relaxed = true)
+
+        TranscriptionSessionManager.startImeRecording(context, isOffline = false, agentMode = false, listener, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.cancelImeRecording(context, CancelReason.PRIVACY_GUARD)
+        awaitState(RecordingState.IDLE)
+
+        gate.complete(Result.success("privacy suppressed"))
+        Thread.sleep(600)
+
+        verify(exactly = 0) { listener.onTranscription(any()) }
+        coVerify(exactly = 0) { HistoryRepository.save(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun staleDiscardReasonCannotSuppressNextSessionSalvage() {
+        // A discard cause must never leak into a later session: A (bubble) was
+        // user-cancelled mid-transcription; B (IME) then runs, is incidentally
+        // torn down with its batch upload in flight, and its salvage save MUST
+        // still happen even though A's reason was USER_DISCARD.
+        stubStreamingConfig(streamingEnabled = false, preset = "groq", sttKey = "stt-key")
+        resetCachedAudioRecorder()
+        mockkConstructor(AudioRecorder::class)
+        every { anyConstructed<AudioRecorder>().amplitude } returns MutableStateFlow(0f)
+        every { anyConstructed<AudioRecorder>().startRecording() } returns true
+        every { anyConstructed<AudioRecorder>().stopRecording() } returns java.io.File.createTempFile("stale-reason-test", ".wav")
+        val gate = CompletableDeferred<Result<String>>()
+        mockkObject(GroqClient)
+        coEvery { GroqClient.transcribe(any(), any(), any(), any(), any()) } coAnswers { gate.await() }
+        val listenerA = mockk<SessionListener>(relaxed = true)
+        val listenerB = mockk<SessionListener>(relaxed = true)
+
+        // Session A (bubble): explicit X during transcription.
+        TranscriptionSessionManager.startRecording(context, isOffline = false, agentMode = false, listenerA, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.cancelRecording(context)
+        awaitState(RecordingState.IDLE)
+
+        // Session B (IME): incidental teardown salvages its own completed result.
+        TranscriptionSessionManager.startImeRecording(context, isOffline = false, agentMode = false, listenerB, targetPackage = context.packageName)
+        awaitState(RecordingState.RECORDING)
+        TranscriptionSessionManager.stopRecording(context)
+        awaitState(RecordingState.TRANSCRIBING)
+        TranscriptionSessionManager.destroy()
+        awaitState(RecordingState.IDLE)
+
+        gate.complete(Result.success("salvaged after stale discard"))
+        Thread.sleep(600)
+
+        coVerify(exactly = 1) {
+            HistoryRepository.save(any(), eq("salvaged after stale discard"), eq("groq"), any(), any(), any(), eq(false))
+        }
+        verify(exactly = 0) { listenerA.onTranscription(any()) }
+        verify(exactly = 0) { listenerB.onTranscription(any()) }
+    }
 }

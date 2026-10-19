@@ -414,7 +414,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // Fail-closed: focus moved to a sensitive field mid-recording (same package,
         // view not finished) — cancel the in-flight voice session so nothing commits there.
         if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
-            TranscriptionSessionManager.cancelImeRecording(this)
+            TranscriptionSessionManager.cancelImeRecording(this, CancelReason.PRIVACY_GUARD)
         }
     }
 
@@ -434,7 +434,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
         // Fail-closed: same guard as onStartInput for the view lifecycle path.
         if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
-            TranscriptionSessionManager.cancelImeRecording(this)
+            TranscriptionSessionManager.cancelImeRecording(this, CancelReason.PRIVACY_GUARD)
         }
 
         if (!restarting) {
@@ -513,7 +513,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // Cancel any active recording FIRST, before we destroy anything.
         // This ensures the SessionManager's state is clean before we reset it.
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
-            TranscriptionSessionManager.cancelImeRecording(this)
+            TranscriptionSessionManager.cancelImeRecording(this, CancelReason.INCIDENTAL)
         }
 
         // Destroy the session manager state (resets all StateFlows, releases pipeline).

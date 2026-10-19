@@ -35,6 +35,19 @@ interface SessionListener {
     fun onPartialTranscription(text: String) {}
 }
 
+/**
+ * Why a running session was cancelled. Drives post-teardown persistence:
+ * [USER_DISCARD] is an explicit user action (X); [PRIVACY_GUARD] is enforced
+ * fail-closed exclusion; [INCIDENTAL] is system-driven churn (service stop,
+ * IME destroy, audio reroute, focus loss). Incidental teardown salvages a
+ * completed transcript into history; the other two never persist.
+ */
+enum class CancelReason {
+    USER_DISCARD,
+    PRIVACY_GUARD,
+    INCIDENTAL
+}
+
 object TranscriptionSessionManager {
     private const val TAG = "TranscriptionSessionMgr"
 
@@ -120,6 +133,16 @@ object TranscriptionSessionManager {
     // started, so a stale teardown never stops a freshly-started session's capture.
     @Volatile
     private var sessionGeneration = 0L
+
+    /**
+     * Cancellation cause of the torn-down session, read at delivery time by the
+     * in-flight transcript salvage path. Set by cancelSessionInternal/destroy,
+     * cleared at every session start (before any early return) and in
+     * completeWithoutExternalDelivery, so a stale reason can never leak into a
+     * later session's decision.
+     */
+    @Volatile
+    private var sessionDiscardReason: CancelReason? = null
 
     /**
      * Slice V1 (rules-only app-aware formatting): package hint captured at
@@ -346,6 +369,10 @@ object TranscriptionSessionManager {
         targetPackage: String?,
         inputTypeVariation: Int? = null
     ) {
+        // Reset before any early return so a previous session's discard reason
+        // (user X or privacy) can never suppress the salvage path of a later
+        // torn-down session.
+        sessionDiscardReason = null
         activeTargetPackage = targetPackage
         activeInputVariation = inputTypeVariation
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
@@ -848,17 +875,20 @@ object TranscriptionSessionManager {
         }
     }
 
-    fun cancelRecording(context: Context) {
+    fun cancelRecording(context: Context, reason: CancelReason = CancelReason.USER_DISCARD) {
         if (sessionOwner != SessionOwner.BUBBLE) return
-        cancelSessionInternal(context)
+        cancelSessionInternal(context, reason)
     }
 
-    internal fun cancelImeRecording(context: Context) {
+    internal fun cancelImeRecording(context: Context, reason: CancelReason = CancelReason.INCIDENTAL) {
         if (sessionOwner != SessionOwner.IME) return
-        cancelSessionInternal(context)
+        cancelSessionInternal(context, reason)
     }
 
-    private fun cancelSessionInternal(context: Context) {
+    private fun cancelSessionInternal(context: Context, reason: CancelReason) {
+        // Recorded before any teardown so an in-flight transcript delivery can
+        // classify its own salvage decision when the listener is already gone.
+        sessionDiscardReason = reason
         val generation = sessionGeneration
         recordingStartTimestampMs = 0L
         _recordingState.value = RecordingState.IDLE
@@ -985,6 +1015,22 @@ object TranscriptionSessionManager {
     ) {
         val isAgent = _isAgentMode.value
         val listener = currentListener ?: run {
+            // The listener was removed while the transcript was in flight
+            // (incidental teardown: service stop, IME destroy, audio reroute).
+            // The completed transcript belongs to the user: salvage it into
+            // history unless the session was explicitly discarded (X) or
+            // privacy-suppressed. Both the generation comparison and the reason
+            // read happen synchronously here, before the save is launched, so
+            // a teardown racing between check and save cannot reclassify it.
+            val discardReason = sessionDiscardReason
+            val salvage = sessionGeneration == generation &&
+                (discardReason == null || discardReason == CancelReason.INCIDENTAL)
+            if (salvage) {
+                scope.launch(Dispatchers.IO) {
+                    if (sessionGeneration != generation) return@launch
+                    HistoryRepository.save(context.applicationContext, text, sttPreset, model, language, durationMs, isAgent)
+                }
+            }
             completeWithoutExternalDelivery(generation)
             return
         }
@@ -1064,6 +1110,9 @@ object TranscriptionSessionManager {
         currentListener = null
         _isAgentMode.value = false
         activeAgentId = null
+        // The salvage decision for this generation has been committed; clear so
+        // the field never carries a stale cause into a future session.
+        sessionDiscardReason = null
     }
 
     private fun getEffectiveLanguage(context: Context): String {
@@ -1119,6 +1168,10 @@ object TranscriptionSessionManager {
 
     fun destroy() {
         if (sessionOwner != SessionOwner.IME) return
+        // IME teardown is system-driven churn, not a user discard: mark the
+        // cause before nulling the listener so an in-flight transcript can
+        // salvage itself at delivery.
+        sessionDiscardReason = CancelReason.INCIDENTAL
 
         handler.removeCallbacks(errorResetRunnable)
         cancelPreWarm()
@@ -1188,7 +1241,7 @@ object TranscriptionSessionManager {
                 handler.post {
                     if (sessionGeneration != generation) return@post
                     if (_recordingState.value == RecordingState.RECORDING || _recordingState.value == RecordingState.TRANSCRIBING) {
-                        cancelSessionInternal(appCtx)
+                        cancelSessionInternal(appCtx, CancelReason.INCIDENTAL)
                     }
                 }
             }

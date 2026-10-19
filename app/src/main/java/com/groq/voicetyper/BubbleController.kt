@@ -181,11 +181,20 @@ object BubbleController {
         mainHandler.postDelayed(deferredStopService, STOP_SERVICE_DELAY_MS)
     }
 
-    fun hideBubble() {
+    /**
+     * Removes the bubble and, when a recording is active, cancels the session
+     * with the caller's cancellation cause. [reason] must reflect the event
+     * that triggered this hide: [CancelReason.PRIVACY_GUARD] from secure-field
+     * suppression, [CancelReason.INCIDENTAL] from lifecycle/focus churn -
+     * never a user action.
+     */
+    fun hideBubble(reason: CancelReason = CancelReason.INCIDENTAL) {
         TranscriptionSessionManager.cancelPreWarm()
         // Only cancel if actively recording — don't discard an in-flight transcription
         if (recordingState.value == RecordingState.RECORDING) {
-            cancelRecording()
+            applicationContext?.let { ctx ->
+                TranscriptionSessionManager.cancelRecording(ctx, reason)
+            }
         }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
@@ -350,7 +359,7 @@ object BubbleController {
 
     fun cancelRecording() {
         val ctx = applicationContext ?: return
-        TranscriptionSessionManager.cancelRecording(ctx)
+        TranscriptionSessionManager.cancelRecording(ctx, CancelReason.USER_DISCARD)
         _isBubbleExpanded.value = false
     }
 
