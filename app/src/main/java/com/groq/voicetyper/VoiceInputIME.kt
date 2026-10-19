@@ -357,6 +357,8 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         return composeView
     }
 
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     override fun onComputeInsets(outInsets: Insets?) {
         super.onComputeInsets(outInsets)
         if (outInsets == null) return
