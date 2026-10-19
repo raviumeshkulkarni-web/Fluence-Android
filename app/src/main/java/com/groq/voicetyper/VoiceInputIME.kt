@@ -68,21 +68,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     @Volatile
     private var currentInputVariation: Int? = null
 
-    private val privacyLifecycleHandler = Handler(Looper.getMainLooper())
-    private var pendingImeFinishCancellation = false
-    private var pendingFinishTargetPackage: String? = null
-    private val pendingImeFinishCancellationRunnable = Runnable {
-        if (!pendingImeFinishCancellation) return@Runnable
-        pendingImeFinishCancellation = false
-        val targetPackage = currentTargetPackage ?: pendingFinishTargetPackage
-        pendingFinishTargetPackage = null
-        if (!PrivacyPreferences.isPackageExcluded(this, targetPackage) &&
-            (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)
-        ) {
-            TranscriptionSessionManager.cancelImeRecording(this)
-        }
-    }
-
     // IME State (delegated to TranscriptionSessionManager)
     private var apiKey by mutableStateOf<String?>(null)
     private var recordingState by mutableStateOf(RecordingState.IDLE)
@@ -483,15 +468,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         activeCardBounds = null
         isVoiceGated = true
 
-        privacyLifecycleHandler.removeCallbacks(pendingImeFinishCancellationRunnable)
-        pendingImeFinishCancellation = false
-        pendingFinishTargetPackage = null
-        if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
-            pendingFinishTargetPackage = currentTargetPackage ?: currentInputEditorInfo?.packageName?.toString()
-            pendingImeFinishCancellation = true
-            privacyLifecycleHandler.post(pendingImeFinishCancellationRunnable)
-        }
-
+        // Windows parity: keyboard dismissal or input-method switching must
+        // NOT cancel an in-flight session. The session is process-scoped and
+        // survives the collapsed IME; a genuine IME teardown still cancels in
+        // onDestroy. Delivery handles the absent input connection by falling
+        // back to history persistence.
         currentTargetPackage = null
         currentInputVariation = null
         isTargetExcluded = true
@@ -506,10 +487,6 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     override fun onDestroy() {
-        privacyLifecycleHandler.removeCallbacks(pendingImeFinishCancellationRunnable)
-        pendingImeFinishCancellation = false
-        pendingFinishTargetPackage = null
-
         // Cancel any active recording FIRST, before we destroy anything.
         // This ensures the SessionManager's state is clean before we reset it.
         if (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING) {
