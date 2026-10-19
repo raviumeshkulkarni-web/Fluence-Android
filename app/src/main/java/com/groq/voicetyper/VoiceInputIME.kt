@@ -280,7 +280,10 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 errorMessage = errorMessage,
                 onCancelRecording = {
-                    TranscriptionSessionManager.cancelImeRecording(this@VoiceInputIME)
+                    TranscriptionSessionManager.cancelImeRecording(
+                        this@VoiceInputIME,
+                        CancelReason.USER_DISCARD
+                    )
                 },
                 onStartRecording = { agentMode ->
                     if (isVoiceGated) {
