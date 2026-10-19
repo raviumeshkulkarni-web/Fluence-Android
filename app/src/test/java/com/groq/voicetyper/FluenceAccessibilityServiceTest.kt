@@ -144,6 +144,25 @@ class FluenceAccessibilityServiceTest {
         )
     }
 
+    // shouldSuppressGenericHide: the no-focused-editable hide of
+    // evaluateAllWindows never tears down the coupled pill/node/service unit
+    // while a session is in flight. IDLE and ERROR converge as before.
+    @Test
+    fun shouldSuppressGenericHide_onlyWhileSessionInFlight() {
+        assertTrue(
+            FluenceAccessibilityService.shouldSuppressGenericHide(RecordingState.RECORDING)
+        )
+        assertTrue(
+            FluenceAccessibilityService.shouldSuppressGenericHide(RecordingState.TRANSCRIBING)
+        )
+        assertFalse(
+            FluenceAccessibilityService.shouldSuppressGenericHide(RecordingState.IDLE)
+        )
+        assertFalse(
+            FluenceAccessibilityService.shouldSuppressGenericHide(RecordingState.ERROR)
+        )
+    }
+
     @Test
     fun imeOnlyPref_defaultsToOff() {
         val prefs = mockk<android.content.SharedPreferences>(relaxed = true)

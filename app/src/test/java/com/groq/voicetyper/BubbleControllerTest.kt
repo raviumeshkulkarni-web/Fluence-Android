@@ -7,6 +7,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import io.mockk.verify
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -54,6 +56,18 @@ class BubbleControllerTest {
         serviceCalls.clear()
     }
 
+    /**
+     * The real StateFlow backing BubbleController.recordingState lives inside
+     * TranscriptionSessionManager (aliased at object init, before test mocks).
+     * Set it directly so reason-semantics tests exercise the real gate code.
+     */
+    private fun setSessionState(state: RecordingState) {
+        val field = TranscriptionSessionManager::class.java.getDeclaredField("_recordingState")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        (field.get(TranscriptionSessionManager) as MutableStateFlow<RecordingState>).value = state
+    }
+
     private fun normalNode(): AccessibilityNodeInfo {
         val node = mockk<AccessibilityNodeInfo>(relaxed = true)
         every { node.packageName } returns normalPackage
@@ -96,6 +110,70 @@ class BubbleControllerTest {
         // stopService is deferred (not synchronous) so a rapid accessibility show/hide
         // flap cannot stop the FGS before startForeground() runs.
         assertFalse("stopService" in serviceCalls)
+    }
+
+    @Test
+    fun hideBubble_duringRecording_cancelsSessionWithReason() {
+        every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
+        resetBubbleState()
+        BubbleController.showBubble(context, normalNode())
+        setSessionState(RecordingState.RECORDING)
+        serviceCalls.clear()
+
+        BubbleController.hideBubble(CancelReason.INCIDENTAL)
+
+        verify(exactly = 1) {
+            TranscriptionSessionManager.cancelRecording(any(), CancelReason.INCIDENTAL)
+        }
+        setSessionState(RecordingState.IDLE)
+    }
+
+    @Test
+    fun hideBubble_duringTranscribing_genericReason_leavesSessionAlive() {
+        // The whole point of the coupled-unit fix: generic focus churn that
+        // lands during TRANSCRIBING may not cancel the in-flight upload -
+        // delivery and salvage own the session from here.
+        every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
+        resetBubbleState()
+        BubbleController.showBubble(context, normalNode())
+        serviceCalls.clear()
+        every { TranscriptionSessionManager.cancelRecording(any(), any()) } returns Unit
+        setSessionState(RecordingState.TRANSCRIBING)
+
+        BubbleController.hideBubble(CancelReason.INCIDENTAL)
+
+        verify(exactly = 0) { TranscriptionSessionManager.cancelRecording(any(), any()) }
+        setSessionState(RecordingState.IDLE)
+    }
+
+    @Test
+    fun hideBubble_duringTranscribing_privacy_stillCancelsFailClosed() {
+        every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
+        resetBubbleState()
+        BubbleController.showBubble(context, normalNode())
+        serviceCalls.clear()
+        every { TranscriptionSessionManager.cancelRecording(any(), any()) } returns Unit
+        setSessionState(RecordingState.TRANSCRIBING)
+
+        BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
+
+        verify(exactly = 1) {
+            TranscriptionSessionManager.cancelRecording(any(), CancelReason.PRIVACY_GUARD)
+        }
+        setSessionState(RecordingState.IDLE)
+    }
+
+    @Test
+    fun hideBubble_whenIdle_neverCancels() {
+        every { context.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
+        resetBubbleState()
+        BubbleController.showBubble(context, normalNode())
+        serviceCalls.clear()
+        setSessionState(RecordingState.IDLE)
+
+        BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
+
+        verify(exactly = 0) { TranscriptionSessionManager.cancelRecording(any(), any()) }
     }
 
     @Test

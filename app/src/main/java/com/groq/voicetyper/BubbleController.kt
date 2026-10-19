@@ -190,11 +190,16 @@ object BubbleController {
      */
     fun hideBubble(reason: CancelReason = CancelReason.INCIDENTAL) {
         TranscriptionSessionManager.cancelPreWarm()
-        // Only cancel if actively recording — don't discard an in-flight transcription
-        if (recordingState.value == RecordingState.RECORDING) {
-            applicationContext?.let { ctx ->
-                TranscriptionSessionManager.cancelRecording(ctx, reason)
-            }
+        // In-flight session handling is reason-dependent: RECORDING has no
+        // transcript to salvage and dies with the pill; TRANSCRIBING (upload in
+        // flight) is never interrupted by generic hide churn - only by
+        // fail-closed privacy suppression.
+        val state = recordingState.value
+        when {
+            state == RecordingState.RECORDING ->
+                applicationContext?.let { TranscriptionSessionManager.cancelRecording(it, reason) }
+            state == RecordingState.TRANSCRIBING && reason == CancelReason.PRIVACY_GUARD ->
+                applicationContext?.let { TranscriptionSessionManager.cancelRecording(it, reason) }
         }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false

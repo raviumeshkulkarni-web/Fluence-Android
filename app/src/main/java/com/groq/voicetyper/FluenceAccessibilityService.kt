@@ -57,6 +57,16 @@ class FluenceAccessibilityService : AccessibilityService() {
             imeOnly && !imeVisible && recordingState == RecordingState.IDLE
 
         /**
+         * A no-privacy, no-lifecycle-significance hide (the no-focused-editable
+         * branch of evaluateAllWindows) must never tear down an in-flight
+         * session: the pill, the focused node and the foreground service form
+         * one coupled unit until the transcript is delivered. Pure; unit-tested
+         * alongside the other bubble gates.
+         */
+        fun shouldSuppressGenericHide(recordingState: RecordingState): Boolean =
+            recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING
+
+        /**
          * Bubble-only foreground check. The IME deliberately does not use this
          * source; it uses its current EditorInfo package instead.
          */
@@ -120,12 +130,14 @@ class FluenceAccessibilityService : AccessibilityService() {
         // After a session ends, the keyboard/focus picture may have changed
         // underneath it (e.g. keyboard dismissed mid-recording, which must
         // never interrupt the session). Re-evaluate once back at IDLE so the
-        // IME gate converges. drop(1) skips the initial IDLE emission.
+        // pill converges in BOTH modes: hide when the field the session
+        // targeted is gone, show when a fresh editable has focus. drop(1)
+        // skips the initial IDLE emission.
         evalScope.launch {
             BubbleController.recordingState
                 .drop(1)
                 .collect { state ->
-                    if (state == RecordingState.IDLE && isFloatingBubbleEnabled && isImeOnlyEnabled) {
+                    if (state == RecordingState.IDLE && isFloatingBubbleEnabled) {
                         scheduleFullEvaluation()
                     }
                 }
@@ -345,7 +357,14 @@ class FluenceAccessibilityService : AccessibilityService() {
                 legacyRoot.recycle()
             }
 
-            // No focused editable field found anywhere — hide the bubble.
+            // No focused editable field found anywhere. While a session is in
+            // flight, the pill + focused node + foreground service form one
+            // coupled unit; generic focus churn (Home swipe, app switch,
+            // keyboard dismissal) must never tear it down mid-session - the
+            // IDLE collector re-evaluates after the session ends.
+            if (shouldSuppressGenericHide(BubbleController.recordingState.value)) {
+                return
+            }
             BubbleController.hideBubble()
 
         } catch (e: Exception) {
