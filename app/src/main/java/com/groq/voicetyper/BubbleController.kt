@@ -254,6 +254,13 @@ object BubbleController {
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
             return false
         }
+        // Delivery-time freshness: a node from a closed window is a stale
+        // target and must never be written into.
+        if (verifyActiveWindow &&
+            !FluenceAccessibilityService.isInjectionTargetStillVisible(targetPackage)
+        ) {
+            return false
+        }
         return true
     }
 
@@ -589,6 +596,13 @@ object BubbleController {
             Log.w(TAG, "Node refresh returned false — attempting injection anyway")
         }
         if (!isNodeTargetAllowed(context, node)) return
+        // Defense in depth: the bubble is never shown over a secure field, but
+        // a mid-session focus change could surface this node though other
+        // paths. Injection into a password field is forbidden outright.
+        if (FluenceAccessibilityService.isSecureInjectionTarget(node)) {
+            Log.w(TAG, "Refusing to inject dictation into a secure field")
+            return
+        }
 
         val placeholderText = isPlaceholderText(node)
         val hintEmpty = isHintEmpty(node) || placeholderText

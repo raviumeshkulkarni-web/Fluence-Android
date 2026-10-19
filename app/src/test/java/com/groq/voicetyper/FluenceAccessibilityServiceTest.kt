@@ -163,6 +163,34 @@ class FluenceAccessibilityServiceTest {
         )
     }
 
+    // isSecureInjectionTarget: mirrors the secure-field suppression used for
+    // the bubble, so an injection can never reach a password surface.
+    @Test
+    fun isSecureInjectionTarget_passwordNode_rejected() {
+        val node = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { node.isPassword } returns true
+
+        assertTrue(FluenceAccessibilityService.isSecureInjectionTarget(node))
+    }
+
+    @Test
+    fun isSecureInjectionTarget_passwordLikeClassName_rejected() {
+        val node = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { node.isPassword } returns false
+        every { node.className } returns "com.bank.ui.SecurePinEntryField"
+
+        assertTrue(FluenceAccessibilityService.isSecureInjectionTarget(node))
+    }
+
+    @Test
+    fun isSecureInjectionTarget_normalEditableField_allowed() {
+        val node = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { node.isPassword } returns false
+        every { node.className } returns "android.widget.EditText"
+
+        assertFalse(FluenceAccessibilityService.isSecureInjectionTarget(node))
+    }
+
     @Test
     fun imeOnlyPref_defaultsToOff() {
         val prefs = mockk<android.content.SharedPreferences>(relaxed = true)

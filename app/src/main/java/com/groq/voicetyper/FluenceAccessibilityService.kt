@@ -67,6 +67,44 @@ class FluenceAccessibilityService : AccessibilityService() {
             recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING
 
         /**
+         * True when a node must never receive dictation output. Mirrors the
+         * secure-field detection used for bubble suppression so the bubble
+         * can never be visible over a field it would be forbidden to write
+         * into. Pure; unit-tested alongside the other bubble gates.
+         */
+        fun isSecureInjectionTarget(node: AccessibilityNodeInfo): Boolean {
+            if (node.isPassword) return true
+            val className = node.className?.toString()?.lowercase() ?: ""
+            return className.contains("password") ||
+                className.contains("pin") ||
+                className.contains("lock")
+        }
+
+        /**
+         * Honors the long-dead verifyActiveWindow contract at delivery time:
+         * injection may only target a package whose application window is
+         * actually on screen - a node from a closed window is stale and must
+         * not be written into. When the service is disconnected or the window
+         * list is unavailable (or genuinely contains no application window,
+         * as during transient system transitions) the legacy permissive
+         * behavior applies rather than failing delivery.
+         */
+        fun isInjectionTargetStillVisible(targetPackage: String?): Boolean {
+            if (targetPackage == null) return true
+            val service = activeInstance ?: return true
+            return try {
+                val windows = service.windows ?: return true
+                val appWindows = windows
+                    .filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
+                val roots = appWindows.mapNotNull { it.root }
+                if (roots.isEmpty()) return true
+                roots.any { it.packageName?.toString() == targetPackage }
+            } catch (_: Exception) {
+                true
+            }
+        }
+
+        /**
          * Bubble-only foreground check. The IME deliberately does not use this
          * source; it uses its current EditorInfo package instead.
          */
@@ -504,12 +542,7 @@ class FluenceAccessibilityService : AccessibilityService() {
      * NOT show the voice dictation bubble.
      */
     private fun isSecureField(node: AccessibilityNodeInfo): Boolean {
-        if (node.isPassword) return true
-
-        val className = node.className?.toString()?.lowercase() ?: ""
-        return className.contains("password") ||
-                className.contains("pin") ||
-                className.contains("lock")
+        return isSecureInjectionTarget(node)
     }
 
     // ────────────────────────────────────────────────────────────────────
