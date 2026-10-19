@@ -276,6 +276,64 @@ class BubbleControllerTest {
         assertEquals(geomScreenH - geomCollapsed, bottom + geomPadding)
     }
 
+    @Test
+    fun reclamp_rightAnchored_landscapeToPortrait_staysFlushRight() {
+        val portraitW = 1200
+        val (x, y) = BubbleController.anchoredCardRestPosForBounds(
+            400, true, geomCardW, geomPadding, geomCollapsed, portraitW, geomScreenH
+        )
+        assertEquals(BubbleController.snapTargetCardX(true, portraitW, geomCardW, geomPadding), x)
+        assertEquals(portraitW - geomCollapsed, bubbleLeftAt(x, true))
+        assertEquals(400, y)
+    }
+
+    @Test
+    fun reclamp_rightAnchored_portraitToLandscape_staysFlushRight() {
+        val portraitW = 1200
+        val landscapeW = 1920
+        val (x, _) = BubbleController.anchoredCardRestPosForBounds(
+            400, true, geomCardW, geomPadding, geomCollapsed, landscapeW, geomScreenH
+        )
+        val portraitRest = BubbleController.snapTargetCardX(true, portraitW, geomCardW, geomPadding)
+        assertEquals(BubbleController.snapTargetCardX(true, landscapeW, geomCardW, geomPadding), x)
+        assertEquals(landscapeW - geomCollapsed, bubbleLeftAt(x, true))
+        assertTrue("portrait rest x must not be preserved in landscape", x != portraitRest)
+    }
+
+    @Test
+    fun reclamp_leftAnchored_staysFlushLeftAcrossRotation() {
+        val (portraitX, _) = BubbleController.anchoredCardRestPosForBounds(
+            120, false, geomCardW, geomPadding, geomCollapsed, 1200, geomScreenH
+        )
+        val (landscapeX, _) = BubbleController.anchoredCardRestPosForBounds(
+            120, false, geomCardW, geomPadding, geomCollapsed, 1920, geomScreenH
+        )
+        assertEquals(-geomPadding, portraitX)
+        assertEquals(-geomPadding, landscapeX)
+    }
+
+    @Test
+    fun reclamp_yOverflow_isClampedVertically() {
+        val (_, top) = BubbleController.anchoredCardRestPosForBounds(
+            -99999, false, geomCardW, geomPadding, geomCollapsed, geomScreenW, 900
+        )
+        assertEquals(0, top + geomPadding)
+        val (_, bottom) = BubbleController.anchoredCardRestPosForBounds(
+            99999, false, geomCardW, geomPadding, geomCollapsed, geomScreenW, 900
+        )
+        assertEquals(900 - geomCollapsed, bottom + geomPadding)
+    }
+
+    @Test
+    fun reclamp_unchangedBounds_atEdge_isIdentity() {
+        val x = BubbleController.snapTargetCardX(true, geomScreenW, geomCardW, geomPadding)
+        val (nx, ny) = BubbleController.anchoredCardRestPosForBounds(
+            321, true, geomCardW, geomPadding, geomCollapsed, geomScreenW, geomScreenH
+        )
+        assertEquals(x, nx)
+        assertEquals(321, ny)
+    }
+
     // ── Side-flip continuity: the flip moves only the card, never the bubble ──
     // Regression guard for the center-dwell defect: the snap must settle the
     // bubble release-point -> edge under the OLD alignment, and the flip must

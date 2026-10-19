@@ -85,6 +85,18 @@ object BubbleController {
     fun isLeftSide(bubbleLeftPx: Int, collapsedPx: Int, screenWPx: Int): Boolean =
         bubbleLeftPx + collapsedPx / 2 < screenWPx / 2
 
+    fun anchoredCardRestPosForBounds(
+        yPx: Int,
+        anchoredRight: Boolean,
+        cardWPx: Int,
+        paddingPx: Int,
+        collapsedPx: Int,
+        newScreenWPx: Int,
+        newScreenHPx: Int
+    ): Pair<Int, Int> =
+        snapTargetCardX(anchoredRight, newScreenWPx, cardWPx, paddingPx) to
+            clampCardY(yPx, paddingPx, collapsedPx, newScreenHPx)
+
     // Delegate recording flows to the centralized TranscriptionSessionManager
     val recordingState: StateFlow<RecordingState> = TranscriptionSessionManager.recordingState
     val isAgentMode: StateFlow<Boolean> = TranscriptionSessionManager.isAgentMode

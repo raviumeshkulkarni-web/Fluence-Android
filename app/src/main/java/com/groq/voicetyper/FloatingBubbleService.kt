@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -248,20 +249,19 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         isAnchoredRight = lastIsAnchoredRight
         BubbleController.updateAnchoredRight(lastIsAnchoredRight)
         // Seed the card position before the first composition so no frame
-        // ever renders a default/centered card. Persisted coordinates are
-        // absolute card top-left values in the same space; without them the
-        // card rests flush right at one-third screen height (as before).
-        val persistedX = lastCardX
+        // ever renders a default/centered card. Only the vertical position is
+        // restored; the horizontal position is always re-anchored to the
+        // active edge for the current display width so a rotation or a
+        // service restart can never strand the card mid-screen.
         val persistedY = lastCardY
-        cardPos = if (persistedX != null && persistedY != null) {
+        cardPos = if (persistedY != null) {
             IntOffset(
-                BubbleController.clampCardX(persistedX, isAnchoredRight, cardWPx, paddingPx, collapsedSizePx, screenW),
+                BubbleController.snapTargetCardX(isAnchoredRight, screenW, cardWPx, paddingPx),
                 BubbleController.clampCardY(persistedY, paddingPx, collapsedSizePx, screenH)
             )
         } else {
             IntOffset(screenW - cardWPx + paddingPx, screenH / 3 - paddingPx)
         }
-        lastCardX = cardPos.x
         lastCardY = cardPos.y
 
         val view = ComposeView(this).apply {
@@ -382,7 +382,6 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                 cardPos.y + dy.toInt(), paddingPx, collapsedSizePx, screenHeight
             )
         )
-        lastCardX = cardPos.x
         lastCardY = cardPos.y
         mirrorPositionToInteraction()
     }
@@ -731,7 +730,6 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
                     ),
                     cardPos.y
                 )
-                lastCardX = cardPos.x
                 lastCardY = cardPos.y
                 if (finalAnchorRight != isAnchoredRight) {
                     BubbleController.updateAnchoredRight(finalAnchorRight)
@@ -744,12 +742,37 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         animator.addUpdateListener { animation ->
             val currX = animation.animatedValue as Int
             cardPos = cardPos.copy(x = currX)
-            lastCardX = currX
             // No visual-window update: cardPos drives recomposition directly.
             mirrorPositionToInteraction()
         }
         snapAnimator = animator
         animator.start()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        reclampCardToDisplay()
+    }
+
+    private fun reclampCardToDisplay() {
+        if (!isViewAdded) return
+        snapAnimator?.cancel()
+        hideAgentDropdown()
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val (restX, clampedY) = BubbleController.anchoredCardRestPosForBounds(
+            cardPos.y,
+            isAnchoredRight,
+            cardWPx,
+            paddingPx,
+            collapsedSizePx,
+            screenWidth,
+            screenHeight
+        )
+        if (restX == cardPos.x && clampedY == cardPos.y) return
+        cardPos = IntOffset(restX, clampedY)
+        lastCardY = clampedY
+        mirrorPositionToInteraction()
     }
 
     override fun onDestroy() {
@@ -774,9 +797,9 @@ class FloatingBubbleService : Service(), LifecycleOwner, ViewModelStoreOwner, Sa
         private const val NOTIFICATION_ID = 2026
 
         
-        // Static variables to persist the bubble's coordinates and side anchoring across show/hide events.
-        // Coordinates are absolute card top-left values (START|TOP space), matching cardPos.
-        private var lastCardX: Int? = null
+        // Static variables to persist the bubble's vertical position and side
+        // anchoring across show/hide events. The horizontal position is always
+        // re-derived from the anchored edge and the current display width.
         private var lastCardY: Int? = null
         private var lastIsAnchoredRight: Boolean = true
     }
