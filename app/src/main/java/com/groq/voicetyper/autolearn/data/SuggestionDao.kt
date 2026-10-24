@@ -6,13 +6,25 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface SuggestionDao {
 
-    @Query("SELECT * FROM suggestion_history WHERE status = 'PENDING' ORDER BY frequency DESC, lastSeenAt DESC")
+    // frequency >= 2 is the `MIN_OBSERVATIONS_TO_SURFACE` parity gate
+    // (Windows suggestion.rs): a single sourceless observation must not
+    // reach the human review list on either platform.
+    @Query("SELECT * FROM suggestion_history WHERE status = 'PENDING' AND frequency >= 2 ORDER BY frequency DESC, lastSeenAt DESC")
     fun getPendingSuggestions(): Flow<List<SuggestionEntry>>
+
+    @Query("SELECT * FROM suggestion_history WHERE status = 'PENDING'")
+    suspend fun getPendingForPurge(): List<SuggestionEntry>
+
+    @Query("UPDATE suggestion_history SET status = 'DISMISSED' WHERE id = :id AND status = 'PENDING'")
+    suspend fun demotePending(id: Long): Int
+
+    @Query("UPDATE suggestion_history SET frequency = frequency + 1, lastSeenAt = :now WHERE id = :id")
+    suspend fun bumpById(id: Long, now: Long)
 
     @Query("SELECT * FROM suggestion_history WHERE spokenText = :spoken AND correctedText = :corrected LIMIT 1")
     suspend fun findByPair(spoken: String, corrected: String): SuggestionEntry?
 
-    @Query("INSERT INTO suggestion_history (spokenText, correctedText, frequency, status, createdAt, lastSeenAt) VALUES (:spoken, :corrected, 1, 'PENDING', :now, :now) ON CONFLICT(spokenText, correctedText) DO UPDATE SET frequency = suggestion_history.frequency + 1, lastSeenAt = :now, status = 'PENDING'")
+    @Query("INSERT INTO suggestion_history (spokenText, correctedText, frequency, status, createdAt, lastSeenAt) VALUES (:spoken, :corrected, 1, 'PENDING', :now, :now) ON CONFLICT(spokenText, correctedText) DO UPDATE SET frequency = suggestion_history.frequency + 1, lastSeenAt = :now")
     suspend fun upsertCandidate(spoken: String, corrected: String, now: Long = System.currentTimeMillis())
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

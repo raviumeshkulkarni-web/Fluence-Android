@@ -7,6 +7,13 @@ import com.groq.voicetyper.autolearn.domain.WordLcsExtractor
 import org.junit.Assert.*
 import org.junit.Test
 
+/**
+ * LEGACY-EXTRACTOR characterization tests. WordLcsExtractor is NOT the live
+ * path since the Windows-flask DecisionCore port; these fixtures pin its
+ * historical behavior only (including the case-sensitive `groq`->`Groq`
+ * capture the live path now rejects - see DecisionCoreTest). Test the
+ * live path in DecisionCoreTest + AutoLearnSessionManagerTest.
+ */
 class WordLcsExtractorTest {
 
     @Test

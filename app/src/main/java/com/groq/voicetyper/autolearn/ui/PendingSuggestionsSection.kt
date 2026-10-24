@@ -40,6 +40,13 @@ fun PendingSuggestionsSection(
             selectedIds = selectedIds.intersect(alive)
         }
     }
+
+    // Accept-confirmation (Windows parity, settings.js ACCEPT_CONFIRM_DETAIL):
+    // accepting is a config-changing action (future dictations get rewritten),
+    // so it requires an explicit per-row confirm; the dialog revalidates the
+    // row id against the live list before firing.
+    var pendingAccept by remember { mutableStateOf<SuggestionEntry?>(null) }
+    var accepting by remember { mutableStateOf(false) }
     val allSelected = pendingSuggestions.isNotEmpty() && selectedIds.size == pendingSuggestions.size
     val triState = when {
         allSelected -> ToggleableState.On
@@ -126,12 +133,7 @@ fun PendingSuggestionsSection(
                                 if (on) selectedIds + suggestion.id
                                 else selectedIds - suggestion.id
                         },
-                        onAccept = {
-                            scope.launch {
-                                SuggestionRepository.acceptSuggestion(context, suggestion)
-                                FeedbackBus.show("Added to Custom Dictionary")
-                            }
-                        },
+                        onAccept = { pendingAccept = suggestion },
                         onDismiss = {
                             scope.launch {
                                 SuggestionRepository.dismissSuggestion(context, suggestion)
@@ -143,6 +145,52 @@ fun PendingSuggestionsSection(
                     }
                 }
             }
+        }
+    }
+
+    pendingAccept?.let { suggestion ->
+        // The row must still exist in the live list; a stale reference
+        // (already accepted/deleted) renders nothing this composition.
+        if (pendingSuggestions.any { it.id == suggestion.id }) {
+            AlertDialog(
+                onDismissRequest = { pendingAccept = null },
+                text = {
+                    Text(
+                        "Add \"${suggestion.spokenText}\" → \"${suggestion.correctedText}\" to the dictionary? " +
+                            "This will automatically rewrite future dictations."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (!accepting) {
+                                accepting = true
+                                scope.launch {
+                                    try {
+                                        SuggestionRepository.acceptSuggestion(context, suggestion)
+                                        FeedbackBus.show("Added to Custom Dictionary")
+                                    } finally {
+                                        accepting = false
+                                        pendingAccept = null
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !accepting
+                    ) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            if (!accepting) pendingAccept = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

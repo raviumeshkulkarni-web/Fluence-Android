@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
+import com.groq.voicetyper.autolearn.SuggestionRepository
 import com.groq.voicetyper.autolearn.ui.PendingSuggestionsSection
 import com.groq.voicetyper.dictionary.DictionaryPreferences
 import com.groq.voicetyper.dictionary.DictionaryRepository
@@ -93,6 +94,19 @@ fun DictionaryScreen(
         val valid = visibleEntries.map { it.id }.toSet()
         if (!valid.containsAll(selectedIds)) {
             selectedIds = selectedIds.intersect(valid)
+        }
+    }
+
+    // Stale-pending sweep (Windows `purge_invalid_suggestions` parity): a
+    // pending row whose pair no longer passes the shared gates must not
+    // survive a screens-open pass. Off the main thread and fail-open.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                SuggestionRepository.purgeInvalidPending(context)
+            } catch (e: Exception) {
+                android.util.Log.w("AutoLearnPurge", "stale-pending sweep failed", e)
+            }
         }
     }
 

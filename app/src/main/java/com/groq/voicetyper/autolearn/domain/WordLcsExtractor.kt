@@ -1,10 +1,13 @@
 package com.groq.voicetyper.autolearn.domain
 
-data class CorrectionCandidate(
-    val spokenText: String,
-    val correctedText: String
-)
-
+/**
+ * LEGACY - NOT the live extraction path.
+ *
+ * Superseded by [DecisionCore] (Windows-flask parity port). Kept only for
+ * reference/rollback during soak; its case-sensitive tokenizer, retired RC-1
+ * tie rule, and missing LCS rewrite guard are exactly the defects this was
+ * replaced to fix. Do not wire this into new call sites.
+ */
 object WordLcsExtractor {
 
     private const val MAX_TEXT_CHARS = 10_000

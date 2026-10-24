@@ -6,6 +6,7 @@ import android.view.inputmethod.EditorInfo
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.autolearn.SuggestionRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,7 +16,20 @@ object AutoLearnSessionManager {
     private const val TAG = "AutoLearnSession"
     private const val MAX_FIELD_CHARS = 10_000
 
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val productionScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    /**
+     * Test seam: when set, every extraction runs on this dispatcher
+     * (tests inject an UnconfinedTestDispatcher). Must be reset to null
+     * after each test in @After.
+     */
+    @Volatile
+    internal var dispatcherOverride: CoroutineDispatcher? = null
+
+    private fun scopeForCall(): CoroutineScope {
+        val override = dispatcherOverride ?: return productionScope
+        return CoroutineScope(override + SupervisorJob())
+    }
 
     @Volatile
     private var activeCommittedText: String? = null
@@ -25,6 +39,15 @@ object AutoLearnSessionManager {
 
     @Volatile
     private var targetPackage: String? = null
+
+    /**
+     * Windows monitor session dedup (monitor.rs sensor stutter seam): a
+     * canonical pair key is counted at most once per observation session;
+     * cursor moves within one session must not inflate frequency. Cleared
+     * whenever a session starts or ends.
+     */
+    private val pairLock = Any()
+    private val sessionPairKeys = HashSet<String>()
 
     fun onStartInput(info: EditorInfo?, context: Context) {
         targetPackage = info?.packageName?.toString()
@@ -45,6 +68,7 @@ object AutoLearnSessionManager {
         }
 
         activeCommittedText = committedText.trim()
+        synchronized(pairLock) { sessionPairKeys.clear() }
         Log.d(TAG, "Started observation session")
     }
 
@@ -63,9 +87,24 @@ object AutoLearnSessionManager {
             return
         }
 
-        scope.launch {
-            val corrections = WordLcsExtractor.extractCorrections(committed, currentTextAroundCursor)
+        scopeForCall().launch {
+            // Known set once per batch (Windows monitor parity), then the
+            // shared decision core replaces the legacy extraction.
+            val known = SuggestionRepository.knownPairKeys(context)
+            val corrections = DecisionCore.extractCorrections(
+                originalText = committed,
+                editedRegion = currentTextAroundCursor,
+                knownPairKeys = known
+            )
             for (candidate in corrections) {
+                // Dedup BEFORE any suspend call: insert into the session
+                // set first, skip the DB when the key already exists.
+                val key = DecisionCore.canonicalPairKey(
+                    candidate.spokenText,
+                    candidate.correctedText
+                )
+                val fresh = synchronized(pairLock) { sessionPairKeys.add(key) }
+                if (!fresh) continue
                 SuggestionRepository.recordCorrectionCandidate(
                     context = context,
                     spokenText = candidate.spokenText,
@@ -82,5 +121,6 @@ object AutoLearnSessionManager {
         }
         targetPackage = null
         isPrivacyAllowed = false
+        synchronized(pairLock) { sessionPairKeys.clear() }
     }
 }
