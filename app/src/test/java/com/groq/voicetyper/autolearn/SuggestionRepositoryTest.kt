@@ -2,6 +2,7 @@ package com.groq.voicetyper.autolearn
 
 import com.groq.voicetyper.autolearn.data.SuggestionDao
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
+import com.groq.voicetyper.autolearn.data.SuggestionStatus
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -71,7 +72,7 @@ class SuggestionRepositoryTest {
     @Test
     fun freshPairUpserts() = runTest {
         coEvery { dao.findByPair("shunade", "Sinead") } returns null
-        coEvery { dao.getPendingForPurge() } returns emptyList()
+        coEvery { dao.getAllRows() } returns emptyList()
 
         val result = SuggestionRepository.recordCandidateResolved(
             dao = dao,
@@ -89,7 +90,7 @@ class SuggestionRepositoryTest {
     @Test
     fun casingVariantFoldsIntoPendingTwinByCanonicalKey() = runTest {
         coEvery { dao.findByPair("shunade", "SineAd") } returns null
-        coEvery { dao.getPendingForPurge() } returns listOf(entry(7, "shunade", "Sinead"))
+        coEvery { dao.getAllRows() } returns listOf(entry(7, "shunade", "Sinead"))
 
         val result = SuggestionRepository.recordCandidateResolved(
             dao = dao,
@@ -101,6 +102,36 @@ class SuggestionRepositoryTest {
 
         assertTrue(result)
         coVerify(exactly = 1) { dao.bumpById(7, 1234L) }
+        coVerify(exactly = 0) { dao.upsertCandidate(any(), any(), any()) }
+    }
+
+    @Test
+    fun casingVariantFoldsIntoDismissedRowWithoutResurrecting() = runTest {
+        // Windows classify_candidate parity: bump ANY existing row without
+        // resetting lifecycle status - a case variant of a purge-demoted
+        // (DISMISSED) pair bumps that row and stays hidden instead of
+        // spawning a fresh PENDING row.
+        coEvery { dao.findByPair("Shunade", "SineAd") } returns null
+        coEvery { dao.getAllRows() } returns listOf(
+            SuggestionEntry(
+                id = 11,
+                spokenText = "shunade",
+                correctedText = "Sinead",
+                frequency = 1,
+                status = SuggestionStatus.DISMISSED
+            )
+        )
+
+        val result = SuggestionRepository.recordCandidateResolved(
+            dao = dao,
+            knownPairKeys = emptySet(),
+            spoken = "Shunade",
+            corrected = "SineAd",
+            now = 1234L
+        )
+
+        assertTrue(result)
+        coVerify(exactly = 1) { dao.bumpById(11, 1234L) }
         coVerify(exactly = 0) { dao.upsertCandidate(any(), any(), any()) }
     }
 

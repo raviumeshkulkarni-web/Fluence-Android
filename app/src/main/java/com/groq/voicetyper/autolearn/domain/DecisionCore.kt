@@ -1,6 +1,7 @@
 package com.groq.voicetyper.autolearn.domain
 
 import java.util.Locale
+import java.util.regex.Pattern
 
 /**
  * A learned spoken -> corrected candidate. Moved here (same package) from
@@ -41,6 +42,11 @@ object DecisionCore {
 
     private fun lowercaseWord(word: String): String = word.lowercase(Locale.ROOT)
 
+    // UNICODE_CHARACTER_CLASS so NBSP and other Unicode whitespace split
+    // like Rust `split_whitespace`; plain "\s+" would leave them glued to
+    // words. Still a JVM approximation of Rust `char::is_whitespace`.
+    private val wordSplit: Pattern = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS)
+
     /**
      * Canonical pair identity (Windows `dictionary::canonical_entry_key`).
      * Trimmed, lowercased, NUL joined so the DB's exact-match unique index
@@ -76,7 +82,7 @@ object DecisionCore {
      * (`[^\p{L}\p{N}_]` per edge, matching Windows `tokenize`).
      */
     fun tokenize(text: String): List<String> {
-        return text.split(("\\s+").toRegex())
+        return wordSplit.split(text)
             .map { w -> w.trimEdges() }
             .filter { w -> w.isNotEmpty() }
     }

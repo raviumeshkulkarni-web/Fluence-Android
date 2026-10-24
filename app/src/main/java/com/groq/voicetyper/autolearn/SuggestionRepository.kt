@@ -7,6 +7,7 @@ import com.groq.voicetyper.autolearn.data.SuggestionEntry
 import com.groq.voicetyper.autolearn.domain.DecisionCore
 import com.groq.voicetyper.dictionary.DictionaryRepository
 import com.groq.voicetyper.history.FluenceDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 object SuggestionRepository {
@@ -41,19 +42,26 @@ object SuggestionRepository {
             DictionaryRepository.getAllEnabledSync(context)
                 .map { DecisionCore.canonicalPairKey(it.spokenText, it.replacementText) }
                 .toSet()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "known set unavailable, proceeding without known-skip", e)
             emptySet()
         }
     }
 
-    suspend fun recordCorrectionCandidate(context: Context, spokenText: String, correctedText: String) {
+    suspend fun recordCorrectionCandidate(
+        context: Context,
+        spokenText: String,
+        correctedText: String,
+        knownPairKeys: Set<String>? = null
+    ) {
         val spoken = spokenText.trim()
         val corrected = correctedText.trim()
         if (spoken.isEmpty() || corrected.isEmpty()) return
 
         val dao = getDao(context)
-        val known = knownPairKeys(context)
+        val known = knownPairKeys ?: knownPairKeys(context)
         recordCandidateResolved(dao, known, spoken, corrected, System.currentTimeMillis())
     }
 
@@ -73,17 +81,18 @@ object SuggestionRepository {
             return false
         }
 
-        // Canonical merge (Windows monitor dedup + pair-key store): Android
-        // stays on the exact-case unique index, so a casing variant of an
-        // already-observed pending row folds into that row by id instead of
-        // spawning a twin at frequency 1.
+        // Canonical merge (Windows classify_candidate parity: bump ANY
+        // existing row without resetting its lifecycle status - a dismissed
+        // stays dismissed, a pending keeps rising): Android stays on the
+        // exact-case unique index, so a canonical twin folds into that row
+        // by id instead of spawning a variant twin.
         val exact = dao.findByPair(spoken, corrected)
         if (exact != null) {
             dao.bumpById(exact.id, now)
             return true
         }
         val canonicalKey = DecisionCore.canonicalPairKey(spoken, corrected)
-        val twin = dao.getPendingForPurge()
+        val twin = dao.getAllRows()
             .firstOrNull {
                 DecisionCore.canonicalPairKey(it.spokenText, it.correctedText) == canonicalKey
             }

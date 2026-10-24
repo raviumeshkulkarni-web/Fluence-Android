@@ -51,6 +51,12 @@ residuals like `cool -> Good` (0.5) stay observable.
 
 - `MAX_TEXT_CHARS = 10_000`, `MAX_WORDS = 1_000` caps reused from the
   legacy extractor; Windows applies no caps at this layer.
+- Tokenizer splitting compiles `\s+` with
+  `Pattern.UNICODE_CHARACTER_CLASS` (closest JVM approximation of Rust
+  `split_whitespace`, so NBSP splits); edge stripping uses
+  `Character.isLetterOrDigit` as the approximation of Rust
+  `is_alphanumeric`, and lengths count UTF-16 units where Rust counts
+  Unicode chars. Documented BMP assumption for this app's text.
 - `getPendingSuggestions` filters `frequency >= 2`
   (`MIN_OBSERVATIONS_TO_SURFACE = 2` parity); upsert conflict bumps
   frequency and keeps the lifecycle status (never resurrects dismissed).
@@ -65,8 +71,17 @@ residuals like `cool -> Good` (0.5) stay observable.
 
 ## Test fixtures
 
-`DecisionCoreTest` mirrors the Windows `decision_core.rs` test suite 1:1
-(gate fixtures, rewrite vetoes, RC-1 boundary-pair shape, quoted-token
-behavior). `AutoLearnSessionManagerTest` covers the session dedup seam;
-`SuggestionRepositoryTest` covers the scheduler-free DAO cores. The SQL
-semantics of the Room queries are exercised on-device compile + runtime.
+`DecisionCoreTest` transliterates the portable Windows `decision_core.rs`
+fixtures (tokenize, gates incl. the do/add known-gate ordering proof,
+rewrite vetoes, RC-1 boundary-pair shape, quoted-token behavior,
+pair-level dedup) plus Android-only cap fixtures.
+`AutoLearnSessionManagerTest` covers the session dedup seam and the
+stale-job generation seam; `SuggestionRepositoryTest` covers the
+scheduler-free DAO cores with a mocked DAO (this repo's injectable-seam
+convention, same as `DictionaryRepository.saveEntryResolved` tests).
+
+Room SQL semantics: the `@Query` strings are validated by the Room/KAPT
+compiler at build time. Runtime SQL behavior is exercised through the
+seam tests against mocked DAOs and through release QA on-device; this
+repository has no instrumentation test suite, so no in-memory Room test
+lives here yet.

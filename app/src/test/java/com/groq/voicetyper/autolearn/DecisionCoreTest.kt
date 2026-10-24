@@ -42,6 +42,29 @@ class DecisionCoreTest {
         assertTrue(DecisionCore.tokenize("   \t  ").isEmpty())
     }
 
+    @Test
+    fun tokenizeStripsPunctuation() {
+        assertEquals(
+            listOf("hello", "world", "test"),
+            DecisionCore.tokenize("hello, world! test.")
+        )
+    }
+
+    @Test
+    fun tokenizeKeepsInnerPunctuationAndNumbers() {
+        // Edge punctuation is stripped; inner content including letters AND
+        // numbers survives (JS \p{L}\p{N}_ class).
+        assertEquals(listOf("CS50", "it's", "ok"), DecisionCore.tokenize("CS50, it's ok"))
+    }
+
+    @Test
+    fun tokenizeUnicodeLettersAndNumbers() {
+        assertEquals(
+            listOf("извините", "пожалуйста"),
+            DecisionCore.tokenize("извините, пожалуйста")
+        )
+    }
+
     // -- editDistance ------------------------------------------------------
 
     @Test
@@ -319,6 +342,21 @@ class DecisionCoreTest {
         // Case-only edit inside the anchored span: lowercase-identical
         // gates reject the pair -> nothing to learn (OQ-5).
         assertTrue(extract("hello world", "Hello World").isEmpty())
+    }
+
+    @Test
+    fun extractSkipsOverMaxTextChars() {
+        // Android-only operational cap (Windows applies none at this layer);
+        // preserved from the legacy extractor so caps live with the gates.
+        val longText = "good word ".repeat(2500) // 12_500 chars
+        assertTrue(extract(longText.trim(), longText.trim() + " tail").isEmpty())
+    }
+
+    @Test
+    fun extractSkipsOverMaxWords() {
+        // Android-only operational cap (Windows applies none at this layer).
+        val many = (1..1500).joinToString(" ") { "a$it" }
+        assertTrue(extract(many, many + " z").isEmpty())
     }
 
     // -- canonicalPairKey --------------------------------------------------

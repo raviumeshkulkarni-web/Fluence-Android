@@ -5,7 +5,9 @@ import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 import io.mockk.*
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.After
 import org.junit.Before
@@ -34,15 +36,17 @@ class AutoLearnSessionManagerTest {
         unmockkAll()
     }
 
-    private fun stubLivePath() {
+    private fun stubLivePath(
+        dispatcher: CoroutineDispatcher = UnconfinedTestDispatcher()
+    ) {
         mockkObject(com.groq.voicetyper.PrivacyPreferences)
         every {
             com.groq.voicetyper.PrivacyPreferences.isPackageExcluded(any(), any())
         } returns false
         mockkObject(SuggestionRepository)
         coEvery { SuggestionRepository.knownPairKeys(any()) } returns emptySet()
-        coJustRun { SuggestionRepository.recordCorrectionCandidate(any(), any(), any()) }
-        AutoLearnSessionManager.dispatcherOverride = UnconfinedTestDispatcher()
+        coJustRun { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+        AutoLearnSessionManager.dispatcherOverride = dispatcher
     }
 
     @Test
@@ -96,10 +100,10 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.onTextUpdated("I went to the SINEAD", context) // case variant folds canonically
 
         coVerify(exactly = 1) {
-            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead")
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
         coVerify(exactly = 0) {
-            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "SINEAD")
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "SINEAD", any())
         }
     }
 
@@ -117,7 +121,7 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
 
         coVerify(exactly = 2) {
-            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead")
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
     }
 
@@ -127,6 +131,34 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.startSession("stuck agent release", context)
         AutoLearnSessionManager.onTextUpdated("add tabs agent stuck release plan", context)
 
-        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any()) }
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun staleJobFromPriorSessionAbortsInNewSession() {
+        // Windows monitor parity: a batch job launched before a session
+        // flip must not write after endSession or pollute the next
+        // session's dedup set (generation-token revalidation).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher)
+
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context) // queued, not run
+        AutoLearnSessionManager.endSession()
+        AutoLearnSessionManager.onStartInput(editorInfo, context) // privacy re-granted
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        testDispatcher.scheduler.advanceUntilIdle() // stale job runs: generation mismatch -> abort
+
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+
+        // The new session forms its own valid observation -> exactly once.
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
     }
 }

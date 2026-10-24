@@ -44,10 +44,22 @@ object AutoLearnSessionManager {
      * Windows monitor session dedup (monitor.rs sensor stutter seam): a
      * canonical pair key is counted at most once per observation session;
      * cursor moves within one session must not inflate frequency. Cleared
-     * whenever a session starts or ends.
+     * whenever a session starts or ends. [sessionGeneration] bumps on every
+     * such clear so in-flight batch jobs from a previous session abort
+     * instead of writing after endSession or polluting the next
+     * session's key set.
      */
     private val pairLock = Any()
     private val sessionPairKeys = HashSet<String>()
+    private var sessionGeneration: Long = 0
+
+    private fun generation(): Long = synchronized(pairLock) { sessionGeneration }
+    private fun resetSessionStateLocked() {
+        synchronized(pairLock) {
+            sessionPairKeys.clear()
+            sessionGeneration += 1
+        }
+    }
 
     fun onStartInput(info: EditorInfo?, context: Context) {
         targetPackage = info?.packageName?.toString()
@@ -68,7 +80,7 @@ object AutoLearnSessionManager {
         }
 
         activeCommittedText = committedText.trim()
-        synchronized(pairLock) { sessionPairKeys.clear() }
+        resetSessionStateLocked()
         Log.d(TAG, "Started observation session")
     }
 
@@ -87,6 +99,7 @@ object AutoLearnSessionManager {
             return
         }
 
+        val gen = generation()
         scopeForCall().launch {
             // Known set once per batch (Windows monitor parity), then the
             // shared decision core replaces the legacy extraction.
@@ -97,6 +110,10 @@ object AutoLearnSessionManager {
                 knownPairKeys = known
             )
             for (candidate in corrections) {
+                // Session validity re-check after every suspension point:
+                // a job launched in a previous session must not add keys
+                // to the new session's set or record after endSession.
+                if (generation() != gen || !isPrivacyAllowed) return@launch
                 // Dedup BEFORE any suspend call: insert into the session
                 // set first, skip the DB when the key already exists.
                 val key = DecisionCore.canonicalPairKey(
@@ -107,6 +124,7 @@ object AutoLearnSessionManager {
                 if (!fresh) continue
                 SuggestionRepository.recordCorrectionCandidate(
                     context = context,
+                    knownPairKeys = known,
                     spokenText = candidate.spokenText,
                     correctedText = candidate.correctedText
                 )
@@ -121,6 +139,6 @@ object AutoLearnSessionManager {
         }
         targetPackage = null
         isPrivacyAllowed = false
-        synchronized(pairLock) { sessionPairKeys.clear() }
+        resetSessionStateLocked()
     }
 }

@@ -15,6 +15,9 @@ interface SuggestionDao {
     @Query("SELECT * FROM suggestion_history WHERE status = 'PENDING'")
     suspend fun getPendingForPurge(): List<SuggestionEntry>
 
+    @Query("SELECT * FROM suggestion_history")
+    suspend fun getAllRows(): List<SuggestionEntry>
+
     @Query("UPDATE suggestion_history SET status = 'DISMISSED' WHERE id = :id AND status = 'PENDING'")
     suspend fun demotePending(id: Long): Int
 
