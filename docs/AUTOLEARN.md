@@ -20,7 +20,8 @@ previously described nowhere.
 | Rewrite guards (LCS coverage voted + >50% subs) | `decision_core.rs::extract_corrections` | `DecisionCore.extractCorrections` |
 | Canonical pair identity | `dictionary.rs::canonical_entry_key` | `DecisionCore.canonicalPairKey` |
 | Session dedup (one observation per canonical pair per session) | `auto_learn/monitor.rs` | `AutoLearnSessionManager.sessionPairKeys` |
-| Humans review passing rows | MySQL "Suggestions" table | Room `suggestion_history` (`PENDING`, accepted/dismissed removed) |
+| Settle gate + exit final diff | monitor.rs `SETTLED_POLLS` + final diff | `AutoLearnSessionManager` settle timer + `endSession` flush |
+| Pending suggestions for human review | `suggestion.rs` (local JSON store; `dismiss_suggestion` keeps the row as Dismissed "deny memory"; `accept_suggestion` marks it Accepted for analytics/undo) | Room `suggestion_history` surfaced by `SuggestionRepository` (`PENDING` rows only; dismiss demotes to a sticky `DISMISSED`; accept promotes the pair to the dictionary and removes the row) |
 | Stale-pending purge (re-judge all pending, demote) | `suggestion.rs::purge_invalid_suggestions` | `SuggestionRepository.purgeInvalidPendingResolved` |
 
 ## Surface-at-rest gate
@@ -61,7 +62,19 @@ residuals like `cool -> Good` (0.5) stay observable.
   (`MIN_OBSERVATIONS_TO_SURFACE = 2` parity); upsert conflict bumps
   frequency and keeps the lifecycle status (never resurrects dismissed).
 - Stale rows are demoted (`status = 'DISMISSED'`) not deleted, so
-  regression analysis survives; user Dismiss still deletes them.
+  regression analysis survives; user Dismiss demotes too (deny-memory
+  parity with `dismiss_suggestion`, suggestion.rs:635-650) so the pair
+  cannot resurface as pending later. Accepted rows are removed after
+  the dictionary promotion because the known-gate makes re-capture
+  impossible.
+- Settle gate (monitor.rs `SETTLED_POLLS` parity, event-model
+  translation): classification runs only after the text stopped
+  changing for 2 x 250 ms; a regular session close with un-settled
+  observed input runs Windows' final diff (FocusChanged/Timeout
+  parity), while privacy/security exits skip it (SecureField/
+  ReadOnly parity); the flush dedups against the closed session's
+  recorded pairs (monitor.rs:526-529) and is detached from the next
+  session's dedup set.
 - Purge runs on application start AND on DictionaryScreen open; both on
   Dispatchers.IO and fail-open (sweep errors log + continue).
 - Accept requires a per-row confirm dialog; the exact Windows copy is
@@ -75,13 +88,14 @@ residuals like `cool -> Good` (0.5) stay observable.
 fixtures (tokenize, gates incl. the do/add known-gate ordering proof,
 rewrite vetoes, RC-1 boundary-pair shape, quoted-token behavior,
 pair-level dedup) plus Android-only cap fixtures.
-`AutoLearnSessionManagerTest` covers the session dedup seam and the
-stale-job generation seam; `SuggestionRepositoryTest` covers the
+`AutoLearnSessionManagerTest` covers the session dedup seam, the
+settle-gate burst collapse, the exit-diff flush, the privacy-revocation
+suppression and the fail-open recording seams; `SuggestionRepositoryTest` covers the
 scheduler-free DAO cores with a mocked DAO (this repo's injectable-seam
 convention, same as `DictionaryRepository.saveEntryResolved` tests).
 
-Room SQL semantics: the `@Query` strings are validated by the Room/KAPT
-compiler at build time. Runtime SQL behavior is exercised through the
-seam tests against mocked DAOs and through release QA on-device; this
-repository has no instrumentation test suite, so no in-memory Room test
-lives here yet.
+Room SQL semantics: the `@Query` strings are compile-validated by the
+Room/KAPT compiler only. The seam tests use mocked DAOs, so they never
+execute SQL; runtime SQL behavior is verified manually via release QA
+on-device alone. This repository has no instrumentation test suite, so
+no in-memory Room test lives here yet.
