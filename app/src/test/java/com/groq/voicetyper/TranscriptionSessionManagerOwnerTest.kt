@@ -53,6 +53,7 @@ class TranscriptionSessionManagerOwnerTest {
         val pipeline = mockk<OfflineTranscriptionPipeline>(relaxed = true)
         every { pipeline.amplitude } returns MutableStateFlow(0f)
         every { pipeline.engineState } returns MutableStateFlow(OfflineTranscriber.EngineState.READY)
+        every { pipeline.modelError } returns MutableStateFlow(null)
         every { pipeline.onTextTranscribed = any() } just Runs
         every { pipeline.start(any()) } just Runs
         coEvery { pipeline.forceRelease() } returns Unit
