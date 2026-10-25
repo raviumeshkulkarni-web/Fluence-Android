@@ -104,6 +104,19 @@ object AutoLearnSessionManager {
 
     private fun settleDelayMs(): Long = settleDelayOverride ?: SETTLE_DELAY_MS
 
+    /**
+     * Settle-epoch revalidation (review round 4): the dictionary lookup and
+     * extraction between the arm and the write are not interruption points,
+     * so when a newer keystroke cancels this arm it also bumps the epoch;
+     * a stale in-flight observation aborts here instead of recording an
+     * intermediate candidate the settle gate already threw away.
+     * [armedEpoch] is null for contexts outside the settle gate.
+     */
+    private fun isStillArmed(armedEpoch: Long?): Boolean {
+        val expected = armedEpoch ?: return true
+        return synchronized(settleLock) { settleEpoch == expected }
+    }
+
     private fun resetSessionStateLocked() {
         synchronized(pairLock) {
             sessionPairKeys.clear()
@@ -159,7 +172,22 @@ object AutoLearnSessionManager {
         }
 
         val committed = activeCommittedText ?: return
-        if (!isPrivacyAllowed || currentTextAroundCursor.isBlank()) return
+        if (!isPrivacyAllowed) return
+        if (currentTextAroundCursor.isBlank()) {
+            // Windows NoValue parity (monitor.rs:466-478): an empty field is
+            // never classified. Cancel the armed observation so a close
+            // after clearing cannot flush it as the final diff
+            // (monitor.rs:523-528 trusts only a readable last state).
+            synchronized(settleLock) {
+                if (settlePendingText != null) {
+                    settleEpoch += 1
+                    settleJob?.cancel()
+                    settleJob = null
+                    settlePendingText = null
+                }
+            }
+            return
+        }
 
         if (committed.length > MAX_FIELD_CHARS || currentTextAroundCursor.length > MAX_FIELD_CHARS) {
             endSession()
@@ -207,7 +235,7 @@ object AutoLearnSessionManager {
                 knownPairKeys = known
             )
             for (candidate in corrections) {
-                if (!recordCandidate(context, gen, known, candidate)) return
+                if (!recordCandidate(context, gen, known, candidate, armedEpoch)) return
             }
             // Windows monitor.rs:462: the classified value becomes the new
             // extraction baseline even when nothing was saved, so the exit
@@ -236,23 +264,31 @@ object AutoLearnSessionManager {
         context: Context,
         gen: Long,
         known: Set<String>,
-        candidate: CorrectionCandidate
+        candidate: CorrectionCandidate,
+        armedEpoch: Long?
     ): Boolean {
         if (generation() != gen || !isPrivacyAllowed) return false
+        // A newer arm superseded this observation while the lookup or
+        // extraction ran (review round 4) - don't record it.
+        if (!isStillArmed(armedEpoch)) return false
 
         val key = DecisionCore.canonicalPairKey(candidate.spokenText, candidate.correctedText)
         // Dedup atomically WITH the validity re-check (review round 2,
         // must-fix 1): the insert and the generation check share the lock so
         // an endSession racing in between cannot add a stale key to the
-        // freshly cleared next-session set, and no write can be recorded
-        // after the flip.
+        // freshly cleared next-session set. Residual window (review round 4):
+        // after the rechecks below, the suspending DB write begins on this
+        // coroutine; a privacy flip landing inside that step is tolerated -
+        // [endSession] cancels this scope so the write aborts at its next
+        // suspension point, and the generation checks prevent any
+        // cross-session carry-over.
         val fresh: Boolean = synchronized(pairLock) {
             if (sessionGeneration != gen || !isPrivacyAllowed) null
             else sessionPairKeys.add(key)
         } ?: return false
         if (!fresh) return true
         // Last cheap rejection before the (suspending) DB write.
-        if (generation() != gen || !isPrivacyAllowed) return false
+        if (generation() != gen || !isPrivacyAllowed || !isStillArmed(armedEpoch)) return false
 
         try {
             SuggestionRepository.recordCorrectionCandidate(

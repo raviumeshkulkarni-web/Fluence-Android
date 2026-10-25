@@ -178,11 +178,18 @@ class AutoLearnSessionManagerTest {
             packageName = "com.example.excluded"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
         }
+        // One-shot poison (review round 4: a persistent stub leaked into the
+        // second phase and killed the fresh session there instead). Only the
+        // first lookup of phase 1 revokes privacy.
+        var poisoned = false
         coEvery { SuggestionRepository.knownPairKeys(any()) } coAnswers {
-            every {
-                com.groq.voicetyper.PrivacyPreferences.isPackageExcluded(any(), "com.example.excluded")
-            } returns true
-            AutoLearnSessionManager.onStartInput(excludedInfo, context)
+            if (!poisoned) {
+                poisoned = true
+                every {
+                    com.groq.voicetyper.PrivacyPreferences.isPackageExcluded(any(), "com.example.excluded")
+                } returns true
+                AutoLearnSessionManager.onStartInput(excludedInfo, context)
+            }
             emptySet<String>()
         }
 
@@ -284,6 +291,59 @@ class AutoLearnSessionManagerTest {
 
         coVerify(exactly = 0) {
             SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun blankFieldUpdateCancelsPendingArm() {
+        // Windows NoValue parity (monitor.rs:466-478): an empty field is
+        // never classified - clearing the field cancels the armed
+        // observation so the close cannot flush it as a final diff
+        // (monitor.rs:523-528 trusts only a readable last state).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
+        AutoLearnSessionManager.onTextUpdated("", context)
+        AutoLearnSessionManager.endSession()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun staleObservationAfterDeferredLookupAbortsRecording() {
+        // Review round 4: the dictionary lookup and extraction are not
+        // interruption points, so a newer keystroke (which cancels this arm
+        // and bumps the settle epoch) must abort the stale observation at
+        // its next guard - the intermediate never reaches the repository.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher)
+        var firstLookup = true
+        coEvery { SuggestionRepository.knownPairKeys(any()) } coAnswers {
+            if (firstLookup) {
+                firstLookup = false
+                // Keystroke lands while the lookup is in flight: this arm is
+                // cancelled and a newer one armed; the in-flight work continues.
+                AutoLearnSessionManager.onTextUpdated("I went to the Sineaddx", context)
+                emptySet<String>()
+            } else {
+                emptySet<String>()
+            }
+        }
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // The stale observation ("Sinead") aborted; only the newer arm
+        // ("Sineaddx", a distinct canonical pair) recorded - once.
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sineaddx", any())
         }
     }
 }

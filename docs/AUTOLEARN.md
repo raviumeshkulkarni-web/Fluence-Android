@@ -74,7 +74,14 @@ residuals like `cool -> Good` (0.5) stay observable.
   parity), while privacy/security exits skip it (SecureField/
   ReadOnly parity); the flush dedups against the closed session's
   recorded pairs (monitor.rs:526-529) and is detached from the next
-  session's dedup set.
+  session's dedup set. An empty read cancels the armed observation
+  (NoValue parity, monitor.rs:466-478) so a close right after a field
+  clear flushes nothing, and the settle epoch is revalidated after
+  the dictionary lookup and extraction (which are not interruption
+  points) so a newer keystroke's arm is never recorded stale.
+- Finding deferred by owner decision: the canonical fold is not a
+  single transaction (exact lookup + twin lookup + upsert); at this
+  table size the rare concurrent-twin race is accepted.
 - Purge runs on application start AND on DictionaryScreen open; both on
   Dispatchers.IO and fail-open (sweep errors log + continue).
 - Accept requires a per-row confirm dialog; the exact Windows copy is
@@ -90,7 +97,8 @@ rewrite vetoes, RC-1 boundary-pair shape, quoted-token behavior,
 pair-level dedup) plus Android-only cap fixtures.
 `AutoLearnSessionManagerTest` covers the session dedup seam, the
 settle-gate burst collapse, the exit-diff flush, the privacy-revocation
-suppression and the fail-open recording seams; `SuggestionRepositoryTest` covers the
+suppression, the blank-field pending cancel, the stale-extraction epoch
+abort and the fail-open recording seams; `SuggestionRepositoryTest` covers the
 scheduler-free DAO cores with a mocked DAO (this repo's injectable-seam
 convention, same as `DictionaryRepository.saveEntryResolved` tests).
 
