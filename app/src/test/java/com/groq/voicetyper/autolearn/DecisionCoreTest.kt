@@ -65,6 +65,16 @@ class DecisionCoreTest {
         )
     }
 
+    @Test
+    fun tokenizeSplitsOnNonBreakingSpace() {
+        // UNICODE_CHARACTER_CLASS keeps whitespace semantics in parity with
+        // the Windows \s over Unicode spaces (review round 2 follow-up).
+        assertEquals(
+            listOf("hello", "world"),
+            DecisionCore.tokenize("hello\u00A0world")
+        )
+    }
+
     // -- editDistance ------------------------------------------------------
 
     @Test
