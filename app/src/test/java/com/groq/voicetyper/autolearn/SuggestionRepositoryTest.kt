@@ -15,8 +15,10 @@ import org.junit.Test
 /**
  * JVM tests for the SuggestionRepository scheduler-free cores
  * (injectable-DAO seam convention, mirroring DictionaryRepository's
- * `saveEntryResolved` tests). SQL semantics of the Room queries themselves
- * are validated at build time by Room and exercised on-device.
+ * `saveEntryResolved` tests). Mocked-DAO tests validate the Kotlin decision
+ * logic only; the Room @Query SQL is compile-validated by the Room/KAPT
+ * compiler and verified manually via release QA — no automated on-device
+ * suite exists in this repo.
  */
 class SuggestionRepositoryTest {
 
@@ -224,5 +226,40 @@ class SuggestionRepositoryTest {
 
         assertEquals(0, demoted)
         coVerify(exactly = 0) { dao.demotePending(any()) }
+    }
+
+    // -- dismissSuggestionResolved ----------------------------------------
+
+    @Test
+    fun dismissDemotesInsteadOfDeleting() = runTest {
+        // Windows dismiss_suggestion parity: the row stays behind with
+        // DISMISSED status (deny memory) so the pair can never resurface
+        // as pending later.
+        coEvery { dao.demotePending(42) } returns 1
+
+        val demoted = SuggestionRepository.dismissSuggestionResolved(
+            dao,
+            entry(42, "shunade", "Sinead")
+        )
+
+        assertEquals(1, demoted)
+        coVerify(exactly = 1) { dao.demotePending(42) }
+        coVerify(exactly = 0) { dao.delete(any()) }
+        coVerify(exactly = 0) { dao.deleteById(any()) }
+    }
+
+    @Test
+    fun dismissOnNonPendingRowIsNoOp() = runTest {
+        // demotePending() is status-guarded, mirroring the Windows
+        // Pending-only lookup: dismissing twice dismisses once.
+        coEvery { dao.demotePending(5) } returns 0
+
+        val demoted = SuggestionRepository.dismissSuggestionResolved(
+            dao,
+            entry(5, "shunade", "Sinead")
+        )
+
+        assertEquals(0, demoted)
+        coVerify(exactly = 0) { dao.delete(any()) }
     }
 }

@@ -153,7 +153,24 @@ object SuggestionRepository {
     }
 
     suspend fun dismissSuggestion(context: Context, suggestion: SuggestionEntry) {
-        getDao(context).delete(suggestion)
+        dismissSuggestionResolved(getDao(context), suggestion)
+    }
+
+    /**
+     * Scheduler-free core of [dismissSuggestion] (injectable-DAO seam).
+     * Windows `dismiss_suggestion` parity (suggestion.rs:635-650): a
+     * dismissal is "deny memory" — the row stays behind with DISMISSED
+     * status (hidden from the pending list, sticky under future bumps) so
+     * the pair can never resurface as pending later; deleting the row
+     * would forget the denial entirely. [SuggestionDao.demotePending] is
+     * status-guarded on PENDING, mirroring the Windows Pending-only
+     * lookup: dismissing a non-pending row is a no-op both sides.
+     */
+    internal suspend fun dismissSuggestionResolved(
+        dao: SuggestionDao,
+        suggestion: SuggestionEntry
+    ): Int {
+        return dao.demotePending(suggestion.id)
     }
 
     suspend fun clearAll(context: Context) {
