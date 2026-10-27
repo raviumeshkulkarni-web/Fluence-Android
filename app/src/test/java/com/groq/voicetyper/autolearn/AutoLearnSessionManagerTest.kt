@@ -462,7 +462,9 @@ class AutoLearnSessionManagerTest {
         coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
 
         // The bubble session itself observes and records.
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
@@ -477,11 +479,14 @@ class AutoLearnSessionManagerTest {
         val testDispatcher = StandardTestDispatcher()
         stubLivePath(testDispatcher, settleDelay = 500L)
         assertTrue(bubbleArm())
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead now",
             context,
-            bubbleSnapshot.copy(isPassword = true)
+            bubbleSnapshot.copy(isPassword = true),
+            origin = AutoLearnSurface.BUBBLE
         )
         AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -497,11 +502,14 @@ class AutoLearnSessionManagerTest {
         val testDispatcher = StandardTestDispatcher()
         stubLivePath(testDispatcher, settleDelay = 500L)
         assertTrue(bubbleArm())
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead again",
             context,
-            bubbleSnapshot.copy(packageName = "com.example.other")
+            bubbleSnapshot.copy(packageName = "com.example.other"),
+            origin = AutoLearnSurface.BUBBLE
         )
         AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -513,20 +521,29 @@ class AutoLearnSessionManagerTest {
         // Review finding: AOSP `doFinishInput()` finishes views BEFORE the
         // next target starts, so the IME cannot know the next field's
         // security posture - a regular IME-origin close must not exit-flush
-        // a bubble-armed session. The bubble's own authoritative close
-        // still flushes (FocusChanged/Timeout parity).
+        // a bubble-armed session. Review fix 12 goes further: the foreign
+        // close does not even tear the session down. The bubble's own
+        // authoritative close still flushes (FocusChanged/Timeout parity).
         val testDispatcher = StandardTestDispatcher()
         stubLivePath(testDispatcher, settleDelay = 500L)
         assertTrue(bubbleArm())
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
-        AutoLearnSessionManager.endSession() // IME-origin close
-        testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endSession() // IME-origin close: no flush, no teardown (review fix 12)
 
+        // The session stays alive under the skipped foreign close, so
+        // supersede it BEFORE virtual time runs - the new session's begin
+        // drops the old pending diff (Windows Superseded parity).
         assertTrue(bubbleArm(injected = "I definately love this", confirmed = "I definately love this"))
-        AutoLearnSessionManager.onTextUpdated("I definitely love this", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I definitely love this", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
         testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
         coVerify(exactly = 1) {
             SuggestionRepository.recordCorrectionCandidate(any(), "definately", "definitely", any())
         }
@@ -536,22 +553,29 @@ class AutoLearnSessionManagerTest {
     fun bubbleSessionTimeoutFlushesFinalDiffOnlyForActiveSession() {
         // Windows timeout parity (monitor.rs:371-376): the timeout is the
         // session's own regular close (final diff runs), and only the
-        // ACTIVE session's timer can fire - an early close disposes the
-        // scope and with it the timer.
+        // ACTIVE session's timer can fire - an early OWN close disposes the
+        // scope and with it the timer, while a foreign close is skipped
+        // entirely (review fix 12).
         val testDispatcher = StandardTestDispatcher()
         stubLivePath(testDispatcher, settleDelay = 500L)
         AutoLearnSessionManager.timeoutDelayOverride = 100L
         assertTrue(bubbleArm())
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
-        AutoLearnSessionManager.endSession() // early IME-origin close, no flush
-        testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endSession() // foreign IME-origin close: skipped (no flush, no teardown)
 
-        // A fresh bubble session then runs out its own timer and
-        // classifies the un-settled edit once.
+        // The supersede drops the still-live session's pending diff BEFORE
+        // virtual time runs; the fresh session then runs out its own timer
+        // and classifies the un-settled edit once (timeout = own close).
         assertTrue(bubbleArm(injected = "I definately love this", confirmed = "I definately love this"))
-        AutoLearnSessionManager.onTextUpdated("I definitely love this", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I definitely love this", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
         coVerify(exactly = 1) {
             SuggestionRepository.recordCorrectionCandidate(any(), "definately", "definitely", any())
         }
@@ -575,12 +599,14 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.onTextUpdated(
             "TODO: send invoice to shunade tomorrow. NOTE: buy milk",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         AutoLearnSessionManager.onTextUpdated(
             "TODO: send invoice to Sinead tomorrow. NOTE: buy milk",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -605,12 +631,79 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.onTextUpdated(
             "Report for the Sinead project",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
+    }
+
+    @Test
+    fun foreignSurfaceRegularCloseLeavesBubbleSessionForItsOwnFlush() {
+        // Review fix 12, positive form: the skipped foreign close neither
+        // flushes nor kills the session - the pending diff remains, and the
+        // surface's OWN close still classifies it (Windows closes the
+        // session whose field it observed, never another one).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endSession() // foreign (IME) regular close: skipped
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE) // its own close
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
+
+    @Test
+    fun crossSurfaceObservationFeedDoesNotTouchBubbleSettleState() {
+        // Review fix 17: foreign-surface observation churn (an IME
+        // selection update while a bubble session runs) neither arms nor
+        // cancels nor classifies the other surface's pending region.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, origin = AutoLearnSurface.IME)
+        testDispatcher.scheduler.advanceTimeBy(501)
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+
+        // The bubble-origin feed still flows on the same session.
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
+
+    @Test
+    fun hostWindowDriftRevokesBubbleSessionWithoutFlush() {
+        // Review fix 19: a same-surface anchor event from another window id
+        // is positive evidence the anchored surface moved - security-
+        // equivalent revoke, pending diff never flushed.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm()) // armed with windowId 42
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead again",
+            context,
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE,
+            windowId = 99L
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
     }
 }

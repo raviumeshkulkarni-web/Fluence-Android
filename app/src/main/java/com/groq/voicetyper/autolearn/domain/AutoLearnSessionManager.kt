@@ -170,15 +170,19 @@ object AutoLearnSessionManager {
 
         if (!isPrivacyAllowed) {
             // Security-equivalent exit (Windows SecureFieldDetected /
-            // ReadOnlyField parity): the session ends with the privacy gate
-            // down, so [endSession] skips the exit diff.
-            endSession()
+            // ReadOnlyField parity): the close runs with the privacy gate
+            // down, so the exit diff is skipped. Origin-agnostic teardown:
+            // privacy evidence kills a session no matter which surface
+            // armed it (a plain IME-origin regular close no longer may -
+            // review fix 12).
+            revokeAndEndForSecureField()
         }
     }
 
     fun startSession(committedText: String, context: Context) {
         if (!isPrivacyAllowed || committedText.isBlank()) {
-            endSession()
+            // Origin-agnostic privacy exit (same rationale as onStartInput).
+            revokeAndEndForSecureField()
             return
         }
         beginSession(AutoLearnSurface.IME, baseline = committedText.trim(), windowId = null, sessionPackage = null, context)
@@ -298,7 +302,9 @@ object AutoLearnSessionManager {
     fun onTextUpdated(
         currentTextAroundCursor: String,
         context: Context,
-        field: AutoLearnFieldSnapshot? = null
+        field: AutoLearnFieldSnapshot? = null,
+        origin: AutoLearnSurface = AutoLearnSurface.IME,
+        windowId: Long? = null
     ) {
         // Windows SecureFieldDetected per-read parity (monitor.rs:502-505):
         // every observed read carries the current field identity and
@@ -317,22 +323,35 @@ object AutoLearnSessionManager {
             if (field.isPassword == true || field.isNullInputType == true ||
                 field.noPersonalizedLearning == true || packageMismatch || packageExcluded
             ) {
-                // Revoke FIRST so the close below is a security-equivalent
-                // exit and the final-diff flush stays suppressed.
-                isPrivacyAllowed = false
-                endSession()
+                // Revoke first: security exits are origin-agnostic (any
+                // surface's positive evidence kills any surface's session).
+                revokeAndEndForSecureField()
                 return
             }
         }
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
-            // Revoke FIRST so the close below is a security-equivalent exit
-            // and the final-diff flush stays suppressed.
-            isPrivacyAllowed = false
-            endSession()
+            // Revoke first: security exits are origin-agnostic (see above).
+            revokeAndEndForSecureField()
             return
         }
 
         val committed = activeCommittedText ?: return
+        // Cross-surface feed guard (review fix 17): each surface only
+        // arms/cancels/classifies its OWN session's pending region -
+        // foreign observation churn (an IME selection update while a bubble
+        // session runs, or vice versa) must never touch the other surface's
+        // settle state. The security preamble above deliberately ran
+        // origin-agnostically.
+        if (sessionOrigin != origin) return
+        // Host-window witness (review fix 19): a same-surface anchor event
+        // from a different window id is positive evidence the anchored
+        // surface moved (window recreation, re-anchoring) - security-
+        // equivalent revoke, never a flush.
+        val sessionWindow = sessionWindowId
+        if (windowId != null && sessionWindow != null && windowId != sessionWindow) {
+            revokeAndEndForSecureField()
+            return
+        }
         if (!isPrivacyAllowed) return
         if (currentTextAroundCursor.isBlank()) {
             // Windows NoValue parity (monitor.rs:466-478): an empty field is
@@ -351,7 +370,11 @@ object AutoLearnSessionManager {
         }
 
         if (committed.length > MAX_FIELD_CHARS || currentTextAroundCursor.length > MAX_FIELD_CHARS) {
-            endSession()
+            // Privacy-NEUTRAL own close (FieldTooLarge parity): origin-
+            // agnostic so it also fires for bubble-origin sessions - an
+            // IME-default close would be guard-skipped there. Flush
+            // eligibility is unchanged (privacy still up).
+            endSessionInternal(null)
             return
         }
 
@@ -517,13 +540,19 @@ object AutoLearnSessionManager {
      * [requestingOrigin] = null marks the session's own authoritative
      * close (timeout) or a cross-surface security exit: the flush runs when
      * privacy is still up. A REGULAR close from the OTHER surface cannot
-     * flush pending state that surface could not observe (review
+     * tear down the session or flush pending state that surface could not
+     * observe (review
      * requirement: AOSP `InputMethodService.doFinishInput()` finishes views
      * BEFORE the next target starts, so the next field's security posture
      * is unknowable at that moment - Windows closes the session it
      * observes, not another session).
      */
     private fun endSessionInternal(requestingOrigin: AutoLearnSurface?) {
+        // Foreign regular closes leave the session untouched - its own
+        // surface lifecycle (and the own-surface flush) still owns it
+        // (review fix 12). Authoritative/security closes arrive with null
+        // and pass through.
+        if (requestingOrigin != null && requestingOrigin != sessionOrigin) return
         // Windows final diff (monitor.rs:515-548): a regular close with
         // un-settled observed input classifies the final state once
         // (FocusChanged/Timeout parity). Security/privacy-equivalent exits

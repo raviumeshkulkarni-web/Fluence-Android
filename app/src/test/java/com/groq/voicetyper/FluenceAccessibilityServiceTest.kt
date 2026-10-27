@@ -252,4 +252,41 @@ class FluenceAccessibilityServiceTest {
             )
         )
     }
+
+    @Test
+    fun isAutoLearnAnchorFeed_fieldBoundsMustMatchWithinSameWindow() {
+        // Review must-fix 13: window+package cannot distinguish sibling
+        // editables - with both bounds exposed the event must come from the
+        // exact anchored field; without them the legacy identity stands.
+        val anchor = AutoLearnAnchorBounds(10, 20, 300, 80)
+        assertTrue(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app",
+                sourceBounds = anchor, anchorBounds = anchor
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app",
+                sourceBounds = AutoLearnAnchorBounds(10, 120, 300, 200),
+                anchorBounds = anchor
+            )
+        )
+        assertTrue(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app",
+                sourceBounds = null, anchorBounds = anchor
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 8, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app",
+                sourceBounds = anchor, anchorBounds = anchor
+            )
+        )
+    }
 }

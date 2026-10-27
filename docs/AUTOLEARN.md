@@ -62,31 +62,47 @@ arming happens only AFTER delivery is confirmed (a refreshed read that
 contains the exact injected text, polled `INITIAL_READ`-style 4 x
 250 ms, fail-closed on a miss — a missed learning opportunity is always
 preferred over an unverified one); each regular close (bubble hide,
-timeout, focus loss after settle) runs the exit final diff; security
-exits are revocation-first and never flush.
+timeout, focus loss after settle) runs the exit final diff; a
+`PRIVACY_GUARD` hide (secure/excluded discovery) is a security exit -
+revocation-first, never a flush; a foreign surface's regular close is
+guard-skipped (no flush, no teardown). Security exits are
+revocation-first and never flush.
 
 Flow: injection (`injectText`) confirms delivery → `armBubbleSession`
 (field snapshot, window, injection, confirmed baseline) → accessibility
 `TYPE_VIEW_TEXT_CHANGED` events whose source matches the anchor (same
-window AND package, `isAutoLearnAnchorFeed`) feed `onTextUpdated`
-(full text + current snapshot) → settle gate classifies the anchored
-span diff → regular close flushes the un-settled state once.
+window, package and — when the platform exposes both sides — identical
+field bounds so sibling editables cannot feed; `isAutoLearnAnchorFeed`)
+feed `onTextUpdated` (full text + current snapshot, signed with the
+surface origin and host window id; foreign-surface churn is dropped and
+window-witness drift revokes before the settle gate) → settle gate
+classifies the anchored span diff → regular close flushes the un-settled
+state once.
 
 Security posture:
 
 - ONE choke point in `BubbleController.performAllowedAction` rejects
   every accessibility write into a secure field (password/className
   class hints) and revokes any live session first (revocation-first,
-  never flush); `suppressForPrivacy` does the same for excluded targets.
+   never flush); `suppressForPrivacy` does the same for excluded targets.
+- Background text churn inside an excluded app is foreign noise: it
+  neither suppresses nor revokes (a field-switch revoke belongs to
+  focus events and show gates). The observation feed itself also
+  revokes on the class-hint secure read before evidence can reach the
+  session.
 - Every per-update feed runs the positive-evidence preamble: password
   field, excluded package, package drift, or asserted null-input-type /
   no-personalized-learning evidence ends the session as a
   security-equivalent exit (no final diff) regardless of surface.
+- Cross-surface hygiene: a surface only arms/observes its own origin,
+  and a same-surface feed from a different host window id revokes.
 - Lifecycle closes are surface-scoped: a bubble hide tears down only a
-  bubble-origin session (`endBubbleSessionIfAny`); IME-origin sessions
-  must be closed by the IME lifecycle (AOSP finishes views before the
-  next target starts, so a cheaper surface cannot know the next field's
-  posture). The IME fail-closes on an unknown/blank target package.
+  bubble-origin session (`endBubbleSessionIfAny`; a `PRIVACY_GUARD` hide
+  revokes instead), IME-origin regular closes never tear down a
+  bubble-origin session (AOSP finishes views before the next target
+  starts, so a cheaper surface cannot know the next field's posture),
+  and the arm read-back is canceled by any hide. The IME fail-closes on
+  an unknown/blank target package.
 
 ## Span-anchored extraction
 

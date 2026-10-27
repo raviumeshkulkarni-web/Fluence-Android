@@ -15,6 +15,15 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
+import com.groq.voicetyper.autolearn.domain.AutoLearnSurface
+
+/**
+ * Anchor field identity (review must-fix 13): window+package alone admits
+ * any sibling editable of the same app, so the observation feed also
+ * requires identical on-screen bounds whenever the platform exposes both
+ * sides.
+ */
+data class AutoLearnAnchorBounds(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
 class FluenceAccessibilityService : AccessibilityService() {
 
@@ -81,11 +90,25 @@ class FluenceAccessibilityService : AccessibilityService() {
             sourceWindowId: Int?,
             sourcePackage: String?,
             anchorWindowId: Int?,
-            anchorPackage: String?
-        ): Boolean =
-            sourceWindowId != null && anchorWindowId != null &&
-                sourceWindowId == anchorWindowId &&
-                sourcePackage != null && sourcePackage == anchorPackage
+            anchorPackage: String?,
+            sourceBounds: AutoLearnAnchorBounds? = null,
+            anchorBounds: AutoLearnAnchorBounds? = null
+        ): Boolean {
+            if (!(sourceWindowId != null && anchorWindowId != null &&
+                    sourceWindowId == anchorWindowId &&
+                    sourcePackage != null && sourcePackage == anchorPackage)
+            ) {
+                return false
+            }
+            // Node identity (review must-fix 13): when both sides expose
+            // bounds, the field itself must be the same - a sibling editable
+            // shares window/package but never bounds. An unavailable bound
+            // keeps the legacy window+package identity.
+            if (sourceBounds != null && anchorBounds != null) {
+                return sourceBounds == anchorBounds
+            }
+            return true
+        }
 
         /**
          * True when a node must never receive dictation output. Mirrors the
@@ -258,7 +281,12 @@ class FluenceAccessibilityService : AccessibilityService() {
                 val source = event.source ?: return
                 if (feedBubbleAutoLearnObservation(source)) return
                 if (PrivacyPreferences.isPackageExcluded(this, source.packageName?.toString())) {
-                    BubbleController.suppressForPrivacy()
+                    // Review fix 14: background churn in an excluded app is
+                    // foreign to any live session (the feed's per-update
+                    // preamble already revokes the session's OWN target when
+                    // that target turns excluded). Suppression is a field-
+                    // switch decision - it belongs to focus events and show
+                    // gates, not to text churn.
                     return
                 }
                 if (isEditableTextField(source)) {
@@ -282,11 +310,20 @@ class FluenceAccessibilityService : AccessibilityService() {
      */
     private fun feedBubbleAutoLearnObservation(source: AccessibilityNodeInfo): Boolean {
         if (!BubbleController.isAutoLearnAnchor(source)) return false
+        if (isSecureInjectionTarget(source)) {
+            // Belt-and-braces beyond node.isPassword (review fix 16): the
+            // class-hint read the per-update preamble cannot see exits the
+            // session the same way the show path already does.
+            AutoLearnSessionManager.revokeAndEndForSecureField()
+            return true
+        }
         val snapshot = AutoLearnFieldSnapshot.fromAccessibilityNode(source)
         AutoLearnSessionManager.onTextUpdated(
             source.text?.toString().orEmpty(),
             this,
-            snapshot
+            snapshot,
+            origin = AutoLearnSurface.BUBBLE,
+            windowId = source.windowId.toLong()
         )
         return true
     }

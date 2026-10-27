@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -126,6 +127,17 @@ object BubbleController {
     // read-back) launch on the injected dispatcher in unit tests; the
     // production path stays on the main-thread dispatcher.
     internal var dispatcherOverride: CoroutineDispatcher? = null
+
+    // Arm-after-confirm read-back handle (review fix 15): a tracked job so
+    // hide/suppress can cancel it - a delayed successful read must never
+    // arm a session the bubble already buried.
+    private var autoLearnArmJob: Job? = null
+
+    private fun cancelAutoLearnArmConfirm() {
+        autoLearnArmJob?.cancel()
+        autoLearnArmJob = null
+    }
+
     private fun newScope(): CoroutineScope =
         CoroutineScope((dispatcherOverride ?: Dispatchers.Main) + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -195,6 +207,7 @@ object BubbleController {
      * its legacy cancellation behavior for non-privacy lifecycle callers.
      */
     fun suppressForPrivacy() {
+        cancelAutoLearnArmConfirm()
         TranscriptionSessionManager.cancelPreWarm()
         // Privacy-equivalent exit for the observation side as well: the
         // excluded/secure surface must never flush pending learn state.
@@ -220,6 +233,7 @@ object BubbleController {
      * never a user action.
      */
     fun hideBubble(reason: CancelReason = CancelReason.INCIDENTAL) {
+        cancelAutoLearnArmConfirm()
         TranscriptionSessionManager.cancelPreWarm()
         // In-flight session handling is reason-dependent: RECORDING has no
         // transcript to salvage and dies with the pill; TRANSCRIBING (upload in
@@ -232,11 +246,19 @@ object BubbleController {
             state == RecordingState.TRANSCRIBING && reason == CancelReason.PRIVACY_GUARD ->
                 applicationContext?.let { TranscriptionSessionManager.cancelRecording(it, reason) }
         }
-        // The bubble going away is a REGULAR close of a bubble-origin
-        // auto-learn session (flush when privacy is still up - monitor.rs
-        // FocusChanged parity). IME-origin sessions are deliberately left
-        // to their own surface's lifecycle; see endBubbleSessionIfAny.
-        AutoLearnSessionManager.endBubbleSessionIfAny()
+        // Session close is reason-dependent (review fix 11): a
+        // PRIVACY_GUARD hide reports secure/excluded discovery - a
+        // security-equivalent exit (monitor.rs SecureFieldDetected parity)
+        // that revokes FIRST so nothing pending can flush. Any other reason
+        // is a REGULAR close of a bubble-origin session (flush when privacy
+        // is still up - monitor.rs FocusChanged parity). IME-origin sessions
+        // are deliberately left to their own surface's lifecycle in both
+        // cases; see endBubbleSessionIfAny.
+        if (reason == CancelReason.PRIVACY_GUARD) {
+            AutoLearnSessionManager.revokeAndEndForSecureField()
+        } else {
+            AutoLearnSessionManager.endBubbleSessionIfAny()
+        }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
         @Suppress("DEPRECATION")
@@ -285,17 +307,47 @@ object BubbleController {
     /**
      * Auto-learn anchor identity check for the accessibility service's
      * per-update feed: only the field the bubble is currently anchored to
-     * (same window AND same package) may feed a bubble-origin observation;
-     * every other event keeps its legacy handling so foreign-window churn
-     * can never revoke a session it cannot see.
+     * (same window, same package and - when the platform exposes them -
+     * identical field bounds) may feed a bubble-origin observation; every
+     * other event keeps its legacy handling so foreign-window churn can
+     * never revoke a session it cannot see.
      */
-    internal fun isAutoLearnAnchor(source: AccessibilityNodeInfo): Boolean =
-        FluenceAccessibilityService.isAutoLearnAnchorFeed(
+    private fun nodeBoundsOrNull(node: AccessibilityNodeInfo): AutoLearnAnchorBounds? = try {
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        AutoLearnAnchorBounds(rect.left, rect.top, rect.right, rect.bottom)
+    } catch (e: Exception) {
+        // Framework-stub / obtain-failure tolerance: without bounds the
+        // identity check falls back to window+package.
+        null
+    }
+
+    internal fun isAutoLearnAnchor(source: AccessibilityNodeInfo): Boolean {
+        // Resync the cached anchor copy first so its bounds track layout
+        // changes mid-session (IME inset, scroll, field growth); a failed
+        // refresh keeps the last known bounds.
+        val anchorBounds = synchronized(nodeLock) {
+            val active = activeNode
+            if (active != null) {
+                try {
+                    active.refresh()
+                } catch (e: Exception) {
+                    null
+                }
+                nodeBoundsOrNull(active)
+            } else {
+                null
+            }
+        }
+        return FluenceAccessibilityService.isAutoLearnAnchorFeed(
             sourceWindowId = source.windowId,
             sourcePackage = source.packageName?.toString(),
             anchorWindowId = synchronized(nodeLock) { activeNode?.windowId },
-            anchorPackage = activeNodePackage()
+            anchorPackage = activeNodePackage(),
+            sourceBounds = nodeBoundsOrNull(source),
+            anchorBounds = anchorBounds
         )
+    }
 
     private fun isTargetAllowed(
         context: Context,
@@ -499,7 +551,7 @@ object BubbleController {
         node: AccessibilityNodeInfo,
         injectedText: String
     ) {
-        newScope().launch {
+        autoLearnArmJob = newScope().launch {
             try {
                 var confirmedFullText: String? = null
                 for (attempt in 0 until ARM_READBACK_ATTEMPTS) {

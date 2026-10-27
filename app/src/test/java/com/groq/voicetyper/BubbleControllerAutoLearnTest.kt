@@ -10,6 +10,7 @@ import android.view.inputmethod.EditorInfo
 import com.groq.voicetyper.autolearn.AutoLearnPreferences
 import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
+import com.groq.voicetyper.autolearn.domain.AutoLearnSurface
 import com.groq.voicetyper.autolearn.SuggestionRepository
 import io.mockk.coEvery
 import io.mockk.coJustRun
@@ -164,7 +165,8 @@ class BubbleControllerAutoLearnTest {
         AutoLearnSessionManager.onTextUpdated(
             "Report for the Sinead project",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         scheduler.advanceTimeBy(501L)
 
@@ -187,7 +189,8 @@ class BubbleControllerAutoLearnTest {
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         scheduler.advanceUntilIdle()
 
@@ -213,7 +216,8 @@ class BubbleControllerAutoLearnTest {
         AutoLearnSessionManager.onTextUpdated(
             "Report for the Sinead project",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         scheduler.advanceTimeBy(501L)
 
@@ -251,7 +255,8 @@ class BubbleControllerAutoLearnTest {
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead",
             context,
-            bubbleSnapshot
+            bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE
         )
         scheduler.advanceUntilIdle()
         coVerify(exactly = 0) {
@@ -273,7 +278,7 @@ class BubbleControllerAutoLearnTest {
             context = context
         ))
         BubbleController.hideBubble()
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE)
         scheduler.advanceUntilIdle()
         coVerify(exactly = 0) {
             SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
@@ -315,7 +320,57 @@ class BubbleControllerAutoLearnTest {
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead",
             context,
-            bubbleSnapshot.copy(isPassword = true)
+            bubbleSnapshot.copy(isPassword = true),
+            origin = AutoLearnSurface.BUBBLE
+        )
+        scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun privacyGuardHideRevokesBubbleSessionWithoutFlush() {
+        // Review fix 11: a PRIVACY_GUARD hide reports secure/excluded
+        // discovery - a security-equivalent exit that revokes FIRST so the
+        // pending edit never flushes (regular hides keep flushing).
+        stubLiveLearnPath()
+        showBubbleFor(node)
+        assertTrue(AutoLearnSessionManager.armBubbleSession(
+            field = bubbleSnapshot,
+            windowId = 9L,
+            injectedText = "shunade",
+            confirmedFieldText = "I went to the shunade",
+            context = context
+        ))
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
+        scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun bubbleHideCancelsPendingArmReadback() {
+        // Review fix 15: the arm read-back is a tracked job - a hide during
+        // the retry window cancels it, so a delayed successful read can no
+        // longer arm a session the bubble already buried.
+        stubLiveLearnPath()
+        pasteDeliveredPath()
+        textState = "Report for "
+        showBubbleFor(node)
+        BubbleController.injectText(context, "the shunade project ")
+        // Attempt 1 misses; attempt 2 (+250 ms) is now pending.
+        scheduler.runCurrent()
+        BubbleController.hideBubble()
+        textState = "Report for the shunade project "
+        scheduler.advanceUntilIdle()
+        // No session was armed, so the later correction records nothing.
+        AutoLearnSessionManager.onTextUpdated(
+            "Report for the Sinead project", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
         )
         scheduler.advanceUntilIdle()
         coVerify(exactly = 0) {
