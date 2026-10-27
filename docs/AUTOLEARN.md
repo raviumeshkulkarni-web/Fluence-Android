@@ -23,6 +23,11 @@ previously described nowhere.
 | Settle gate + exit final diff | monitor.rs `SETTLED_POLLS` + final diff | `AutoLearnSessionManager` settle timer + `endSession` flush |
 | Pending suggestions for human review | `suggestion.rs` (local JSON store; `dismiss_suggestion` keeps the row as Dismissed "deny memory"; `accept_suggestion` marks it Accepted for analytics/undo) | Room `suggestion_history` surfaced by `SuggestionRepository` (`PENDING` rows only; dismiss demotes to a sticky `DISMISSED`; accept promotes the pair to the dictionary and removes the row) |
 | Stale-pending purge (re-judge all pending, demote) | `suggestion.rs::purge_invalid_suggestions` | `SuggestionRepository.purgeInvalidPendingResolved` |
+| Session manager (arm, supersede, origin close, timeout, per-update revalidation) | `auto_learn/monitor.rs:234-376` | `AutoLearnSessionManager` |
+| Shared field gate (surface-at-rest, one implementation) | monitor field policy + IMF contract | `AutoLearnFieldSnapshot` (`isObservationAllowedRest` / `isObservationAllowedForBubble` / `fromEditorInfo` / `fromAccessibilityNode`) |
+| Bubble arming AFTER confirmed delivery (read-back) | monitor.rs `INITIAL_READ`/`InjectedTextNotObserved` parity | `BubbleController.initiateAutoLearnArmConfirm` → `AutoLearnSessionManager.armBubbleSession` |
+| Span-anchored extraction (full-field diff safety) | `correction_extractor.rs::extract_user_corrections` / `extract_edited_span` | `DecisionCore.extractUserCorrections` |
+| Accessibility observation feed (per-update evidence) | monitor event model (per-read parity) | `FluenceAccessibilityService.feedBubbleAutoLearnObservation` → `AutoLearnSessionManager.onTextUpdated` |
 
 ## Surface-at-rest gate
 
@@ -47,6 +52,54 @@ residuals like `cool -> Good` (0.5) stay observable.
   alignment windows (Java legacy rule paired two bare differing words).
 - rewrite veto #1: `lcsLength * 2 < origWords.size` (RC-5).
 - rewrite veto #2: `subs.size * 2 > origWords.size` (>50% words changed).
+
+## Bubble dictation coverage
+
+The floating-pill surface learns through the same session manager, with
+surface-specific arming and feeding. Desktop-parity anchors
+(`monitor.rs`): the baseline is the FULL post-injection field snapshot;
+arming happens only AFTER delivery is confirmed (a refreshed read that
+contains the exact injected text, polled `INITIAL_READ`-style 4 x
+250 ms, fail-closed on a miss — a missed learning opportunity is always
+preferred over an unverified one); each regular close (bubble hide,
+timeout, focus loss after settle) runs the exit final diff; security
+exits are revocation-first and never flush.
+
+Flow: injection (`injectText`) confirms delivery → `armBubbleSession`
+(field snapshot, window, injection, confirmed baseline) → accessibility
+`TYPE_VIEW_TEXT_CHANGED` events whose source matches the anchor (same
+window AND package, `isAutoLearnAnchorFeed`) feed `onTextUpdated`
+(full text + current snapshot) → settle gate classifies the anchored
+span diff → regular close flushes the un-settled state once.
+
+Security posture:
+
+- ONE choke point in `BubbleController.performAllowedAction` rejects
+  every accessibility write into a secure field (password/className
+  class hints) and revokes any live session first (revocation-first,
+  never flush); `suppressForPrivacy` does the same for excluded targets.
+- Every per-update feed runs the positive-evidence preamble: password
+  field, excluded package, package drift, or asserted null-input-type /
+  no-personalized-learning evidence ends the session as a
+  security-equivalent exit (no final diff) regardless of surface.
+- Lifecycle closes are surface-scoped: a bubble hide tears down only a
+  bubble-origin session (`endBubbleSessionIfAny`); IME-origin sessions
+  must be closed by the IME lifecycle (AOSP finishes views before the
+  next target starts, so a cheaper surface cannot know the next field's
+  posture). The IME fail-closes on an unknown/blank target package.
+
+## Span-anchored extraction
+
+`DecisionCore.extractUserCorrections` (Windows
+`extract_user_corrections`): the injection anchors its span in the
+baseline snapshot; only the current value's counterpart between the
+unchanged head/tail affixes is diffed. Absent, repeated, or
+head/tail-broken anchors learn NOTHING — safer than diffing the whole
+field, which misaligns across sentences (`or -> Message` class). The
+decision core then runs the ordinary extractors/guards over
+`(injection, span)`. Bubble sessions always extract anchored; IME
+sessions keep the whole-region diff exactly as verified on the
+suggestion-pipeline branch (injection null there).
 
 ## Android-only divergences (intentional)
 
@@ -79,6 +132,27 @@ residuals like `cool -> Good` (0.5) stay observable.
   clear flushes nothing, and the settle epoch is revalidated after
   the dictionary lookup and extraction (which are not interruption
   points) so a newer keystroke's arm is never recorded stale.
+- Bubble-surface field gate (`Coverage A` owner decision): the
+  accessibility surface can never obtain the IMF-contract metadata
+  (trusting `inputType`/`imeOptions` over nodes is untrustworthy —
+  WebView/Compose report `TYPE_NULL`/0 — and `imeOptions` is not
+  exposed). The bubble gate therefore DENIES positive password
+  evidence, asserted null types, asserted no-learning, blank/unknown
+  packages and out-of-scope fields, but tolerates the two unknowable
+  IMF members staying unknown; the IME gate still requires all three
+  concretely false (behavior-identical to the verified EditorInfo
+  chain, `AutoLearnFieldGateTest`).
+- Bubble injections carry the autospace trailing space; the baseline
+  is stored trimmed, so the injection is trimmed symmetrically and the
+  anchor stays able to find its own injection.
+- Windows-verbatim verdict kept: a single-token injection corrected
+  inside pre-existing context anchors fine, but its span diff has LCS
+  0, so the Fluence rewrite guard vetoes it and nothing is learned
+  (multi-token dictations learn normally). Pinned in
+  `DecisionCoreTest.anchoredSingleTokenAfterContextVetoedByRewriteGuard`.
+- `MAX_FIELD_CHARS` (10,000) caps observed arms and feeds per session,
+  mirroring the Windows monitor's full-value cap beyond which the
+  session stops.
 - Finding deferred by owner decision: the canonical fold is not a
   single transaction (exact lookup + twin lookup + upsert); at this
   table size the rare concurrent-twin race is accepted.
@@ -98,7 +172,16 @@ pair-level dedup) plus Android-only cap fixtures.
 `AutoLearnSessionManagerTest` covers the session dedup seam, the
 settle-gate burst collapse, the exit-diff flush, the privacy-revocation
 suppression, the blank-field pending cancel, the stale-extraction epoch
-abort and the fail-open recording seams; `SuggestionRepositoryTest` covers the
+abort and the fail-open recording seams; it also covers the bubble
+session lifecycle (arm-after-confirm, cross-surface takeovers, origin
+close semantics, timeout flush, anchored extraction end to end).
+`AutoLearnFieldGateTest` proves the shared field decision against a
+verbatim legacy reference chain and the failure-closed node adapter;
+`BubbleControllerAutoLearnTest` covers the controller pipeline
+(secure-write refusal, read-back arming, lifecycle closes,
+revision-agnostic masking) against the same session manager;
+`FluenceAccessibilityServiceTest` covers the pure bubble gates and the
+origin-aware feed matching. `SuggestionRepositoryTest` covers the
 scheduler-free DAO cores with a mocked DAO (this repo's injectable-seam
 convention, same as `DictionaryRepository.saveEntryResolved` tests).
 
