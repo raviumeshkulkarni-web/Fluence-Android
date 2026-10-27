@@ -302,6 +302,69 @@ class BubbleControllerAutoLearnTest {
     }
 
     @Test
+    fun reShowClosesLiveBubbleSessionBeforeAnchorSwap() {
+        // Stage-6 must-fix (finding 3): a re-show swaps the anchor to the
+        // incoming field. The live session must be closed FIRST so the
+        // swapped anchor identity can never feed the old baseline.
+        stubLiveLearnPath()
+        showBubbleFor(node)
+        assertTrue(AutoLearnSessionManager.armBubbleSession(
+            field = bubbleSnapshot,
+            windowId = 9L,
+            injectedText = "shunade",
+            confirmedFieldText = "I went to the shunade",
+            context = context
+        ))
+
+        // Non-anchor editable churn reaches gatedShowBubble -> showBubble.
+        showBubbleFor(node)
+
+        // Even an update that would once have fed the old session is gone.
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE, windowId = 9L
+        )
+        scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun injectSecureMidSessionRefusalRevokesLiveSession() {
+        // Stage-6 must-fix (finding 1): the pre-write secure refusal must
+        // revoke-first, like the write choke - a bare refusal left pending
+        // state flushable by a later regular hide.
+        stubLiveLearnPath()
+        pasteDeliveredPath()
+        textState = "I went to the shunade "
+        showBubbleFor(node)
+        // Arm AFTER the show: with fix 3 a re-show closes a live session,
+        // so the refusing write must arrive while armed post-anchor.
+        assertTrue(AutoLearnSessionManager.armBubbleSession(
+            field = bubbleSnapshot,
+            windowId = 9L,
+            injectedText = "shunade",
+            confirmedFieldText = "I went to the shunade",
+            context = context
+        ))
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE, windowId = 9L
+        )
+
+        // Mid-session secure discovery at the pre-write gate: refuse AND
+        // revoke so the scheduled settle can never flush.
+        every { node.className } returns "com.example.PasswordTextField"
+        BubbleController.injectText(context, "shunade ")
+        scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        }
+    }
+
+    @Test
     fun secureUpdateMidSessionPreambleStillRevokes_fromControllerFeed() {
         // Combo guard: the manager-side positive-evidence revalidation (from
         // Stage 1) still holds when the update feed arrives through the

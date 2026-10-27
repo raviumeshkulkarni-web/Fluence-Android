@@ -706,4 +706,26 @@ class AutoLearnSessionManagerTest {
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
     }
+
+    @Test
+    fun blankImeStartAbortsBenignlyWithoutRevokingBubbleSession() {
+        // Stage-6 adjudication (finding 6): a blank transcript carries no
+        // privacy evidence - the abort must not revoke a live foreign-
+        // surface session or suppress its flush.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm()) // live BUBBLE-origin session
+
+        AutoLearnSessionManager.startSession("", context)
+
+        // The bubble session keeps its own settle/flush lifecycle.
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endBubbleSessionIfAny()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
 }

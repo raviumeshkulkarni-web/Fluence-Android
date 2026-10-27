@@ -315,6 +315,10 @@ class FluenceAccessibilityService : AccessibilityService() {
             // class-hint read the per-update preamble cannot see exits the
             // session the same way the show path already does.
             AutoLearnSessionManager.revokeAndEndForSecureField()
+            // Stage-6 should-fix: do not leave the pill floating over the
+            // field the revoke just proved secure - suppress the surface
+            // too (the revoke inside suppression is then a no-op).
+            BubbleController.suppressForPrivacy()
             return true
         }
         val snapshot = AutoLearnFieldSnapshot.fromAccessibilityNode(source)

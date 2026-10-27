@@ -180,9 +180,18 @@ object AutoLearnSessionManager {
     }
 
     fun startSession(committedText: String, context: Context) {
-        if (!isPrivacyAllowed || committedText.isBlank()) {
+        if (!isPrivacyAllowed) {
             // Origin-agnostic privacy exit (same rationale as onStartInput).
             revokeAndEndForSecureField()
+            return
+        }
+        if (committedText.isBlank()) {
+            // Benign no-content abort with no privacy evidence (stage-6
+            // adjudication: the fix-12 sweep over-converted this branch).
+            // A blank transcript must not revoke a live foreign-surface
+            // session or suppress its flush; the own-origin regular close
+            // never touches another surface.
+            endSession(AutoLearnSurface.IME)
             return
         }
         beginSession(AutoLearnSurface.IME, baseline = committedText.trim(), windowId = null, sessionPackage = null, context)

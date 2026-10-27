@@ -159,6 +159,15 @@ object BubbleController {
 
         applicationContext = context.applicationContext
 
+        // Stage-6 must-fix: a re-show swaps the pill's anchor to the
+        // incoming field. While a bubble-origin session is live, that swap
+        // IS a field switch - close the old session first (regular close,
+        // flush), so a sibling field whose events now match the swapped
+        // anchor identity can never feed the old baseline. Fail-closed on
+        // a same-field re-focus: a pending diff window is lost, never
+        // poisoned.
+        AutoLearnSessionManager.endBubbleSessionIfAny()
+
         // A bubble re-show within the defer window keeps the service alive.
         mainHandler.removeCallbacks(deferredStopService)
 
@@ -551,6 +560,11 @@ object BubbleController {
         node: AccessibilityNodeInfo,
         injectedText: String
     ) {
+        // A fresh injection supersedes any in-flight read-back (stage-6
+        // must-fix): only the LATEST handle is canceled by hide/suppress,
+        // so an older job left running could arm a session after a
+        // privacy exit buried the surface.
+        cancelAutoLearnArmConfirm()
         autoLearnArmJob = newScope().launch {
             try {
                 var confirmedFullText: String? = null
@@ -770,6 +784,10 @@ object BubbleController {
         // paths. Injection into a password field is forbidden outright.
         if (FluenceAccessibilityService.isSecureInjectionTarget(node)) {
             Log.w(TAG, "Refusing to inject dictation into a secure field")
+            // Stage-6 must-fix: a bare refusal left a live session pending
+            // where a later regular hide could still flush it. Same
+            // revoke-first posture as the write choke above.
+            AutoLearnSessionManager.revokeAndEndForSecureField()
             return
         }
 
