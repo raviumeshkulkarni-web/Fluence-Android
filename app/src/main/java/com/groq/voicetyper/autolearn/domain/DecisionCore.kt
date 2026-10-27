@@ -271,4 +271,68 @@ object DecisionCore {
         }
         return results
     }
+
+    /**
+     * Windows `extract_user_corrections` (correction_extractor.rs): the
+     * span-anchored extraction used by full-field observation surfaces
+     * (the bubble's session baseline is the whole post-injection field).
+     * The injected text anchors its span inside the baseline snapshot and
+     * only the current value's counterpart region is diffed against it -
+     * the rest of the field is never compared, so surrounding sentences
+     * cannot misalign into garbage pairs (`or -> Message` class).
+     *
+     * Unanchorable states learn NOTHING (Windows-verbatim: safer to miss a
+     * correction than to diff the whole field): injection empty, absent
+     * from the baseline, repeated in it (ambiguous which span is ours), or
+     * edits above/below it broke the surrounding head/tail context.
+     */
+    fun extractUserCorrections(
+        injectedText: String,
+        baselineValue: String,
+        fieldValue: String,
+        knownPairKeys: Set<String>
+    ): List<CorrectionCandidate> {
+        if (injectedText.isEmpty()) return emptyList()
+        if (injectedText == fieldValue) return emptyList()
+
+        val editedRegion = extractEditedSpan(injectedText, baselineValue, fieldValue)
+            ?: return emptyList()
+        return extractCorrections(injectedText, editedRegion, knownPairKeys)
+    }
+
+    /** Kotlin port of Windows `extract_edited_span` (correction_extractor.rs:44). */
+    private fun extractEditedSpan(
+        injectedText: String,
+        baselineValue: String,
+        fieldValue: String
+    ): String? {
+        if (injectedText.isEmpty()) return null
+
+        // All occurrences of the injection in the baseline snapshot; more
+        // than one makes the span ambiguous, none means the paste landed
+        // late or elsewhere.
+        val occurrences = ArrayList<Int>()
+        var searchFrom = 0
+        while (true) {
+            val idx = baselineValue.indexOf(injectedText, searchFrom)
+            if (idx < 0) break
+            occurrences.add(idx)
+            searchFrom = idx + injectedText.length
+            if (occurrences.size > 1) break
+        }
+        if (occurrences.size != 1) return null
+
+        val pos = occurrences[0]
+        val prefix = baselineValue.substring(0, pos)
+        val suffix = baselineValue.substring(pos + injectedText.length)
+
+        // The current value must still carry the surrounding context; the
+        // region between the affixes is the edited counterpart (possibly
+        // identical, possibly reworded - the gates below decide).
+        if (!fieldValue.startsWith(prefix)) return null
+        if (!fieldValue.endsWith(suffix)) return null
+        // Affix overlap guard: without it the slice span would invert.
+        if (fieldValue.length < prefix.length + suffix.length) return null
+        return fieldValue.substring(prefix.length, fieldValue.length - suffix.length)
+    }
 }

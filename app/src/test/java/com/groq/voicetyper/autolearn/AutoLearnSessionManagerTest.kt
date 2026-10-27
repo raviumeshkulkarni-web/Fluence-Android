@@ -556,4 +556,61 @@ class AutoLearnSessionManagerTest {
             SuggestionRepository.recordCorrectionCandidate(any(), "definately", "definitely", any())
         }
     }
+
+    @Test
+    fun bubbleAnchoredObservationIgnoresEditsOutsideTheSpan() {
+        // Windows span-anchor parity (correction_extractor.rs): a bubble
+        // session observes the FULL field; an edit in a sentence AFTER the
+        // injection breaks the anchor and must never flush cross-sentence
+        // garbage pairs (`or -> Message` class) - neither via the settle
+        // gate nor via the bubble path's regular close exit diff.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(
+            bubbleArm(
+                injected = "shunade",
+                confirmed = "TODO: send invoice to shunade tomorrow. NOTE: buy groceries"
+            )
+        )
+        AutoLearnSessionManager.onTextUpdated(
+            "TODO: send invoice to shunade tomorrow. NOTE: buy milk",
+            context,
+            bubbleSnapshot
+        )
+        AutoLearnSessionManager.onTextUpdated(
+            "TODO: send invoice to Sinead tomorrow. NOTE: buy milk",
+            context,
+            bubbleSnapshot
+        )
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun bubbleAnchoredObservationStillRecordsInsideTheSpan() {
+        // Anchor intact (head/tail context untouched): the injected span's
+        // counterpart is diffed against the injection and the pair records
+        // like the IME surface's. Multi-token injection so the rewrite
+        // guard accepts the span diff (single-token spans veto - parity
+        // pinned in DecisionCoreTest).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(
+            bubbleArm(
+                injected = "the shunade project",
+                confirmed = "Report for the shunade project"
+            )
+        )
+        AutoLearnSessionManager.onTextUpdated(
+            "Report for the Sinead project",
+            context,
+            bubbleSnapshot
+        )
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
 }

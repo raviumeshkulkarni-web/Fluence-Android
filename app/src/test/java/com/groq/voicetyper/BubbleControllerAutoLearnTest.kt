@@ -144,21 +144,25 @@ class BubbleControllerAutoLearnTest {
     fun deliveredInjectionArmsAfterConfirmedReadbackThenRecordsCorrection() {
         stubLiveLearnPath()
         pasteDeliveredPath()
-        textState = "I went to the "
+        textState = "Report for "
         showBubbleFor(node)
 
-        BubbleController.injectText(context, "shunade ")
+        // Multi-token dictation: under the Windows span-anchor the injected
+        // span's counterpart is diffed against the injection (single-token
+        // spans are cleanly vetoed by the LCS rewrite guard - parity test
+        // lives in DecisionCoreTest).
+        BubbleController.injectText(context, "the shunade project ")
 
         // First read-back fires immediately: the field has not caught up yet.
         scheduler.runCurrent()
-        textState = "I went to the shunade "
+        textState = "Report for the shunade project "
         // Second attempt at +250 ms sees the confirmed text and arms.
         scheduler.advanceTimeBy(251L)
 
         // The user then corrects the dictated word; a settled update flows
         // into the bubble-armed session and reaches the repository.
         AutoLearnSessionManager.onTextUpdated(
-            "I went to the Sinead",
+            "Report for the Sinead project",
             context,
             bubbleSnapshot
         )
@@ -198,16 +202,16 @@ class BubbleControllerAutoLearnTest {
         // ACTION_PASTE fails; the SET_TEXT fallback succeeds.
         every { node.performAction(any<Int>()) } returns false
         every { node.performAction(any<Int>(), any<android.os.Bundle>()) } returns true
-        textState = "I went to the "
+        textState = "Report for "
         showBubbleFor(node)
 
-        BubbleController.injectText(context, "shunade ")
+        BubbleController.injectText(context, "the shunade project ")
         scheduler.runCurrent()
-        textState = "I went to the shunade "
+        textState = "Report for the shunade project "
         scheduler.advanceTimeBy(251L)
 
         AutoLearnSessionManager.onTextUpdated(
-            "I went to the Sinead",
+            "Report for the Sinead project",
             context,
             bubbleSnapshot
         )

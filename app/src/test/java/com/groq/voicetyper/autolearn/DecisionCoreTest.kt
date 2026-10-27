@@ -369,6 +369,117 @@ class DecisionCoreTest {
         assertTrue(extract(many, many + " z").isEmpty())
     }
 
+    // -- extractUserCorrections (span-anchored; Windows correction_extractor.rs) --
+
+    private fun anchorExtract(
+        injected: String,
+        baseline: String,
+        field: String,
+        known: Set<String> = noKnown
+    ): List<CorrectionCandidate> =
+        DecisionCore.extractUserCorrections(injected, baseline, field, known)
+
+    @Test
+    fun anchoredSimpleCorrectionInsideContext() {
+        // The reviewer-garbage fixture shape: the injection sits in the
+        // middle of a full-field baseline; only its counterpart region is
+        // diffed, nothing else reaches the extractor. The injection is
+        // multi-token so the decision core's LCS coverage guard accepts it.
+        val pairs = anchorExtract(
+            injected = "the shunade project",
+            baseline = "Report for the shunade project",
+            field = "Report for the Sinead project"
+        )
+        assertEquals(listOf(candidate("shunade", "Sinead")), pairs)
+    }
+
+    @Test
+    fun anchoredSingleTokenAfterContextVetoedByRewriteGuard() {
+        // Windows-verbatim safe miss: a lone token after pre-existing
+        // context anchors fine, but its span diff (`shunade` vs
+        // `Sinead project`) collapses to LCS 0 and the Fluence rewrite
+        // guard vetoes the whole input - demonstrably not a rewrite, yet
+        // parity means Android accepts the SAME no-learn verdict.
+        assertTrue(
+            anchorExtract(
+                "shunade",
+                "Report for the shunade project",
+                "Report for the Sinead project"
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun anchoredEmptyAffixesDegeneratesToLegacyDiff() {
+        // Rust test-shorthand shape (baseline == injection, empty affixes):
+        // the anchored path yields the same pairs as the plain extractor.
+        val pairs = anchorExtract(
+            "I went to the shunade",
+            "I went to the shunade",
+            "I went to the Sinead"
+        )
+        assertEquals(listOf(candidate("shunade", "Sinead")), pairs)
+    }
+
+    @Test
+    fun anchoredHeadEditBreaksAnchor() {
+        // A keystroke above the injection changes the head context:
+        // Windows learns nothing rather than diffing the whole field.
+        assertTrue(
+            anchorExtract(
+                "shunade",
+                "TODO: send invoice to shunade tomorrow",
+                "NOTE: send invoice to Sinead tomorrow"
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun anchoredTailEditBreaksAnchor() {
+        // Text appended below (another sentence changed) breaks the tail
+        // context; the pending diff against the SAME baseline must yield
+        // nothing instead of manufacturing cross-sentence pairs.
+        assertTrue(
+            anchorExtract(
+                "shunade",
+                "TODO: send invoice to shunade tomorrow",
+                "TODO: send invoice to Sinead tomorrow. NOTE: buy milk"
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun anchoredRepeatedInjectionIsAmbiguous() {
+        // Two baseline occurrences: which span is ours is unknowable ->
+        // nothing is learned even though exactly one got corrected.
+        assertTrue(
+            anchorExtract(
+                "shunade",
+                "shunade and shunade",
+                "Sinead and shunade"
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun anchoredAbsentInjectionLearnNothing() {
+        // Defense in depth: post-arm this cannot happen (the arm verified
+        // containment), but the extractor stays Windows-verbatim.
+        assertTrue(anchorExtract("shunade", "hello world", "hello world").isEmpty())
+    }
+
+    @Test
+    fun anchoredUnchangedFieldLearnNothing() {
+        assertTrue(anchorExtract("shunade", "hello shunade", "hello shunade").isEmpty())
+    }
+
+    @Test
+    fun anchoredAffixOverlapLearnNothing() {
+        // Overlap guard: prefix+suffix exceeding the field length must
+        // slice nothing (the Rust slice pans; here it must not throw).
+        assertTrue(anchorExtract("cd", "abcdab", "ab").isEmpty())
+    }
+
     // -- canonicalPairKey --------------------------------------------------
 
     @Test

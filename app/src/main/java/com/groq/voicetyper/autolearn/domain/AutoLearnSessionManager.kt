@@ -62,6 +62,16 @@ object AutoLearnSessionManager {
     @Volatile
     private var activeCommittedText: String? = null
 
+    /**
+     * The exact text the current session injected into the field (Windows
+     * `injected_value`, monitor.rs:234-273): full-field observation surfaces
+     * diff only the anchored span around it (correction_extractor.rs
+     * parity). Null (the IME surface today) keeps the legacy whole-region
+     * diff exactly as PR-15 verified it.
+     */
+    @Volatile
+    private var sessionInjectedText: String? = null
+
     @Volatile
     private var isPrivacyAllowed: Boolean = false
 
@@ -221,7 +231,11 @@ object AutoLearnSessionManager {
             baseline = confirmedFieldText.trim(),
             windowId = windowId,
             sessionPackage = pkg,
-            context = context
+            context = context,
+            // Trimmed symmetrically with the baseline: the anchor must find
+            // its own injection in the post-trim snapshot, and dictations
+            // carry the autospace trailing space (BubbleController contract).
+            injectedText = injectedText.trim()
         )
         return true
     }
@@ -242,7 +256,8 @@ object AutoLearnSessionManager {
         baseline: String,
         windowId: Long?,
         sessionPackage: String?,
-        context: Context
+        context: Context,
+        injectedText: String? = null
     ) {
         if (sessionPackage != null) targetPackage = sessionPackage
         // A new session owns the field now (Windows Superseded parity): the
@@ -255,6 +270,7 @@ object AutoLearnSessionManager {
             lastExtractedText = baseline
         }
         activeCommittedText = baseline
+        sessionInjectedText = injectedText
         // The session begins privacy-UP: both callers guarantee the field
         // passed the gate, and a previous security exit leaves this flag
         // false until here - an armed session must always observe, and a
@@ -374,11 +390,23 @@ object AutoLearnSessionManager {
 
             val gen = generation()
             val known = SuggestionRepository.knownPairKeys(context)
-            val corrections = DecisionCore.extractCorrections(
-                originalText = committed,
-                editedRegion = target,
-                knownPairKeys = known
-            )
+            val injected = sessionInjectedText
+            val corrections = if (injected != null) {
+                // Windows monitor parity (correction_extractor.rs): a
+                // full-field session diffs only the anchored injected span.
+                DecisionCore.extractUserCorrections(
+                    injectedText = injected,
+                    baselineValue = committed,
+                    fieldValue = target,
+                    knownPairKeys = known
+                )
+            } else {
+                DecisionCore.extractCorrections(
+                    originalText = committed,
+                    editedRegion = target,
+                    knownPairKeys = known
+                )
+            }
             for (candidate in corrections) {
                 if (!recordCandidate(context, gen, known, candidate, armedEpoch)) return
             }
@@ -523,10 +551,12 @@ object AutoLearnSessionManager {
 
         if (flushTarget != null) {
             val flushCommitted = activeCommittedText
+            // Captured before the teardown below resets the session state.
+            val flushInjected = sessionInjectedText
             val context = sessionContext
             if (flushCommitted != null && context != null) {
                 val sessionKeys = synchronized(pairLock) { HashSet(sessionPairKeys) }
-                launchFinalDiffFlush(context, flushCommitted, flushTarget, sessionKeys)
+                launchFinalDiffFlush(context, flushCommitted, flushInjected, flushTarget, sessionKeys)
             }
         }
 
@@ -539,6 +569,7 @@ object AutoLearnSessionManager {
         isPrivacyAllowed = false
         sessionOrigin = AutoLearnSurface.IME
         sessionWindowId = null
+        sessionInjectedText = null
         synchronized(settleLock) {
             settlePendingText = null
             lastExtractedText = null
@@ -558,17 +589,27 @@ object AutoLearnSessionManager {
     private fun launchFinalDiffFlush(
         context: Context,
         committed: String,
+        injectedText: String?,
         target: String,
         recordedKeys: HashSet<String>
     ) {
         CoroutineScope(SupervisorJob() + (dispatcherOverride ?: Dispatchers.Default)).launch {
             try {
                 val known = SuggestionRepository.knownPairKeys(context)
-                val corrections = DecisionCore.extractCorrections(
-                    originalText = committed,
-                    editedRegion = target,
-                    knownPairKeys = known
-                )
+                val corrections = if (injectedText != null) {
+                    DecisionCore.extractUserCorrections(
+                        injectedText = injectedText,
+                        baselineValue = committed,
+                        fieldValue = target,
+                        knownPairKeys = known
+                    )
+                } else {
+                    DecisionCore.extractCorrections(
+                        originalText = committed,
+                        editedRegion = target,
+                        knownPairKeys = known
+                    )
+                }
                 for (candidate in corrections) {
                     val key = DecisionCore.canonicalPairKey(
                         candidate.spokenText,
