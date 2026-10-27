@@ -3,13 +3,17 @@ package com.groq.voicetyper.autolearn
 import android.content.Context
 import android.text.InputType
 import android.view.inputmethod.EditorInfo
+import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
+import com.groq.voicetyper.autolearn.domain.AutoLearnSurface
 import io.mockk.*
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -21,6 +25,13 @@ class AutoLearnSessionManagerTest {
     private val editorInfo = EditorInfo().apply {
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
     }
+
+    private val bubbleSnapshot = AutoLearnFieldSnapshot(
+        packageName = "com.example.app",
+        isPassword = false,
+        isNullInputType = false,
+        noPersonalizedLearning = false
+    )
 
     @Before
     fun setUp() {
@@ -34,6 +45,7 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.endSession()
         AutoLearnSessionManager.dispatcherOverride = null
         AutoLearnSessionManager.settleDelayOverride = null
+        AutoLearnSessionManager.timeoutDelayOverride = null
         unmockkAll()
     }
 
@@ -51,6 +63,18 @@ class AutoLearnSessionManagerTest {
         AutoLearnSessionManager.dispatcherOverride = dispatcher
         AutoLearnSessionManager.settleDelayOverride = settleDelay
     }
+
+    private fun bubbleArm(
+        snapshot: AutoLearnFieldSnapshot = bubbleSnapshot,
+        injected: String = "I went to the shunade",
+        confirmed: String = "I went to the shunade"
+    ): Boolean = AutoLearnSessionManager.armBubbleSession(
+        field = snapshot,
+        windowId = 42L,
+        injectedText = injected,
+        confirmedFieldText = confirmed,
+        context = context
+    )
 
     @Test
     fun oversizedCommittedTextStopsObservationWithoutRecordingCandidates() {
@@ -344,6 +368,175 @@ class AutoLearnSessionManagerTest {
         }
         coVerify(exactly = 1) {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sineaddx", any())
+        }
+    }
+
+    @Test
+    fun bubbleArmFailsClosedOnDeniedFieldRules() {
+        // Every privacy-relevant unknown or positive is a no-arm (review
+        // requirement: prefer a missed learning opportunity over ever
+        // observing a password field). Rules run BEFORE package lookups.
+        mockkObject(SuggestionRepository)
+        val password = bubbleSnapshot.copy(isPassword = true)
+        val nullType = bubbleSnapshot.copy(isNullInputType = true)
+        val unknownNoLearning = bubbleSnapshot.copy(noPersonalizedLearning = null)
+        val flaggedNoLearning = bubbleSnapshot.copy(noPersonalizedLearning = true)
+        // EditorInfo-null mirror: everything unknown -> deny.
+        val everythingUnknown = AutoLearnFieldSnapshot(null, null, null, null)
+        assertFalse(bubbleArm(snapshot = password))
+        assertFalse(bubbleArm(snapshot = nullType))
+        assertFalse(bubbleArm(snapshot = unknownNoLearning))
+        assertFalse(bubbleArm(snapshot = flaggedNoLearning))
+        assertFalse(bubbleArm(snapshot = everythingUnknown))
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun bubbleArmFailsClosedOnMissingConfirmationEvidence() {
+        stubLivePath()
+        // FieldTooLarge / InjectedTextNotObserved parity
+        // (monitor.rs:244-273): the confirmed read must exist, fit the
+        // field cap and contain the exact injected text.
+        assertFalse(bubbleArm(injected = "   "))
+        assertFalse(bubbleArm(confirmed = ""))
+        assertFalse(bubbleArm(confirmed = "z".repeat(10_001)))
+        assertFalse(bubbleArm(confirmed = "only previous content without dictation"))
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun bubbleArmDeniedOnExcludedPackageThenArmsWhenAllowed() {
+        stubLivePath()
+        every {
+            com.groq.voicetyper.PrivacyPreferences.isPackageExcluded(any(), "com.example.app")
+        } returns true
+        assertFalse(bubbleArm())
+        every {
+            com.groq.voicetyper.PrivacyPreferences.isPackageExcluded(any(), "com.example.app")
+        } returns false
+        assertTrue(bubbleArm())
+    }
+
+    @Test
+    fun bubbleArmDeniedWhenMasterToggleOff() {
+        // Unlike the IME surface, bubble arming re-checks the master
+        // toggle itself (no onStartInput ran for it).
+        every { AutoLearnPreferences.isAutoLearnEnabled(any()) } returns false
+        assertFalse(bubbleArm())
+    }
+
+    @Test
+    fun bubbleArmSupersedesPendingImeSessionWithoutFlush() {
+        // Windows Superseded parity: cross-surface takeover drops the
+        // previous session's pending input WITHOUT the exit diff; the new
+        // session then observes normally.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context) // IME settle armed
+        assertTrue(bubbleArm())
+
+        // runCurrent (not advanceUntilIdle): the only queued tasks are the
+        // canceled IME arm and the session timeout - advancing virtual time
+        // past the 30s timeout would close the session under test before
+        // phase 2 observes (the timer is Windows-parity correct; the test
+        // simply must not fast-forward it here).
+        testDispatcher.scheduler.runCurrent()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+
+        // The bubble session itself observes and records.
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
+
+    @Test
+    fun bubbleUpdatePasswordFieldAbortsObservationAndFlush() {
+        // Windows SecureFieldDetected per-read parity: positive downgrade
+        // evidence mid-session exits WITHOUT the exit diff; security exits
+        // are origin-agnostic and revoke first.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead now",
+            context,
+            bubbleSnapshot.copy(isPassword = true)
+        )
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun bubbleUpdateForeignPackageAbortsObservation() {
+        // Same-session identity drift (review finding: target identity
+        // must be validated per update): an observed read from a package
+        // other than the armed target is evidence of a field switch the
+        // close hook missed -> security exit, no flush.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead again",
+            context,
+            bubbleSnapshot.copy(packageName = "com.example.other")
+        )
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun imeTeardownMustNotFlushBubbleSessionButBubbleCloseDoes() {
+        // Review finding: AOSP `doFinishInput()` finishes views BEFORE the
+        // next target starts, so the IME cannot know the next field's
+        // security posture - a regular IME-origin close must not exit-flush
+        // a bubble-armed session. The bubble's own authoritative close
+        // still flushes (FocusChanged/Timeout parity).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.endSession() // IME-origin close
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+
+        assertTrue(bubbleArm(injected = "I definately love this", confirmed = "I definately love this"))
+        AutoLearnSessionManager.onTextUpdated("I definitely love this", context, bubbleSnapshot)
+        AutoLearnSessionManager.endSession(AutoLearnSurface.BUBBLE)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "definately", "definitely", any())
+        }
+    }
+
+    @Test
+    fun bubbleSessionTimeoutFlushesFinalDiffOnlyForActiveSession() {
+        // Windows timeout parity (monitor.rs:371-376): the timeout is the
+        // session's own regular close (final diff runs), and only the
+        // ACTIVE session's timer can fire - an early close disposes the
+        // scope and with it the timer.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        AutoLearnSessionManager.timeoutDelayOverride = 100L
+        assertTrue(bubbleArm())
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot)
+        AutoLearnSessionManager.endSession() // early IME-origin close, no flush
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+
+        // A fresh bubble session then runs out its own timer and
+        // classifies the un-settled edit once.
+        assertTrue(bubbleArm(injected = "I definately love this", confirmed = "I definately love this"))
+        AutoLearnSessionManager.onTextUpdated("I definitely love this", context, bubbleSnapshot)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "definately", "definitely", any())
         }
     }
 }

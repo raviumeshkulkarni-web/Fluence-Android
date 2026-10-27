@@ -32,6 +32,14 @@ object AutoLearnSessionManager {
     private const val SETTLE_DELAY_MS = 500L
 
     /**
+     * Windows monitor timeout parity (monitor.rs:371-376): a session the
+     * closing surface never closes still ends as a REGULAR close (the
+     * final diff is not skipped - FocusChanged/Timeout flush parity) and
+     * never outlives `MONITOR_TIMEOUT_MS`.
+     */
+    private const val SESSION_TIMEOUT_MS = 30_000L
+
+    /**
      * Test seam: when set, the session scope runs on this dispatcher
      * instead of Dispatchers.Default (tests inject test dispatchers).
      * Must be reset to null after each test in @After.
@@ -47,6 +55,10 @@ object AutoLearnSessionManager {
     @Volatile
     internal var settleDelayOverride: Long? = null
 
+    /** Test seam: overrides [SESSION_TIMEOUT_MS], reset to null in @After. */
+    @Volatile
+    internal var timeoutDelayOverride: Long? = null
+
     @Volatile
     private var activeCommittedText: String? = null
 
@@ -55,6 +67,19 @@ object AutoLearnSessionManager {
 
     @Volatile
     private var targetPackage: String? = null
+
+    /**
+     * Session origin identity (review requirement: target/session identity
+     * must be explicit across IME and accessibility paths). A teardown hook
+     * of one surface can never exit-flush another surface's pending state;
+     * security exits remain origin-agnostic.
+     */
+    @Volatile
+    private var sessionOrigin: AutoLearnSurface = AutoLearnSurface.IME
+
+    /** Hosting window of the observed node (bubble surface); null for IME sessions. */
+    @Volatile
+    private var sessionWindowId: Long? = null
 
     /** Captured at [startSession] so [endSession]'s exit diff keeps a context without changing the public signatures. */
     @Volatile
@@ -104,6 +129,8 @@ object AutoLearnSessionManager {
 
     private fun settleDelayMs(): Long = settleDelayOverride ?: SETTLE_DELAY_MS
 
+    private fun timeoutDelayMs(): Long = timeoutDelayOverride ?: SESSION_TIMEOUT_MS
+
     /**
      * Settle-epoch revalidation (review round 4): the dictionary lookup and
      * extraction between the arm and the write are not interruption points,
@@ -144,7 +171,74 @@ object AutoLearnSessionManager {
             endSession()
             return
         }
+        beginSession(AutoLearnSurface.IME, baseline = committedText.trim(), windowId = null, sessionPackage = null, context)
+    }
 
+    /**
+     * Bubble-surface arming (review-design requirement, coverage A): the
+     * accessibility surface owns no EditorInfo, so the field rules arrive as
+     * an already derived [AutoLearnFieldSnapshot]. Arming happens only AFTER
+     * the controller confirmed the injection landed, mirroring the Windows
+     * monitor init exactly (monitor.rs:234-273): the baseline read must
+     * contain the injected text, and the baseline is the FULL post-paste
+     * field (Windows initial_value / last_extracted_value parity,
+     * monitor.rs:347-354). Every failure is fail-closed: no arm, no session,
+     * no supersede of whatever may still be running.
+     */
+    fun armBubbleSession(
+        field: AutoLearnFieldSnapshot,
+        windowId: Long?,
+        injectedText: String,
+        confirmedFieldText: String,
+        context: Context
+    ): Boolean {
+        // Unlike the IME surface no onStartInput ran for this arm, so the
+        // master toggle is re-checked here.
+        if (!AutoLearnPreferences.isAutoLearnEnabled(context)) return denyArm("master toggle off")
+        if (!field.isObservationAllowedRest()) {
+            return denyArm("field rules deny (password/null-type/no-learning unknown or set)")
+        }
+        val pkg = field.packageName
+        if (pkg.isNullOrBlank()) return denyArm("unknown target package")
+        if (PrivacyPreferences.isPackageExcluded(context, pkg)) return denyArm("package excluded")
+        if (injectedText.isBlank()) return denyArm("blank dictation")
+        if (confirmedFieldText.isBlank()) return denyArm("no confirmed post-paste field read")
+        // FieldTooLarge parity (monitor.rs:244-256).
+        if (confirmedFieldText.length > MAX_FIELD_CHARS) return denyArm("confirmed field too large")
+        // InjectedTextNotObserved parity (monitor.rs:257-273): arm only on a
+        // confirmed post-paste read that contains the exact injected text.
+        if (!confirmedFieldText.contains(injectedText)) {
+            return denyArm("injected text not observed in confirmed field")
+        }
+        beginSession(
+            AutoLearnSurface.BUBBLE,
+            baseline = confirmedFieldText.trim(),
+            windowId = windowId,
+            sessionPackage = pkg,
+            context = context
+        )
+        return true
+    }
+
+    private fun denyArm(reason: String): Boolean {
+        Log.d(TAG, "auto-learn arm denied: $reason")
+        return false
+    }
+
+    /**
+     * [sessionPackage] is only set for bubble sessions (the IME surface
+     * derives it from onStartInput and keeps ownership); it becomes
+     * [targetPackage] so the per-update package-drift revalidation has a
+     * session-identity to compare against.
+     */
+    private fun beginSession(
+        origin: AutoLearnSurface,
+        baseline: String,
+        windowId: Long?,
+        sessionPackage: String?,
+        context: Context
+    ) {
+        if (sessionPackage != null) targetPackage = sessionPackage
         // A new session owns the field now (Windows Superseded parity): the
         // previous session's pending input is dropped without an exit diff.
         synchronized(settleLock) {
@@ -152,17 +246,62 @@ object AutoLearnSessionManager {
             settleJob?.cancel()
             settleJob = null
             settlePendingText = null
-            lastExtractedText = committedText.trim()
+            lastExtractedText = baseline
         }
-        activeCommittedText = committedText.trim()
+        activeCommittedText = baseline
+        // The session begins privacy-UP: both callers guarantee the field
+        // passed the gate, and a previous security exit leaves this flag
+        // false until here - an armed session must always observe, and a
+        // later close must always be able to run its regular flush.
+        isPrivacyAllowed = true
+        sessionOrigin = origin
+        sessionWindowId = windowId
         sessionContext = context
         disposeSessionScope()
         resetSessionStateLocked()
         sessionScope = newSessionScope()
-        Log.d(TAG, "Started observation session")
+        scheduleSessionTimeout()
+        Log.d(TAG, "Started observation session ($origin)")
     }
 
-    fun onTextUpdated(currentTextAroundCursor: String, context: Context) {
+    /** Windows timeout parity (monitor.rs:371-376): the session's own regular close. */
+    private fun scheduleSessionTimeout() {
+        val scope = sessionScope ?: return
+        scope.launch {
+            delay(timeoutDelayMs())
+            endSessionInternal(requestingOrigin = null)
+        }
+    }
+
+    fun onTextUpdated(
+        currentTextAroundCursor: String,
+        context: Context,
+        field: AutoLearnFieldSnapshot? = null
+    ) {
+        // Windows SecureFieldDetected per-read parity (monitor.rs:502-505):
+        // every observed read carries the current field identity and
+        // positive downgrade evidence exits WITHOUT the exit diff -
+        // whatever surface owns the session (security exits are
+        // origin-agnostic). Unknown metadata does NOT exit a running
+        // session (no positive evidence); the fail-closed rule governs
+        // arming, not mid-flight observation.
+        if (field != null) {
+            val packageMismatch = !field.packageName.isNullOrBlank() &&
+                targetPackage != null &&
+                field.packageName != targetPackage
+            val packageExcluded = PrivacyPreferences.isPackageExcluded(
+                context, field.packageName ?: targetPackage
+            )
+            if (field.isPassword == true || field.isNullInputType == true ||
+                field.noPersonalizedLearning == true || packageMismatch || packageExcluded
+            ) {
+                // Revoke FIRST so the close below is a security-equivalent
+                // exit and the final-diff flush stays suppressed.
+                isPrivacyAllowed = false
+                endSession()
+                return
+            }
+        }
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
             // Revoke FIRST so the close below is a security-equivalent exit
             // and the final-diff flush stays suppressed.
@@ -308,7 +447,21 @@ object AutoLearnSessionManager {
         return true
     }
 
-    fun endSession() {
+    fun endSession(origin: AutoLearnSurface = AutoLearnSurface.IME) {
+        endSessionInternal(requestingOrigin = origin)
+    }
+
+    /**
+     * [requestingOrigin] = null marks the session's own authoritative
+     * close (timeout) or a cross-surface security exit: the flush runs when
+     * privacy is still up. A REGULAR close from the OTHER surface cannot
+     * flush pending state that surface could not observe (review
+     * requirement: AOSP `InputMethodService.doFinishInput()` finishes views
+     * BEFORE the next target starts, so the next field's security posture
+     * is unknowable at that moment - Windows closes the session it
+     * observes, not another session).
+     */
+    private fun endSessionInternal(requestingOrigin: AutoLearnSurface?) {
         // Windows final diff (monitor.rs:515-548): a regular close with
         // un-settled observed input classifies the final state once
         // (FocusChanged/Timeout parity). Security/privacy-equivalent exits
@@ -319,7 +472,11 @@ object AutoLearnSessionManager {
         val flushTarget: String? = synchronized(settleLock) {
             val committed = activeCommittedText
             val pending = settlePendingText
-            if (isPrivacyAllowed && committed != null && pending != null && pending != lastExtractedText) {
+            val originAllowsFlush =
+                requestingOrigin == null || requestingOrigin == sessionOrigin
+            if (isPrivacyAllowed && originAllowsFlush &&
+                committed != null && pending != null && pending != lastExtractedText
+            ) {
                 pending
             } else {
                 null
@@ -346,6 +503,8 @@ object AutoLearnSessionManager {
         }
         targetPackage = null
         isPrivacyAllowed = false
+        sessionOrigin = AutoLearnSurface.IME
+        sessionWindowId = null
         synchronized(settleLock) {
             settlePendingText = null
             lastExtractedText = null
