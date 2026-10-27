@@ -26,11 +26,16 @@ class AutoLearnSessionManagerTest {
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
     }
 
+    // Node-derived reality: accessibility snapshots can never carry the
+    // IMF-contract members (no personalized learning flag / trustworthy
+    // inputType), so they stay null (unknown) - see
+    // AutoLearnFieldSnapshot.isObservationAllowedForBubble for the gate
+    // policy that tolerates these two while denying every read signal.
     private val bubbleSnapshot = AutoLearnFieldSnapshot(
         packageName = "com.example.app",
         isPassword = false,
-        isNullInputType = false,
-        noPersonalizedLearning = false
+        isNullInputType = null,
+        noPersonalizedLearning = null
     )
 
     @Before
@@ -373,22 +378,34 @@ class AutoLearnSessionManagerTest {
 
     @Test
     fun bubbleArmFailsClosedOnDeniedFieldRules() {
-        // Every privacy-relevant unknown or positive is a no-arm (review
+        // Positive security evidence always denies arming (review
         // requirement: prefer a missed learning opportunity over ever
         // observing a password field). Rules run BEFORE package lookups.
         mockkObject(SuggestionRepository)
         val password = bubbleSnapshot.copy(isPassword = true)
         val nullType = bubbleSnapshot.copy(isNullInputType = true)
-        val unknownNoLearning = bubbleSnapshot.copy(noPersonalizedLearning = null)
         val flaggedNoLearning = bubbleSnapshot.copy(noPersonalizedLearning = true)
-        // EditorInfo-null mirror: everything unknown -> deny.
+        val passwordUnknown = bubbleSnapshot.copy(isPassword = null)
+        // An unknown password attribute denies identically (never assume
+        // a field is safe because metadata is missing).
         val everythingUnknown = AutoLearnFieldSnapshot(null, null, null, null)
         assertFalse(bubbleArm(snapshot = password))
         assertFalse(bubbleArm(snapshot = nullType))
-        assertFalse(bubbleArm(snapshot = unknownNoLearning))
         assertFalse(bubbleArm(snapshot = flaggedNoLearning))
+        assertFalse(bubbleArm(snapshot = passwordUnknown))
         assertFalse(bubbleArm(snapshot = everythingUnknown))
         coVerify(exactly = 0) { SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun bubbleArmAllowsUnknowableImfMetadata() {
+        // Documented Coverage A divergence: accessibility nodes can never
+        // report the IMF-contract metadata, so unknown (null) is tolerated
+        // at arming while every positive assertion denies (see the deny
+        // test above). Protection rests on the password read, the
+        // excluded-/target-package checks and per-update revocations.
+        stubLivePath()
+        assertTrue(bubbleArm())
     }
 
     @Test

@@ -38,16 +38,6 @@ object EditorInfoHelper {
     }
 
     /**
-     * Checks if AutoLearn observation is permitted.
-     * Respects IME_FLAG_NO_PERSONALIZED_LEARNING and field safety.
-     */
-    fun isAutoLearnAllowed(info: EditorInfo?): Boolean {
-        if (!isFieldSafeForVoice(info)) return false
-        val isNoLearning = ((info?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
-        return !isNoLearning
-    }
-
-    /**
      * Checks if the target field is a multiline text editor.
      */
     fun isMultiline(info: EditorInfo?): Boolean {

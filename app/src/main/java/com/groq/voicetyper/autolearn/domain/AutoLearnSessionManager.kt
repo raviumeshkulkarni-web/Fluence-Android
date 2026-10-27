@@ -195,7 +195,13 @@ object AutoLearnSessionManager {
         // Unlike the IME surface no onStartInput ran for this arm, so the
         // master toggle is re-checked here.
         if (!AutoLearnPreferences.isAutoLearnEnabled(context)) return denyArm("master toggle off")
-        if (!field.isObservationAllowedRest()) {
+        // Bubble-surface gate: positive security evidence (password /
+        // asserted TYPE_NULL / asserted no-learning) denies; the two
+        // IMF-contract members are unknowable over accessibility and are
+        // deliberately not required here (see AutoLearnFieldSnapshot -
+        // documented Coverage A divergence rather than a permanent
+        // fail-closed denial of all bubble coverage).
+        if (!field.isObservationAllowedForBubble()) {
             return denyArm("field rules deny (password/null-type/no-learning unknown or set)")
         }
         val pkg = field.packageName

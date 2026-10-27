@@ -12,7 +12,6 @@ class EditorInfoHelperTest {
     @Test
     fun `null EditorInfo is treated as unsafe`() {
         assertFalse(EditorInfoHelper.isFieldSafeForVoice(null))
-        assertFalse(EditorInfoHelper.isAutoLearnAllowed(null))
         assertFalse(EditorInfoHelper.isMultiline(null))
         assertEquals(EditorInfo.IME_ACTION_NONE, EditorInfoHelper.getActionId(null))
     }
@@ -73,13 +72,12 @@ class EditorInfoHelperTest {
     }
 
     @Test
-    fun `IME_FLAG_NO_PERSONALIZED_LEARNING allows voice but suspends AutoLearn`() {
+    fun `IME_FLAG_NO_PERSONALIZED_LEARNING stays safe for voice`() {
         val info = EditorInfo().apply {
             inputType = InputType.TYPE_CLASS_TEXT
             imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
         }
         assertTrue(EditorInfoHelper.isFieldSafeForVoice(info))
-        assertFalse(EditorInfoHelper.isAutoLearnAllowed(info))
     }
 
     @Test
