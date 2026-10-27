@@ -35,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
+import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.ime.EditorInfoHelper
 import com.groq.voicetyper.ime.ImeInputConnectionHelper
 import com.groq.voicetyper.ime.KeyboardPanelMode
@@ -461,7 +462,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         val textBefore = conn.getTextBeforeCursor(1000, 0)?.toString() ?: ""
         val textAfter = conn.getTextAfterCursor(1000, 0)?.toString() ?: ""
         val surroundingText = textBefore + textAfter
-        AutoLearnSessionManager.onTextUpdated(surroundingText, this)
+        AutoLearnSessionManager.onTextUpdated(
+            surroundingText,
+            this,
+            AutoLearnFieldSnapshot.fromEditorInfo(currentInputEditorInfo)
+        )
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -571,7 +576,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     }
 
     private fun isCurrentTargetAllowed(): Boolean {
-        return !PrivacyPreferences.isPackageExcluded(this, currentTargetPackage)
+        // Fail-closed (review must-fix): an unknown or blank target package
+        // can be neither verified against privacy exclusions nor trusted;
+        // no recording, delivery, command or auto-learn handling proceeds.
+        val pkg = currentTargetPackage
+        return !pkg.isNullOrBlank() && !PrivacyPreferences.isPackageExcluded(this, pkg)
     }
 
     private fun isOfflineModelReady(): Boolean {

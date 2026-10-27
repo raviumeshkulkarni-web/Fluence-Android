@@ -209,4 +209,47 @@ class FluenceAccessibilityServiceTest {
 
         assertTrue(FloatingBubblePreferences.isImeOnly(context))
     }
+
+    @Test
+    fun isAutoLearnAnchorFeed_matchesWindowAndPackageExactly() {
+        // The auto-learn observation feed flows only for the field the
+        // bubble is anchored to; every other event source keeps legacy
+        // handling (foreign-window churn must never revoke what it cannot see).
+        assertTrue(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app"
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 8, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app"
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.other",
+                anchorWindowId = 7, anchorPackage = "com.example.app"
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = null, sourcePackage = "com.example.app",
+                anchorWindowId = 7, anchorPackage = "com.example.app"
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = "com.example.app",
+                anchorWindowId = null, anchorPackage = "com.example.app"
+            )
+        )
+        assertFalse(
+            FluenceAccessibilityService.isAutoLearnAnchorFeed(
+                sourceWindowId = 7, sourcePackage = null,
+                anchorWindowId = 7, anchorPackage = "com.example.app"
+            )
+        )
+    }
 }

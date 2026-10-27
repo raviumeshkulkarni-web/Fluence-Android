@@ -13,6 +13,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
+import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 
 class FluenceAccessibilityService : AccessibilityService() {
 
@@ -65,6 +67,25 @@ class FluenceAccessibilityService : AccessibilityService() {
          */
         fun shouldSuppressGenericHide(recordingState: RecordingState): Boolean =
             recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING
+
+        /**
+         * Pure anchor-match decision for the auto-learn observation feed
+         * (unit-tested): an accessibility text event may feed the bubble
+         * surface's session only when its source IS the field the bubble is
+         * anchored to (same window AND same package). Everything else keeps
+         * the legacy event handling - foreign-window text churn must never
+         * revoke a session it cannot see (Windows closes the session whose
+         * field it observes, never another one).
+         */
+        fun isAutoLearnAnchorFeed(
+            sourceWindowId: Int?,
+            sourcePackage: String?,
+            anchorWindowId: Int?,
+            anchorPackage: String?
+        ): Boolean =
+            sourceWindowId != null && anchorWindowId != null &&
+                sourceWindowId == anchorWindowId &&
+                sourcePackage != null && sourcePackage == anchorPackage
 
         /**
          * True when a node must never receive dictation output. Mirrors the
@@ -225,11 +246,23 @@ class FluenceAccessibilityService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                // Text changed in a view — the user is typing or voice text was
-                // injected. Keep the bubble visible if there's a focused editable.
-                val source = event.source
-                if (source != null && isEditableTextField(source)) {
-                    BubbleController.showBubble(this, source)
+                // Text changed in a view — the user is typing or voice text
+                // was injected. While a bubble observation is live, this IS
+                // the per-update feed: full-field text plus the CURRENT
+                // snapshot flow to the session manager (per-update preamble
+                // revokes first on positive security evidence). Other events
+                // keep the legacy show-refresh, now through the SAME gates
+                // as focus events - the old direct showBubble here skipped
+                // the secure-field and excluded-package checks entirely
+                // (review gap).
+                val source = event.source ?: return
+                if (feedBubbleAutoLearnObservation(source)) return
+                if (PrivacyPreferences.isPackageExcluded(this, source.packageName?.toString())) {
+                    BubbleController.suppressForPrivacy()
+                    return
+                }
+                if (isEditableTextField(source)) {
+                    gatedShowBubble(source)
                 }
             }
         }
@@ -238,6 +271,25 @@ class FluenceAccessibilityService : AccessibilityService() {
     // ────────────────────────────────────────────────────────────────────
     //  Focus Evaluation
     // ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Auto-learn observation feed for a live bubble session (Windows
+     * monitor per-read parity): the full field text plus the CURRENT field
+     * snapshot flow into the session manager, whose per-update preamble
+     * revokes first on positive security evidence (password / excluded /
+     * foreign package) before any diff can flush. Returns false when the
+     * event's source is not the field the bubble is anchored to.
+     */
+    private fun feedBubbleAutoLearnObservation(source: AccessibilityNodeInfo): Boolean {
+        if (!BubbleController.isAutoLearnAnchor(source)) return false
+        val snapshot = AutoLearnFieldSnapshot.fromAccessibilityNode(source)
+        AutoLearnSessionManager.onTextUpdated(
+            source.text?.toString().orEmpty(),
+            this,
+            snapshot
+        )
+        return true
+    }
 
     /**
      * Single choke point for "focus says show". Applies the opt-in IME gate:

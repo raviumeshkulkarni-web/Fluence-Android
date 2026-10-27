@@ -282,6 +282,21 @@ object BubbleController {
         }
     }
 
+    /**
+     * Auto-learn anchor identity check for the accessibility service's
+     * per-update feed: only the field the bubble is currently anchored to
+     * (same window AND same package) may feed a bubble-origin observation;
+     * every other event keeps its legacy handling so foreign-window churn
+     * can never revoke a session it cannot see.
+     */
+    internal fun isAutoLearnAnchor(source: AccessibilityNodeInfo): Boolean =
+        FluenceAccessibilityService.isAutoLearnAnchorFeed(
+            sourceWindowId = source.windowId,
+            sourcePackage = source.packageName?.toString(),
+            anchorWindowId = synchronized(nodeLock) { activeNode?.windowId },
+            anchorPackage = activeNodePackage()
+        )
+
     private fun isTargetAllowed(
         context: Context,
         targetPackage: String?,
