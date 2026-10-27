@@ -12,13 +12,17 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
+import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 import com.groq.voicetyper.offline.*
 
 object BubbleController {
@@ -30,6 +34,13 @@ object BubbleController {
 
     // Depth cap for the WebView ancestor walk used by the SET_TEXT classifier.
     private const val MAX_ANCESTOR_DEPTH = 25
+
+    // Auto-learn arm read-back (Windows parity: INITIAL_READ_ATTEMPTS = 4,
+    // INITIAL_READ_RETRY_DELAY_MS = 250 in monitor.rs). An injection only
+    // arms as a learn session after a refreshed field read confirms the
+    // exact injected text landed (arm-after-confirm).
+    private const val ARM_READBACK_ATTEMPTS = 4
+    private const val ARM_READBACK_DELAY_MS = 250L
 
     private val _isBubbleVisible = MutableStateFlow(false)
     val isBubbleVisible: StateFlow<Boolean> = _isBubbleVisible.asStateFlow()
@@ -111,7 +122,12 @@ object BubbleController {
      */
     private var activeNode: AccessibilityNodeInfo? = null
     private val nodeLock = Any()
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Test seam: controller-lifetime jobs (paste restore, auto-learn arm
+    // read-back) launch on the injected dispatcher in unit tests; the
+    // production path stays on the main-thread dispatcher.
+    internal var dispatcherOverride: CoroutineDispatcher? = null
+    private fun newScope(): CoroutineScope =
+        CoroutineScope((dispatcherOverride ?: Dispatchers.Main) + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val deferredStopService = Runnable {
@@ -180,6 +196,9 @@ object BubbleController {
      */
     fun suppressForPrivacy() {
         TranscriptionSessionManager.cancelPreWarm()
+        // Privacy-equivalent exit for the observation side as well: the
+        // excluded/secure surface must never flush pending learn state.
+        AutoLearnSessionManager.revokeAndEndForSecureField()
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
         if (recordingState.value == RecordingState.IDLE) {
@@ -213,6 +232,11 @@ object BubbleController {
             state == RecordingState.TRANSCRIBING && reason == CancelReason.PRIVACY_GUARD ->
                 applicationContext?.let { TranscriptionSessionManager.cancelRecording(it, reason) }
         }
+        // The bubble going away is a REGULAR close of a bubble-origin
+        // auto-learn session (flush when privacy is still up - monitor.rs
+        // FocusChanged parity). IME-origin sessions are deliberately left
+        // to their own surface's lifecycle; see endBubbleSessionIfAny.
+        AutoLearnSessionManager.endBubbleSessionIfAny()
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
         @Suppress("DEPRECATION")
@@ -293,6 +317,17 @@ object BubbleController {
         arguments: Bundle? = null
     ): Boolean {
         if (!isNodeTargetAllowed(context, node)) return false
+        // Choke point for every write reaching the bubble's target field
+        // (review must-fix: the previous secure-field check guarded only
+        // dictation insertion, so performReplaceText / performDeleteChars /
+        // performBackspace could still touch a password field through an
+        // agent command). A mid-session discovery on this path stays a
+        // privacy-equivalent exit: revoke-first, no final-diff flush.
+        if (FluenceAccessibilityService.isSecureInjectionTarget(node)) {
+            Log.w(TAG, "Refusing accessibility action on a secure field")
+            AutoLearnSessionManager.revokeAndEndForSecureField()
+            return false
+        }
         return if (arguments == null) {
             node.performAction(action)
         } else {
@@ -435,7 +470,58 @@ object BubbleController {
         }
     }
 
-    private fun pasteTextViaClipboard(context: Context, node: AccessibilityNodeInfo, textToPaste: String, fallback: () -> Unit) {
+    /**
+     * Windows parity for auto-learn arming (monitor.rs paste +
+     * INITIAL_READ_ATTEMPTS = 4 / INITIAL_READ_RETRY_DELAY_MS = 250): text
+     * was written into the field, but the session arms only after a
+     * refreshed read that CONTAINS the exact injected text (arm-after-
+     * confirm). If every attempt misses the injected text, no session is
+     * armed - a missed learning opportunity, never an unverified one. A
+     * read that discovers a secure field exits revoked-first instead.
+     */
+    private fun initiateAutoLearnArmConfirm(
+        context: Context,
+        node: AccessibilityNodeInfo,
+        injectedText: String
+    ) {
+        newScope().launch {
+            try {
+                var confirmedFullText: String? = null
+                for (attempt in 0 until ARM_READBACK_ATTEMPTS) {
+                    if (attempt > 0) delay(ARM_READBACK_DELAY_MS)
+                    val refreshed = try { node.refresh() } catch (_: Exception) { false }
+                    if (!refreshed) continue
+                    if (FluenceAccessibilityService.isSecureInjectionTarget(node)) {
+                        AutoLearnSessionManager.revokeAndEndForSecureField()
+                        return@launch
+                    }
+                    val fullText = node.text?.toString() ?: ""
+                    if (fullText.contains(injectedText)) {
+                        confirmedFullText = fullText
+                        break
+                    }
+                }
+                val confirmed = confirmedFullText ?: return@launch
+                AutoLearnSessionManager.armBubbleSession(
+                    field = AutoLearnFieldSnapshot.fromAccessibilityNode(node),
+                    windowId = node.windowId.toLong(),
+                    injectedText = injectedText,
+                    confirmedFieldText = confirmed,
+                    context = context
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "auto-learn arm read-back aborted", e)
+            }
+        }
+    }
+
+    private fun pasteTextViaClipboard(
+        context: Context,
+        node: AccessibilityNodeInfo,
+        textToPaste: String,
+        onPasteDelivered: (() -> Unit)? = null,
+        fallback: () -> Unit
+    ) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: run {
             fallback()
             return
@@ -463,10 +549,14 @@ object BubbleController {
                 fallback()
                 return
             }
+            // Delivered via paste: let the dictation caller arm its
+            // auto-learn read-back (arm-after-confirm; agent-command
+            // callers pass no hook and never arm).
+            onPasteDelivered?.invoke()
 
             // Only schedule delayed restore when paste succeeded —
             // gives the target app time to process the paste IPC before we swap the clipboard back.
-            scope.launch(Dispatchers.Main) {
+            newScope().launch {
                 try {
                     kotlinx.coroutines.delay(50)
                 } finally {
@@ -628,16 +718,21 @@ object BubbleController {
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selectionStart)
             selectBundle.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionEnd)
             performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle)
-            
+
             if (shouldPreferSetText(node, currentText) && !placeholderText) {
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
                     .toString()
                 val newCursorPos = selectionStart + textToInsert.length
-                if (trySetText(context, node, newText, newCursorPos)) return
+                if (trySetText(context, node, newText, newCursorPos)) {
+                    initiateAutoLearnArmConfirm(context, node, textToInsert)
+                    return
+                }
             }
 
-            pasteTextViaClipboard(context, node, textToInsert) {
+            pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
+                initiateAutoLearnArmConfirm(context, node, textToInsert)
+            }) {
                 if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
@@ -646,6 +741,7 @@ object BubbleController {
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
                 val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
                 if (success) {
+                    initiateAutoLearnArmConfirm(context, node, textToInsert)
                     val newCursorPos = selectionStart + textToInsert.length
                     val selectBundle2 = Bundle()
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, newCursorPos)
@@ -656,15 +752,23 @@ object BubbleController {
         } else {
             if (shouldPreferSetText(node, currentText) && !placeholderText) {
                 val newText = currentText.toString() + textToInsert
-                if (trySetText(context, node, newText, newText.length)) return
+                if (trySetText(context, node, newText, newText.length)) {
+                    initiateAutoLearnArmConfirm(context, node, textToInsert)
+                    return
+                }
             }
 
-            pasteTextViaClipboard(context, node, textToInsert) {
+            pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
+                initiateAutoLearnArmConfirm(context, node, textToInsert)
+            }) {
                 if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
                 val newText = currentText.toString() + textToInsert
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-                performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
+                if (success) {
+                    initiateAutoLearnArmConfirm(context, node, textToInsert)
+                }
             }
         }
     }

@@ -458,6 +458,34 @@ object AutoLearnSessionManager {
     }
 
     /**
+     * Bubble-surface lifecycle close. A REGULAR close only when the active
+     * session actually belongs to the bubble surface (Windows parity:
+     * monitor.rs closes the session whose field event it observed, never
+     * another one). A bubble hide event must never tear down an IME-origin
+     * session - cross-surface overreach would kill an IME observation the
+     * IME's own lifecycle should close (review requirement).
+     */
+    fun endBubbleSessionIfAny() {
+        if (activeCommittedText != null &&
+            sessionOrigin == AutoLearnSurface.BUBBLE
+        ) {
+            endSessionInternal(AutoLearnSurface.BUBBLE)
+        }
+    }
+
+    /**
+     * A bubble write path or a privacy suppression discovered that the
+     * surface is (or became) secure/excluded (review must-fix:
+     * revoke-first). Security exit: privacy down FIRST so the close
+     * suppresses the final-diff flush regardless of which surface owns
+     * the session; a no-op without an active session.
+     */
+    fun revokeAndEndForSecureField() {
+        isPrivacyAllowed = false
+        endSessionInternal(null)
+    }
+
+    /**
      * [requestingOrigin] = null marks the session's own authoritative
      * close (timeout) or a cross-surface security exit: the flush runs when
      * privacy is still up. A REGULAR close from the OTHER surface cannot
