@@ -353,4 +353,35 @@ class SuggestionRepositoryTest {
 
         unmockkAll()
     }
+
+    @Test
+    fun noChangeUnderPreservedKeepsSuggestionPendingAndAlreadyActiveStillAccepts() = runTest {
+        // Reviewer A round-3 blocker: under PRESERVED (the manual save path
+        // refused the phrase, e.g. over cap), NO_CHANGE means NO owning
+        // entry exists and nothing was written - deleting the suggestion
+        // would silently lose the confirmed correction. Only APPLIED or
+        // ALREADY_ACTIVE (the dictionary owns the rule) may retire the
+        // pending row.
+        mockkObject(DictionaryRepository)
+        mockkObject(SuggestionRepository)
+        every { SuggestionRepository.getDao(any()) } returns dao
+        val context = mockk<Context>(relaxed = true)
+        coEvery {
+            DictionaryRepository.saveEntry(any(), any(), any(), any())
+        } returns DictionaryRepository.SaveResult.PRESERVED
+
+        val lostRow = entry(31, "shunade", "Sinead")
+        coEvery { DictionaryRepository.applyCorrectionToExisting(any(), any(), any()) } returns
+            DictionaryRepository.ApplyOutcome.NO_CHANGE
+        assertEquals(false, SuggestionRepository.acceptSuggestion(context, lostRow))
+        coVerify(exactly = 0) { dao.delete(lostRow) }
+
+        val activeRow = entry(32, "shunade", "Sinead")
+        coEvery { DictionaryRepository.applyCorrectionToExisting(any(), any(), any()) } returns
+            DictionaryRepository.ApplyOutcome.ALREADY_ACTIVE
+        assertEquals(true, SuggestionRepository.acceptSuggestion(context, activeRow))
+        coVerify(exactly = 1) { dao.delete(activeRow) }
+
+        unmockkAll()
+    }
 }

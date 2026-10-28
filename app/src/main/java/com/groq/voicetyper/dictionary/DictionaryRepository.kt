@@ -330,8 +330,13 @@ object DictionaryRepository {
      * Reviewer A blocker A: a cap refusal must be distinguishable from
      * "already in that state" - otherwise acceptSuggestion reports success
      * for a correction it never wrote and silently deletes the suggestion.
+     * [ALREADY_ACTIVE] = a live owning entry already holds this exact text
+     * (safe to drop the pending suggestion); [NO_CHANGE] = nothing was
+     * applied at all (no owning entry exists - reachable when the manual
+     * save path refused the phrase, e.g. over cap), and the suggestion
+     * must stay pending.
      */
-    enum class ApplyOutcome { APPLIED, NO_CHANGE, REFUSED_CAP }
+    enum class ApplyOutcome { APPLIED, NO_CHANGE, REFUSED_CAP, ALREADY_ACTIVE }
 
     /**
      * Accept-resolution core (audit finding 1): re-enable the rule and apply
@@ -393,7 +398,11 @@ object DictionaryRepository {
             )
             return ApplyOutcome.APPLIED
         }
-        return ApplyOutcome.NO_CHANGE
+        // Live + enabled + identical text: the dictionary already owns the
+        // rule exactly as accepted. Distinct from NO_CHANGE (no owner at
+        // all) so the accept seam can drop the pending suggestion here
+        // while keeping it pending on a genuine "nothing was applied".
+        return ApplyOutcome.ALREADY_ACTIVE
     }
 
     internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null): Boolean {

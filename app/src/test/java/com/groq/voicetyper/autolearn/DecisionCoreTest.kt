@@ -75,6 +75,15 @@ class DecisionCoreTest {
         )
     }
 
+    @Test
+    fun tokenizeSplitsOnFullRustWhitespaceFamily() {
+        // Reviewer A round-3 note: the hand-rolled splitter must cover the
+        // whole NBSP family the Windows regex used to match - FIGURE SPACE
+        // (U+2007) and NARROW NO-BREAK SPACE (U+202F) included.
+        assertEquals(listOf("a", "b"), DecisionCore.tokenize("a\u2007b"))
+        assertEquals(listOf("a", "b"), DecisionCore.tokenize("a\u202Fb"))
+    }
+
     // -- editDistance ------------------------------------------------------
 
     @Test

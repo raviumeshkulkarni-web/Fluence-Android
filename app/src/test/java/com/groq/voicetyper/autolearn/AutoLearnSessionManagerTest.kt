@@ -271,6 +271,24 @@ class AutoLearnSessionManagerTest {
     }
 
     @Test
+    fun errorFailureAlsoFailsOpenWithoutCrashing() {
+        // Reviewer A round-3 note: on-device, a class-init Error escaped the
+        // Exception-only catch and killed the IME process (the
+        // UNICODE_CHARACTER_CLASS crash). The Throwable ladder in the
+        // settle path must swallow Errors too, not just Exceptions.
+        stubLivePath()
+        coEvery {
+            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        } throws AssertionError("simulated class-init Error")
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
+
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
+
+    @Test
     fun keystrokeBurstCollapsesIntoSingleSettledDiff() {
         // Windows SETTLED_POLLS parity (monitor.rs:77-82): intermediate
         // typing states must not become candidates - the burst collapses

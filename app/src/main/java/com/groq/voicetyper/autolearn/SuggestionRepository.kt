@@ -163,14 +163,19 @@ object SuggestionRepository {
             // correction to that entry so the suggestion isn't silently dropped.
             // Reviewer A blocker A: a cap refusal is NOT a success - the
             // suggestion stays pending instead of being deleted unapplied.
+            // Reviewer A round-3 blocker: NO_CHANGE (no owning entry exists
+            // at all - the save path refused the phrase, e.g. over cap)
+            // is equally NOT a success: deleting the suggestion would
+            // silently lose the confirmed correction with nothing stored.
             when (DictionaryRepository.applyCorrectionToExisting(
                 context = context,
                 spokenText = suggestion.spokenText,
                 correctedText = suggestion.correctedText
             )) {
-                DictionaryRepository.ApplyOutcome.REFUSED_CAP -> accepted = false
                 DictionaryRepository.ApplyOutcome.APPLIED -> Unit
-                DictionaryRepository.ApplyOutcome.NO_CHANGE -> Unit
+                DictionaryRepository.ApplyOutcome.ALREADY_ACTIVE -> Unit
+                DictionaryRepository.ApplyOutcome.REFUSED_CAP -> accepted = false
+                DictionaryRepository.ApplyOutcome.NO_CHANGE -> accepted = false
             }
         }
         // Remove from pending suggestions table
