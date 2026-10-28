@@ -26,7 +26,7 @@ object SuggestionRepository {
         }
     }
 
-    private fun getDao(context: Context): SuggestionDao {
+    internal fun getDao(context: Context): SuggestionDao {
         init(context)
         return dao!!
     }
@@ -149,7 +149,7 @@ object SuggestionRepository {
         return purgeInvalidPendingResolved(dao, knownPairKeys(context))
     }
 
-    suspend fun acceptSuggestion(context: Context, suggestion: SuggestionEntry) {
+    suspend fun acceptSuggestion(context: Context, suggestion: SuggestionEntry): Boolean {
         // Promote to Manual Custom Dictionary
         val result = DictionaryRepository.saveEntry(
             context = context,
@@ -157,17 +157,27 @@ object SuggestionRepository {
             replacementText = suggestion.correctedText,
             isEnabled = true
         )
+        var accepted = true
         if (result == DictionaryRepository.SaveResult.PRESERVED) {
             // A manual entry already owns this phrase. Apply the accepted
             // correction to that entry so the suggestion isn't silently dropped.
-            DictionaryRepository.applyCorrectionToExisting(
+            // Reviewer A blocker A: a cap refusal is NOT a success - the
+            // suggestion stays pending instead of being deleted unapplied.
+            when (DictionaryRepository.applyCorrectionToExisting(
                 context = context,
                 spokenText = suggestion.spokenText,
                 correctedText = suggestion.correctedText
-            )
+            )) {
+                DictionaryRepository.ApplyOutcome.REFUSED_CAP -> accepted = false
+                DictionaryRepository.ApplyOutcome.APPLIED -> Unit
+                DictionaryRepository.ApplyOutcome.NO_CHANGE -> Unit
+            }
         }
         // Remove from pending suggestions table
-        getDao(context).delete(suggestion)
+        if (accepted) {
+            getDao(context).delete(suggestion)
+        }
+        return accepted
     }
 
     suspend fun dismissSuggestion(context: Context, suggestion: SuggestionEntry) {

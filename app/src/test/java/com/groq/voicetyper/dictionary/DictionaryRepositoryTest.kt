@@ -1,6 +1,7 @@
 package com.groq.voicetyper.dictionary
 
 import android.content.Context
+import com.groq.voicetyper.autolearn.SuggestionRepository
 import com.groq.voicetyper.dictionary.data.CustomDictionaryDao
 import com.groq.voicetyper.dictionary.data.CustomDictionaryEntry
 import io.mockk.*
@@ -285,12 +286,7 @@ class DictionaryRepositoryTest {
         )
 
         val changed = DictionaryRepository.applyCorrectionToExistingResolved(dao, disabled, context, "Sinead")
-
-        assertEquals(true, changed)
-        val slot = slot<CustomDictionaryEntry>()
-        coVerify(exactly = 1) { dao.update(capture(slot)) }
-        assertEquals(true, slot.captured.isEnabled)
-        assertEquals("Sinead", slot.captured.replacementText)
+        assertEquals(DictionaryRepository.ApplyOutcome.APPLIED, changed)
 
         val revived = DictionaryRepository.applyCorrectionToExistingResolved(
             dao,
@@ -298,7 +294,60 @@ class DictionaryRepositoryTest {
             context,
             "Sinead"
         )
-        assertEquals(true, revived)
-        coVerify(exactly = 2) { dao.update(any()) }
+        assertEquals(DictionaryRepository.ApplyOutcome.APPLIED, revived)
+
+        val updates = mutableListOf<CustomDictionaryEntry>()
+        coVerify(exactly = 2) { dao.update(withArg { updates += it }) }
+        assertEquals(true, updates[0].isEnabled)
+        assertEquals("Sinead", updates[0].replacementText)
+        // Revive: the tombstone is actually cleared, not just "updated"
+        // (reviewer A claim 11 - the old test only pinned "an update ran").
+        assertEquals(null, updates[1].deletedAt)
+        assertEquals(true, updates[1].isEnabled)
+        assertEquals(true, updates[1].everPushed)
+        assertEquals("Sinead", updates[1].replacementText)
+    }
+
+    @Test
+    fun `applyCorrectionToExistingResolved refuses over-cap text without writes`() = runBlocking {
+        // Reviewer A blocker A: the cap guard must be observable so accept
+        // can keep the suggestion pending instead of deleting it unapplied.
+        val dao = mockk<CustomDictionaryDao>(relaxUnitFun = true)
+        val context = mockk<Context>(relaxed = true)
+
+        assertEquals(
+            DictionaryRepository.ApplyOutcome.REFUSED_CAP,
+            DictionaryRepository.applyCorrectionToExistingResolved(dao, tombstoned, context, "z".repeat(1001))
+        )
+        // Legacy pre-cap rows are refused on the spoken side too.
+        assertEquals(
+            DictionaryRepository.ApplyOutcome.REFUSED_CAP,
+            DictionaryRepository.applyCorrectionToExistingResolved(
+                dao, tombstoned.copy(spokenText = "w".repeat(201)), context, "ok"
+            )
+        )
+        coVerify(exactly = 0) { dao.update(any()) }
+    }
+
+    @Test
+    fun `deleteEntry dismisses the pair only when the delete lands`() = runBlocking {
+        // Reviewer A blocker B parity check at the public seam: the
+        // ownership-guarded delete controls deny memory (reviewer A claim 3).
+        val context = mockk<Context>(relaxed = true)
+        val entry = CustomDictionaryEntry(id = 3, spokenText = "shunade", replacementText = "Sinead")
+        mockkObject(DictionaryRepository)
+        mockkObject(SuggestionRepository)
+        every { DictionaryRepository.getDao(any()) } returns mockk(relaxed = true)
+        every { SuggestionRepository.getDao(any()) } returns mockk(relaxed = true)
+        coEvery { DictionaryRepository.deleteEntryResolved(any(), any(), any()) } returns false
+
+        DictionaryRepository.deleteEntry(context, entry)
+        coVerify(exactly = 0) { SuggestionRepository.dismissPairForDeletedEntry(any(), any(), any()) }
+
+        coEvery { DictionaryRepository.deleteEntryResolved(any(), any(), any()) } returns true
+        DictionaryRepository.deleteEntry(context, entry)
+        coVerify(exactly = 1) { SuggestionRepository.dismissPairForDeletedEntry(any(), any(), any()) }
+
+        unmockkAll()
     }
 }

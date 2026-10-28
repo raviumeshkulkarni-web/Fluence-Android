@@ -1,12 +1,18 @@
 package com.groq.voicetyper.autolearn
 
+import android.content.Context
 import com.groq.voicetyper.autolearn.data.SuggestionDao
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
 import com.groq.voicetyper.autolearn.data.SuggestionPairProjection
 import com.groq.voicetyper.autolearn.data.SuggestionStatus
+import com.groq.voicetyper.dictionary.DictionaryRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -295,5 +301,56 @@ class SuggestionRepositoryTest {
         assertEquals(1, dismissed)
         coVerify(exactly = 1) { dao.demotePending(4) }
         coVerify(exactly = 0) { dao.demotePending(5) }
+    }
+
+    @Test
+    fun purgeRunsGateBeforeAgeExpiry() = runTest {
+        // Windows order parity (suggestion.rs:746-779): the gate re-judge runs
+        // BEFORE the 30-day expiry sweep - a gate-garbage row must keep its
+        // gate-demotion provenance, not pick up expiry provenance first.
+        coEvery { dao.getPendingForPurge() } returns listOf(entry(1, "stuck", "agent"))
+        coEvery { dao.demotePending(1) } returns 1
+        coEvery { dao.demotePendingOlderThan(any()) } returns 0
+
+        val demoted = SuggestionRepository.purgeInvalidPendingResolved(
+            dao = dao,
+            knownPairKeys = emptySet(),
+            now = 1234L
+        )
+
+        assertEquals(1, demoted)
+        coVerifyOrder {
+            dao.getPendingForPurge()
+            dao.demotePending(1)
+            dao.demotePendingOlderThan(1234L - 30L * 24 * 60 * 60 * 1000)
+        }
+    }
+
+    @Test
+    fun overCapAcceptKeepsSuggestionRowAndReportsRefusal() = runTest {
+        // Reviewer A blocker A: a REFUSED_CAP apply must neither delete the
+        // suggestion (silent loss on an unapplied correction) nor let the UI
+        // report success.
+        mockkObject(DictionaryRepository)
+        mockkObject(SuggestionRepository)
+        every { SuggestionRepository.getDao(any()) } returns dao
+        val context = mockk<Context>(relaxed = true)
+        val suggestion = entry(21, "shunade", "Sinead")
+        coEvery {
+            DictionaryRepository.saveEntry(any(), any(), any(), any())
+        } returns DictionaryRepository.SaveResult.PRESERVED
+
+        coEvery { DictionaryRepository.applyCorrectionToExisting(any(), any(), any()) } returns
+            DictionaryRepository.ApplyOutcome.REFUSED_CAP
+        assertEquals(false, SuggestionRepository.acceptSuggestion(context, suggestion))
+        coVerify(exactly = 0) { dao.delete(any()) }
+
+        // An applied (or already-in-state) accept still removes the row.
+        coEvery { DictionaryRepository.applyCorrectionToExisting(any(), any(), any()) } returns
+            DictionaryRepository.ApplyOutcome.APPLIED
+        assertEquals(true, SuggestionRepository.acceptSuggestion(context, suggestion))
+        coVerify(exactly = 1) { dao.delete(suggestion) }
+
+        unmockkAll()
     }
 }

@@ -112,7 +112,7 @@ object DictionaryRepository {
         return cachedRules.get()
     }
 
-    private fun getDao(context: Context): CustomDictionaryDao {
+    internal fun getDao(context: Context): CustomDictionaryDao {
         init(context)
         return dao!!
     }
@@ -235,11 +235,16 @@ object DictionaryRepository {
                         com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(base.spokenText) !=
                         com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(trimmedSpoken)
                     ) {
-                        deleteEntryResolved(dao, base, context)
+                        val retired = deleteEntryResolved(dao, base, context)
                         // A rename retires the old rule: the retired pair also
                         // earns deny memory (Windows dictionary.rs:689-690 —
                         // the rename path deletes through the helper there).
-                        dismissSuggestionsForDeletedEntry(context, base.spokenText, base.replacementText)
+                        // Gated like the public deletes: an ownership-refused
+                        // rename must not dismiss current-account pairs
+                        // (reviewer A blocker B).
+                        if (retired) {
+                            dismissSuggestionsForDeletedEntry(context, base.spokenText, base.replacementText)
+                        }
                         val now = com.groq.voicetyper.sync.v1.MutationClock.next(context)
                         dao.insert(
                             CustomDictionaryEntry(
@@ -309,16 +314,24 @@ object DictionaryRepository {
      * disabled (audit finding 1) - the accept is an explicit activation of
      * the pair.
      */
-    suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
+    suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String): ApplyOutcome {
         val dao = getDao(context)
         val currentHash = runCatching {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
         }.getOrNull()
         val existing = currentHash?.let { findBySpokenKey(dao.getRowsForAccountOrUnowned(it), spokenText.trim()) }
             ?: findBySpokenKey(dao.getSyncRowsUnstamped(), spokenText.trim())
-            ?: return
-        applyCorrectionToExistingResolved(dao, existing, context, correctedText)
+            ?: return ApplyOutcome.NO_CHANGE
+        return applyCorrectionToExistingResolved(dao, existing, context, correctedText)
     }
+
+    /**
+     * Outcome of applying an accepted correction onto an owning entry.
+     * Reviewer A blocker A: a cap refusal must be distinguishable from
+     * "already in that state" - otherwise acceptSuggestion reports success
+     * for a correction it never wrote and silently deletes the suggestion.
+     */
+    enum class ApplyOutcome { APPLIED, NO_CHANGE, REFUSED_CAP }
 
     /**
      * Accept-resolution core (audit finding 1): re-enable the rule and apply
@@ -333,11 +346,11 @@ object DictionaryRepository {
         existing: CustomDictionaryEntry,
         context: Context,
         correctedText: String
-    ): Boolean {
+    ): ApplyOutcome {
         // Cap parity with the manual save path (audit finding 7): an accept
         // must never write an over-cap replacement through the apply seam.
         if (correctedText.trim().length > MAX_CORRECTED_CHARS || existing.spokenText.length > MAX_SPOKEN_CHARS) {
-            return false
+            return ApplyOutcome.REFUSED_CAP
         }
         if (existing.deletedAt == null && !existing.isEnabled) {
             dao.update(
@@ -350,7 +363,7 @@ object DictionaryRepository {
                     syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
                 )
             )
-            return true
+            return ApplyOutcome.APPLIED
         }
         if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
             dao.update(
@@ -363,7 +376,7 @@ object DictionaryRepository {
                     syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
                 )
             )
-            return true
+            return ApplyOutcome.APPLIED
         }
         if (existing.deletedAt != null) {
             dao.update(
@@ -378,9 +391,9 @@ object DictionaryRepository {
                     syncState = "dirty"
                 )
             )
-            return true
+            return ApplyOutcome.APPLIED
         }
-        return false
+        return ApplyOutcome.NO_CHANGE
     }
 
     internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null): Boolean {

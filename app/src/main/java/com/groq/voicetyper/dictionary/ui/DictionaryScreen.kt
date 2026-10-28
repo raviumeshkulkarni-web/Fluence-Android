@@ -651,6 +651,10 @@ private fun AddEditDictionaryDialog(
                         errorMessage = "Spoken phrase cannot be empty"
                     } else if (replacementText.isBlank()) {
                         errorMessage = "Replacement text cannot be empty"
+                    } else if (spokenText.length > DictionaryRepository.MAX_SPOKEN_CHARS) {
+                        errorMessage = "Spoken phrase cannot exceed 200 characters"
+                    } else if (replacementText.length > DictionaryRepository.MAX_CORRECTED_CHARS) {
+                        errorMessage = "Replacement text cannot exceed 1,000 characters"
                     } else {
                         onSave(spokenText.trim(), replacementText.trim())
                     }
