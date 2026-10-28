@@ -5,6 +5,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
@@ -64,6 +66,11 @@ fun PendingSuggestionsSection(
         ) {
             TriStateCheckbox(
                 state = triState,
+                // TalkBack parity (audit finding 9): announce what the bulk
+                // control operates on, not a bare "checkbox".
+                modifier = Modifier.semantics {
+                    contentDescription = "Select all suggestions"
+                },
                 onClick = {
                     selectedIds =
                         if (allSelected) emptySet()
@@ -215,6 +222,11 @@ private fun SuggestionRow(
         Checkbox(
             checked = selected,
             onCheckedChange = onToggleSelect,
+            // TalkBack parity (audit finding 9): the row checkbox announces
+            // the phrase pair it selects.
+            modifier = Modifier.semantics {
+                contentDescription = "Select suggestion ${suggestion.spokenText} -> ${suggestion.correctedText}"
+            },
             colors = CheckboxDefaults.colors(
                 checkedColor = colors.textPrimary,
                 checkmarkColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,

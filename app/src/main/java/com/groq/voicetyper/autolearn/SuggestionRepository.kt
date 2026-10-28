@@ -12,6 +12,12 @@ import kotlinx.coroutines.flow.Flow
 
 object SuggestionRepository {
     private const val TAG = "SuggestionRepo"
+
+    // 30-day stale-pending cutoff (Windows expire_stale_suggestions,
+    // suggestion.rs:767): a pending observation nobody accepted or dismissed
+    // must not survive forever.
+    private const val STALE_PENDING_DEVICE_MS = 30L * 24 * 60 * 60 * 1000
+
     private var dao: SuggestionDao? = null
 
     fun init(context: Context) {
@@ -92,7 +98,11 @@ object SuggestionRepository {
             return true
         }
         val canonicalKey = DecisionCore.canonicalPairKey(spoken, corrected)
-        val twin = dao.getAllRows()
+        // Bounded projection scan (audit finding 5): the pair identity is a
+        // Unicode-aware Kotlin fold that SQL LOWER() cannot reproduce, so the
+        // fold loop must stay in Kotlin - but it now reads slim projections
+        // instead of materializing every full row on the settle-gate hot path.
+        val twin = dao.listPairProjections()
             .firstOrNull {
                 DecisionCore.canonicalPairKey(it.spokenText, it.correctedText) == canonicalKey
             }
@@ -110,10 +120,17 @@ object SuggestionRepository {
      * EVERY pending row, demote rows that no longer pass the shared
      * gates). Demote keeps the row for diagnosis; idempotent because
      * re-running finds only still-valid rows left.
+     *
+     * Audit finding 2 (Windows parity): after the gate purge, new rows are
+     * also age-swept exactly like Windows `expire_stale_suggestions`
+     * (suggestion.rs:746-779) - purge FIRST, expire SECOND, so a >30-day-old
+     * garbage pending row is gate-purged before expiry can give it
+     * legitimate-looking Dismissed provenance.
      */
     internal suspend fun purgeInvalidPendingResolved(
         dao: SuggestionDao,
-        knownPairKeys: Set<String>
+        knownPairKeys: Set<String>,
+        now: Long = System.currentTimeMillis()
     ): Int {
         val pending = dao.getPendingForPurge()
         var demoted = 0
@@ -123,6 +140,7 @@ object SuggestionRepository {
             }
             demoted += dao.demotePending(row.id)
         }
+        demoted += dao.demotePendingOlderThan(now - STALE_PENDING_DEVICE_MS)
         return demoted
     }
 
@@ -171,6 +189,39 @@ object SuggestionRepository {
         suggestion: SuggestionEntry
     ): Int {
         return dao.demotePending(suggestion.id)
+    }
+
+    /**
+     * Windows delete-entry deny-memory parity (dictionary.rs:690/756 ->
+     * suggestion.rs:dismiss_matching_suggestions): removing the rule that
+     * covered a pair withdraws the user's permission for it, so matching
+     * pending rows are demoted to DISMISSED and can never auto-resurface.
+     * Pair matching is canonical (Unicode-aware), so case variants fold in.
+     * Android storage deletes ACCEPTED rows at accept time, so PENDING is
+     * the only reachable non-dismissed status. Callers never fail the
+     * dictionary delete when this throws (Windows caller logs and continues).
+     */
+    suspend fun dismissPairForDeletedEntry(context: Context, spokenText: String, correctedText: String) {
+        dismissPairResolved(getDao(context), spokenText, correctedText, System.currentTimeMillis())
+    }
+
+    internal suspend fun dismissPairResolved(
+        dao: SuggestionDao,
+        spokenText: String,
+        correctedText: String,
+        now: Long
+    ): Int {
+        val key = DecisionCore.canonicalPairKey(spokenText.trim(), correctedText.trim())
+        var dismissed = 0
+        for (row in dao.listPairProjections()) {
+            if (DecisionCore.canonicalPairKey(row.spokenText, row.correctedText) == key) {
+                dismissed += dao.demotePending(row.id)
+            }
+        }
+        if (dismissed > 0) {
+            Log.d(TAG, "dismissed $dismissed pending suggestion row(s) for deleted dictionary entry")
+        }
+        return dismissed
     }
 
     suspend fun clearAll(context: Context) {

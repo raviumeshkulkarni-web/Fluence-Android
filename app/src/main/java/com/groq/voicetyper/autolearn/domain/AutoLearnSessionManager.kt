@@ -236,7 +236,11 @@ object AutoLearnSessionManager {
         if (confirmedFieldText.length > MAX_FIELD_CHARS) return denyArm("confirmed field too large")
         // InjectedTextNotObserved parity (monitor.rs:257-273): arm only on a
         // confirmed post-paste read that contains the exact injected text.
-        if (!confirmedFieldText.contains(injectedText)) {
+        // Normalized BEFORE the check (audit finding 8): an app that trims
+        // the autospace off its own commit would otherwise fail-closed a
+        // valid arm, and the anchor span is the trimmed injection either way.
+        val cleanInjected = injectedText.trim()
+        if (!confirmedFieldText.contains(cleanInjected)) {
             return denyArm("injected text not observed in confirmed field")
         }
         beginSession(
@@ -248,7 +252,7 @@ object AutoLearnSessionManager {
             // Trimmed symmetrically with the baseline: the anchor must find
             // its own injection in the post-trim snapshot, and dictations
             // carry the autospace trailing space (BubbleController contract).
-            injectedText = injectedText.trim()
+            injectedText = cleanInjected
         )
         return true
     }
@@ -291,7 +295,9 @@ object AutoLearnSessionManager {
         isPrivacyAllowed = true
         sessionOrigin = origin
         sessionWindowId = windowId
-        sessionContext = context
+        // Application context only (audit finding 6): the singleton must not
+        // retain the IME service beyond the session.
+        sessionContext = context.applicationContext ?: context
         disposeSessionScope()
         resetSessionStateLocked()
         sessionScope = newSessionScope()
@@ -608,6 +614,9 @@ object AutoLearnSessionManager {
         sessionOrigin = AutoLearnSurface.IME
         sessionWindowId = null
         sessionInjectedText = null
+        // Teardown clears the context too - even an application context has
+        // no business surviving the session (audit finding 6).
+        sessionContext = null
         synchronized(settleLock) {
             settlePendingText = null
             lastExtractedText = null

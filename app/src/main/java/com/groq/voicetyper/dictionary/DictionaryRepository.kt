@@ -75,6 +75,13 @@ object DictionaryRepository {
         }
     }
 
+    // Windows parity (dictionary.rs:84-85): bounded rule text keeps the
+    // compiled-regex evaluation cheap and stops an arbitrary pasted blob
+    // from degrading transcription post-processing. Consumed by the manual
+    // entry dialog and by saveEntryResolved.
+    const val MAX_SPOKEN_CHARS = 200
+    const val MAX_CORRECTED_CHARS = 1_000
+
     fun updateCompiledCache(entries: List<CustomDictionaryEntry>) {
         val compiled = entries
             .filter { it.isEnabled && it.spokenText.isNotBlank() }
@@ -175,6 +182,11 @@ object DictionaryRepository {
         val trimmedSpoken = spokenText.trim()
         val trimmedReplacement = replacementText.trim()
         if (trimmedSpoken.isEmpty() || trimmedReplacement.isEmpty()) return SaveResult.PRESERVED
+        // Windows add/update validation parity (dictionary.rs:309-321):
+        // over-cap rule text is refused, never trimmed silently.
+        if (trimmedSpoken.length > MAX_SPOKEN_CHARS || trimmedReplacement.length > MAX_CORRECTED_CHARS) {
+            return SaveResult.PRESERVED
+        }
 
         val currentHash = runCatching {
             AccountHash.of(SyncAuthSession(context.applicationContext).accountEmail)
@@ -224,6 +236,10 @@ object DictionaryRepository {
                         com.groq.voicetyper.sync.v1.DictionaryRecord.businessKeyOf(trimmedSpoken)
                     ) {
                         deleteEntryResolved(dao, base, context)
+                        // A rename retires the old rule: the retired pair also
+                        // earns deny memory (Windows dictionary.rs:689-690 —
+                        // the rename path deletes through the helper there).
+                        dismissSuggestionsForDeletedEntry(context, base.spokenText, base.replacementText)
                         val now = com.groq.voicetyper.sync.v1.MutationClock.next(context)
                         dao.insert(
                             CustomDictionaryEntry(
@@ -289,7 +305,9 @@ object DictionaryRepository {
     /**
      * Applies an accepted autolearn correction onto the manual dictionary entry
      * that already owns the phrase, so accepting a suggestion never silently
-     * discards the corrected text.
+     * discards the corrected text AND never leaves the confirmed rule
+     * disabled (audit finding 1) - the accept is an explicit activation of
+     * the pair.
      */
     suspend fun applyCorrectionToExisting(context: Context, spokenText: String, correctedText: String) {
         val dao = getDao(context)
@@ -299,25 +317,78 @@ object DictionaryRepository {
         val existing = currentHash?.let { findBySpokenKey(dao.getRowsForAccountOrUnowned(it), spokenText.trim()) }
             ?: findBySpokenKey(dao.getSyncRowsUnstamped(), spokenText.trim())
             ?: return
-        if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
+        applyCorrectionToExistingResolved(dao, existing, context, correctedText)
+    }
+
+    /**
+     * Accept-resolution core (audit finding 1): re-enable the rule and apply
+     * the accepted replacement whenever either differs from the stored
+     * state. A tombstoned row is revived in place (same field-set as the
+     * manual save path's re-create branch) - otherwise a deleted rule would
+     * silently swallow a confirmed accept while the suggestion row already
+     * vanished ("Added to Custom Dictionary" with the rule still gone).
+     */
+    internal suspend fun applyCorrectionToExistingResolved(
+        dao: CustomDictionaryDao,
+        existing: CustomDictionaryEntry,
+        context: Context,
+        correctedText: String
+    ): Boolean {
+        // Cap parity with the manual save path (audit finding 7): an accept
+        // must never write an over-cap replacement through the apply seam.
+        if (correctedText.trim().length > MAX_CORRECTED_CHARS || existing.spokenText.length > MAX_SPOKEN_CHARS) {
+            return false
+        }
+        if (existing.deletedAt == null && !existing.isEnabled) {
             dao.update(
                 existing.copy(
                     replacementText = correctedText.trim(),
+                    isEnabled = true,
                     updatedAt = MutationClock.next(context),
                     deviceId = existing.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
                     dirty = true,
                     syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
                 )
             )
+            return true
         }
+        if (existing.deletedAt == null && existing.replacementText != correctedText.trim()) {
+            dao.update(
+                existing.copy(
+                    replacementText = correctedText.trim(),
+                    isEnabled = true,
+                    updatedAt = MutationClock.next(context),
+                    deviceId = existing.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                    dirty = true,
+                    syncState = if (existing.serverFileId != null) "dirty" else existing.syncState
+                )
+            )
+            return true
+        }
+        if (existing.deletedAt != null) {
+            dao.update(
+                existing.copy(
+                    replacementText = correctedText.trim(),
+                    isEnabled = true,
+                    deletedAt = null,
+                    updatedAt = MutationClock.next(context),
+                    deviceId = existing.deviceId ?: com.groq.voicetyper.sync.v1.DeviceIdProvider.getDeviceId(context),
+                    dirty = true,
+                    everPushed = true,
+                    syncState = "dirty"
+                )
+            )
+            return true
+        }
+        return false
     }
 
-    internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null) {
+    internal suspend fun deleteEntryResolved(dao: CustomDictionaryDao, entry: CustomDictionaryEntry, context: android.content.Context? = null): Boolean {
         // Ownership seam (D1a): a row owned by a DIFFERENT account must never be
         // mutated, even when a stale id reaches this path — `getById` is a
         // primary-key lookup and is not account-filtered. Unowned rows stay
         // actionable, matching the read filter: visible implies deletable.
-        if (!belongsToCurrentAccount(entry, SyncAccounts.currentAccountHash.value)) return
+        if (!belongsToCurrentAccount(entry, SyncAccounts.currentAccountHash.value)) return false
         if (entry.everPushed || entry.serverFileId != null) {
             // Pushed at least once → tombstone propagates the deletion.
             val now = if (context != null) com.groq.voicetyper.sync.v1.MutationClock.next(context) else System.currentTimeMillis()
@@ -337,19 +408,49 @@ object DictionaryRepository {
             // Never uploaded → nothing to propagate; remove locally.
             dao.delete(entry)
         }
+        return true
     }
 
-    internal suspend fun deleteByIdResolved(dao: CustomDictionaryDao, id: Long, context: Context? = null) {
-        val entry = dao.getById(id) ?: return
-        deleteEntryResolved(dao, entry, context)
+    internal suspend fun deleteByIdResolved(dao: CustomDictionaryDao, id: Long, context: Context? = null): Boolean {
+        val entry = dao.getById(id) ?: return false
+        return deleteEntryResolved(dao, entry, context)
     }
 
     suspend fun deleteEntry(context: Context, entry: CustomDictionaryEntry) {
-        deleteEntryResolved(getDao(context), entry, context)
+        // Dismissal only when the delete actually happened (reviewer A
+        // cross-check 3-b): the ownership guard can refuse a foreign row, and
+        // an un-deleted entry must never dismiss current-account pairs.
+        val deleted = deleteEntryResolved(getDao(context), entry, context)
+        if (deleted) {
+            // Deny-memory parity (Windows delete -> suggestion.rs:690/756
+            // dismiss_matching_suggestions): the user withdrew the rule for this
+            // pair, so matching pending suggestions are dismissed and can never
+            // auto-resurface (audit finding 3).
+            dismissSuggestionsForDeletedEntry(context, entry.spokenText, entry.replacementText)
+        }
     }
 
     suspend fun deleteById(context: Context, id: Long) {
-        deleteByIdResolved(getDao(context), id, context)
+        val dao = getDao(context)
+        val row = dao.getById(id) ?: return
+        val deleted = deleteByIdResolved(dao, id, context)
+        if (deleted) {
+            dismissSuggestionsForDeletedEntry(context, row.spokenText, row.replacementText)
+        }
+    }
+
+    /**
+     * Never fails the delete: a suggestion-side error logs and continues,
+     * exactly like the Windows caller (dictionary.rs dismiss call sites).
+     */
+    private suspend fun dismissSuggestionsForDeletedEntry(context: Context, spokenText: String, replacementText: String) {
+        runCatching {
+            com.groq.voicetyper.autolearn.SuggestionRepository.dismissPairForDeletedEntry(
+                context, spokenText, replacementText
+            )
+        }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+        }
     }
 
     internal fun belongsToCurrentAccount(entry: CustomDictionaryEntry, hash: String?): Boolean =

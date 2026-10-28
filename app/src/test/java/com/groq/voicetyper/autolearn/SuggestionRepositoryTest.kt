@@ -2,6 +2,7 @@ package com.groq.voicetyper.autolearn
 
 import com.groq.voicetyper.autolearn.data.SuggestionDao
 import com.groq.voicetyper.autolearn.data.SuggestionEntry
+import com.groq.voicetyper.autolearn.data.SuggestionPairProjection
 import com.groq.voicetyper.autolearn.data.SuggestionStatus
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -74,7 +75,7 @@ class SuggestionRepositoryTest {
     @Test
     fun freshPairUpserts() = runTest {
         coEvery { dao.findByPair("shunade", "Sinead") } returns null
-        coEvery { dao.getAllRows() } returns emptyList()
+        coEvery { dao.listPairProjections() } returns emptyList()
 
         val result = SuggestionRepository.recordCandidateResolved(
             dao = dao,
@@ -92,7 +93,7 @@ class SuggestionRepositoryTest {
     @Test
     fun casingVariantFoldsIntoPendingTwinByCanonicalKey() = runTest {
         coEvery { dao.findByPair("shunade", "SineAd") } returns null
-        coEvery { dao.getAllRows() } returns listOf(entry(7, "shunade", "Sinead"))
+        coEvery { dao.listPairProjections() } returns listOf(SuggestionPairProjection(7, "shunade", "Sinead"))
 
         val result = SuggestionRepository.recordCandidateResolved(
             dao = dao,
@@ -114,14 +115,8 @@ class SuggestionRepositoryTest {
         // (DISMISSED) pair bumps that row and stays hidden instead of
         // spawning a fresh PENDING row.
         coEvery { dao.findByPair("Shunade", "SineAd") } returns null
-        coEvery { dao.getAllRows() } returns listOf(
-            SuggestionEntry(
-                id = 11,
-                spokenText = "shunade",
-                correctedText = "Sinead",
-                frequency = 1,
-                status = SuggestionStatus.DISMISSED
-            )
+        coEvery { dao.listPairProjections() } returns listOf(
+            SuggestionPairProjection(11, "shunade", "Sinead")
         )
 
         val result = SuggestionRepository.recordCandidateResolved(
@@ -166,6 +161,7 @@ class SuggestionRepositoryTest {
             entry(5, "hello", "Hello") // case-only reject
         )
         coEvery { dao.demotePending(any()) } returns 1
+        coEvery { dao.demotePendingOlderThan(any()) } returns 0
 
         val demoted = SuggestionRepository.purgeInvalidPendingResolved(dao, emptySet())
 
@@ -185,6 +181,7 @@ class SuggestionRepositoryTest {
             entry(9, "stuck", "agent", frequency = 1)
         )
         coEvery { dao.demotePending(any()) } returns 1
+        coEvery { dao.demotePendingOlderThan(any()) } returns 0
 
         val demoted = SuggestionRepository.purgeInvalidPendingResolved(dao, emptySet())
 
@@ -205,6 +202,7 @@ class SuggestionRepositoryTest {
             entry(4, "SHUNADE", "SINEAD") // canonical fold: same known pair
         )
         coEvery { dao.demotePending(any()) } returns 1
+        coEvery { dao.demotePendingOlderThan(any()) } returns 0
 
         val demoted = SuggestionRepository.purgeInvalidPendingResolved(dao, known)
 
@@ -221,6 +219,7 @@ class SuggestionRepositoryTest {
             entry(6, "shunade", "Sinead"),
             entry(7, "cool", "Good")
         )
+        coEvery { dao.demotePendingOlderThan(any()) } returns 0
 
         val demoted = SuggestionRepository.purgeInvalidPendingResolved(dao, emptySet())
 
@@ -261,5 +260,40 @@ class SuggestionRepositoryTest {
 
         assertEquals(0, demoted)
         coVerify(exactly = 0) { dao.delete(any()) }
+    }
+
+    @Test
+    fun stalePendingRowsOlderThan30DaysAreExpiredAfterGatePurge() = runTest {
+        // Windows expire_stale_suggestions parity (suggestion.rs:746-779):
+        // gate purge runs FIRST, then the 30-day lastSeenAt sweep.
+        coEvery { dao.getPendingForPurge() } returns emptyList()
+        coEvery { dao.demotePendingOlderThan(1234L - 30L * 24 * 60 * 60 * 1000) } returns 2
+
+        val demoted = SuggestionRepository.purgeInvalidPendingResolved(
+            dao = dao,
+            knownPairKeys = emptySet(),
+            now = 1234L
+        )
+
+        assertEquals(2, demoted)
+        coVerify(exactly = 1) { dao.demotePendingOlderThan(1234L - 30L * 24 * 60 * 60 * 1000) }
+    }
+
+    @Test
+    fun dismissPairForDeletedEntryFoldsCanonicalCaseVariants() = runTest {
+        // Windows dismiss_matching_suggestions parity (suggestion.rs:576-597):
+        // pair-scoped deny memory on canonical identity - a case variant of
+        // the deleted rule's pair is demoted, unrelated pairs untouched.
+        coEvery { dao.listPairProjections() } returns listOf(
+            SuggestionPairProjection(4, "SHUNADE", "Sinead"),
+            SuggestionPairProjection(5, "unrelated", "other")
+        )
+        coEvery { dao.demotePending(4) } returns 1
+
+        val dismissed = SuggestionRepository.dismissPairResolved(dao, "shunade", "SineAd", 99L)
+
+        assertEquals(1, dismissed)
+        coVerify(exactly = 1) { dao.demotePending(4) }
+        coVerify(exactly = 0) { dao.demotePending(5) }
     }
 }

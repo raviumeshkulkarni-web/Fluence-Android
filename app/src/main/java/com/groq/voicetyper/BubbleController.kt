@@ -567,6 +567,10 @@ object BubbleController {
         cancelAutoLearnArmConfirm()
         autoLearnArmJob = newScope().launch {
             try {
+                // Trim the autospace the injection appended (audit finding 8):
+                // an app that trims it at commit would otherwise fail every
+                // read-back before the manager's own normalized gate runs.
+                val cleanInjection = injectedText.trim()
                 var confirmedFullText: String? = null
                 for (attempt in 0 until ARM_READBACK_ATTEMPTS) {
                     if (attempt > 0) delay(ARM_READBACK_DELAY_MS)
@@ -577,7 +581,7 @@ object BubbleController {
                         return@launch
                     }
                     val fullText = node.text?.toString() ?: ""
-                    if (fullText.contains(injectedText)) {
+                    if (fullText.contains(cleanInjection)) {
                         confirmedFullText = fullText
                         break
                     }

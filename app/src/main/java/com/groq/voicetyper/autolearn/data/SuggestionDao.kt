@@ -27,6 +27,18 @@ interface SuggestionDao {
     @Query("SELECT * FROM suggestion_history WHERE spokenText = :spoken AND correctedText = :corrected LIMIT 1")
     suspend fun findByPair(spoken: String, corrected: String): SuggestionEntry?
 
+    /**
+     * Bounded canonical-twin lookup: pair identity is a Unicode-aware Kotlin
+     * fold (DecisionCore.canonicalPairKey), so it cannot be reproduced in
+     * SQLite `LOWER()` — but the projection keeps the fold loop off the full
+     * row (no frequency/status/timestamp fields materialized).
+     */
+    @Query("SELECT id, spokenText, correctedText FROM suggestion_history")
+    suspend fun listPairProjections(): List<SuggestionPairProjection>
+
+    @Query("UPDATE suggestion_history SET status = 'DISMISSED' WHERE status = 'PENDING' AND lastSeenAt < :cutoff")
+    suspend fun demotePendingOlderThan(cutoff: Long): Int
+
     @Query("INSERT INTO suggestion_history (spokenText, correctedText, frequency, status, createdAt, lastSeenAt) VALUES (:spoken, :corrected, 1, 'PENDING', :now, :now) ON CONFLICT(spokenText, correctedText) DO UPDATE SET frequency = suggestion_history.frequency + 1, lastSeenAt = :now")
     suspend fun upsertCandidate(spoken: String, corrected: String, now: Long = System.currentTimeMillis())
 
@@ -45,3 +57,10 @@ interface SuggestionDao {
     @Query("DELETE FROM suggestion_history")
     suspend fun deleteAll()
 }
+
+/** Slim pair projection for canonical scanning (see [SuggestionDao.listPairProjections]). */
+data class SuggestionPairProjection(
+    val id: Long,
+    val spokenText: String,
+    val correctedText: String
+)

@@ -728,4 +728,23 @@ class AutoLearnSessionManagerTest {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
     }
+
+    @Test
+    fun armToleratesAppTrimmedTrailingAutospace() {
+        // Audit finding 8: the arm gate normalizes before checking, so an
+        // app that trims the injection's trailing autospace off its own
+        // commit still arms (fail-closed preferred, but never over-denied).
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+        assertTrue(bubbleArm(injected = "I went to the shunade ", confirmed = "I went to the shunade"))
+
+        AutoLearnSessionManager.onTextUpdated(
+            "I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
+        AutoLearnSessionManager.endBubbleSessionIfAny()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
 }

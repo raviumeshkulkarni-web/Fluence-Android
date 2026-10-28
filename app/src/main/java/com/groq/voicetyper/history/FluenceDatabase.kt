@@ -19,7 +19,7 @@ import com.groq.voicetyper.sync.v1.SyncMetadataDao
 
 @Database(
     entities = [TranscriptionEntry::class, CustomDictionaryEntry::class, SuggestionEntry::class, DailyStat::class, SyncFileCache::class, DictationIncrement::class, DeviceMetaEntry::class, AccountDailyStat::class, StatSyncEntry::class, SyncMetadata::class],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class FluenceDatabase : RoomDatabase() {
@@ -296,6 +296,20 @@ abstract class FluenceDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Same detached-index rationale as MIGRATION_13_14, applied to
+                // the pending-suggestion read path: dismissed rows are kept
+                // forever as deny memory, so suggestion_history grows without
+                // bound and the pending-list query (status filter + two-column
+                // sort) degrades into a full SCAN + sort. Additive, idempotent.
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_suggestion_history_status_frequency_lastSeenAt` " +
+                        "ON `suggestion_history` (`status`, `frequency`, `lastSeenAt`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): FluenceDatabase {
             return INSTANCE ?: synchronized(this) {
                 // Do NOT re-add allowMainThreadQueries — Room will throw
@@ -305,7 +319,7 @@ abstract class FluenceDatabase : RoomDatabase() {
                     FluenceDatabase::class.java,
                     "fluence_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -22,7 +22,7 @@ previously described nowhere.
 | Session dedup (one observation per canonical pair per session) | `auto_learn/monitor.rs` | `AutoLearnSessionManager.sessionPairKeys` |
 | Settle gate + exit final diff | monitor.rs `SETTLED_POLLS` + final diff | `AutoLearnSessionManager` settle timer + `endSession` flush |
 | Pending suggestions for human review | `suggestion.rs` (local JSON store; `dismiss_suggestion` keeps the row as Dismissed "deny memory"; `accept_suggestion` marks it Accepted for analytics/undo) | Room `suggestion_history` surfaced by `SuggestionRepository` (`PENDING` rows only; dismiss demotes to a sticky `DISMISSED`; accept promotes the pair to the dictionary and removes the row) |
-| Stale-pending purge (re-judge all pending, demote) | `suggestion.rs::purge_invalid_suggestions` | `SuggestionRepository.purgeInvalidPendingResolved` |
+| Stale-pending purge (re-judge all pending, demote) | `suggestion.rs::purge_invalid_suggestions` (`expire_stale_suggestions` follows with a 30-day sweep) | `SuggestionRepository.purgeInvalidPendingResolved` (gate re-judge + 30-day expiry) |
 | Session manager (arm, supersede, origin close, timeout, per-update revalidation) | `auto_learn/monitor.rs:234-376` | `AutoLearnSessionManager` |
 | Shared field gate (surface-at-rest, one implementation) | monitor field policy + IMF contract | `AutoLearnFieldSnapshot` (`isObservationAllowedRest` / `isObservationAllowedForBubble` / `fromEditorInfo` / `fromAccessibilityNode`) |
 | Bubble arming AFTER confirmed delivery (read-back) | monitor.rs `INITIAL_READ`/`InjectedTextNotObserved` parity | `BubbleController.initiateAutoLearnArmConfirm` → `AutoLearnSessionManager.armBubbleSession` |
@@ -133,9 +133,18 @@ suggestion-pipeline branch (injection null there).
 - Stale rows are demoted (`status = 'DISMISSED'`) not deleted, so
   regression analysis survives; user Dismiss demotes too (deny-memory
   parity with `dismiss_suggestion`, suggestion.rs:635-650) so the pair
-  cannot resurface as pending later. Accepted rows are removed after
+  cannot resurface as pending later. Dictionary delete and rename retire
+  the rule and dismiss the pair the same way (dictionary.rs:690/756
+  parity, gated on the delete actually landing past the ownership
+  guard). Accepted rows are removed after
   the dictionary promotion because the known-gate makes re-capture
   impossible.
+- Gate purge (re-judge, 3-4 minimum-length floors) is followed by the
+  30-day age sweep (`demotePendingOlderThan`, `expire_stale_suggestions`
+  parity, suggestion.rs:746-779); the pending query and the sweep are
+  covered by a `(status, frequency, lastSeenAt)` index. Rule text caps
+  match Windows (`MAX_SPOKEN_CHARS=200`, `MAX_CORRECTED_CHARS=1000`,
+  dictionary.rs:84-85) on both the manual save and the accept seam.
 - Settle gate (monitor.rs `SETTLED_POLLS` parity, event-model
   translation): classification runs only after the text stopped
   changing for 2 x 250 ms; a regular session close with un-settled

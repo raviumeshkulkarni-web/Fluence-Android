@@ -12,7 +12,14 @@ enum class SuggestionStatus {
 
 @Entity(
     tableName = "suggestion_history",
-    indices = [Index(value = ["spokenText", "correctedText"], unique = true)]
+    indices = [
+        Index(value = ["spokenText", "correctedText"], unique = true),
+        // Pending-list read path (WHERE status ORDER BY frequency, lastSeenAt)
+        // is indexed the same way transcription_history was (MIGRATION_13_14):
+        // dismissals are retained for deny memory, so the table is
+        // monotonic and an unindexed scan+sort degrades the UI.
+        Index(value = ["status", "frequency", "lastSeenAt"])
+    ]
 )
 data class SuggestionEntry(
     @PrimaryKey(autoGenerate = true)

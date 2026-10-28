@@ -243,4 +243,62 @@ class DictionaryRepositoryTest {
         assertEquals("Alpha 2", updated.captured.replacementText)
         coVerify(exactly = 0) { dao.insert(any()) }
     }
+
+    @Test
+    fun `saveEntryResolved refuses rule text over the Windows caps`() = runBlocking {
+        // dictionary.rs:84-85 / 309-321 parity: over-cap rule text is
+        // refused (PRESERVED = nothing changed), never trimmed silently.
+        val overCapDao = mockk<CustomDictionaryDao>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+
+        assertEquals(
+            DictionaryRepository.SaveResult.PRESERVED,
+            DictionaryRepository.saveEntryResolved(overCapDao, context, "x".repeat(201), "ok")
+        )
+        assertEquals(
+            DictionaryRepository.SaveResult.PRESERVED,
+            DictionaryRepository.saveEntryResolved(overCapDao, context, "ok", "y".repeat(1001))
+        )
+        coVerify(exactly = 0) { overCapDao.insert(any()) }
+        coVerify(exactly = 0) { overCapDao.update(any()) }
+
+        // At-cap rows take the regular path.
+        val atCapDao = mockk<CustomDictionaryDao>(relaxed = true)
+        assertEquals(
+            DictionaryRepository.SaveResult.INSERTED,
+            DictionaryRepository.saveEntryResolved(atCapDao, context, "a".repeat(200), "b".repeat(1000))
+        )
+        coVerify(exactly = 1) { atCapDao.insert(any()) }
+    }
+
+    @Test
+    fun `applyCorrectionToExistingResolved activates the stored rule`() = runBlocking {
+        // Audit finding 1: a disabled rule with the SAME replacement text
+        // must still be re-enabled on accept; a tombstoned rule is revived.
+        val dao = mockk<CustomDictionaryDao>(relaxUnitFun = true)
+        val context = mockk<Context>(relaxed = true)
+        val disabled = CustomDictionaryEntry(
+            id = 7,
+            spokenText = "shunade",
+            replacementText = "Sinead",
+            isEnabled = false
+        )
+
+        val changed = DictionaryRepository.applyCorrectionToExistingResolved(dao, disabled, context, "Sinead")
+
+        assertEquals(true, changed)
+        val slot = slot<CustomDictionaryEntry>()
+        coVerify(exactly = 1) { dao.update(capture(slot)) }
+        assertEquals(true, slot.captured.isEnabled)
+        assertEquals("Sinead", slot.captured.replacementText)
+
+        val revived = DictionaryRepository.applyCorrectionToExistingResolved(
+            dao,
+            disabled.copy(replacementText = "Sinead x", deletedAt = 123L),
+            context,
+            "Sinead"
+        )
+        assertEquals(true, revived)
+        coVerify(exactly = 2) { dao.update(any()) }
+    }
 }
