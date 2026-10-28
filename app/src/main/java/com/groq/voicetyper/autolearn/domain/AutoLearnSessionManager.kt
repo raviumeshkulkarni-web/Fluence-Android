@@ -473,6 +473,12 @@ object AutoLearnSessionManager {
             // Fail-open: a DAO failure (disk full, corrupt DB...) must
             // never crash the IME process (review round 2, must-fix 2).
             Log.w(TAG, "auto-learn observation aborted", e)
+        } catch (e: Throwable) {
+            // Fail-open for Errors too (device crash 2026-10-28: a class
+            // initializer error is an Error, not an Exception - the
+            // Exception-only ladder let it escape and kill the app process;
+            // an observation must never cost the host app its process).
+            Log.w(TAG, "auto-learn observation aborted (throwable)", e)
         }
     }
 
@@ -720,6 +726,10 @@ object AutoLearnSessionManager {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "final diff flush aborted", e)
+            } catch (e: Throwable) {
+                // Same Error-fail-open rationale as settleObservation: a
+                // flush must never kill the host process.
+                Log.w(TAG, "final diff flush aborted (throwable)", e)
             }
         }
     }

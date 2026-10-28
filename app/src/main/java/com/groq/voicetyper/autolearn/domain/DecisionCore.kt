@@ -1,7 +1,6 @@
 package com.groq.voicetyper.autolearn.domain
 
 import java.util.Locale
-import java.util.regex.Pattern
 
 /**
  * A learned spoken -> corrected candidate. Moved here (same package) from
@@ -42,10 +41,34 @@ object DecisionCore {
 
     private fun lowercaseWord(word: String): String = word.lowercase(Locale.ROOT)
 
-    // UNICODE_CHARACTER_CLASS so NBSP and other Unicode whitespace split
-    // like Rust `split_whitespace`; plain "\s+" would leave them glued to
-    // words. Still a JVM approximation of Rust `char::is_whitespace`.
-    private val wordSplit: Pattern = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS)
+    // Rust `split_whitespace` parity (White_Space property). Hand-rolled,
+    // NOT a regex: Android's java.util.regex rejects
+    // UNICODE_CHARACTER_CLASS (IllegalArgumentException at class init,
+    // device crash 2026-10-28) and plain "\s+" leaves NBSP-family glue
+    // attached to words. Kotlin's Char.isWhitespace covers White_Space
+    // except the three no-break spaces, which are added explicitly.
+    private fun isRustWhitespace(c: Char): Boolean =
+        c.isWhitespace() || c == '\u00A0' || c == '\u2007' || c == '\u202F'
+
+    private fun splitWhitespace(text: String): List<String> {
+        val out = ArrayList<String>()
+        var start = -1
+        var i = 0
+        val n = text.length
+        while (i < n) {
+            if (isRustWhitespace(text[i])) {
+                if (start >= 0) {
+                    out.add(text.substring(start, i))
+                    start = -1
+                }
+            } else if (start < 0) {
+                start = i
+            }
+            i++
+        }
+        if (start >= 0) out.add(text.substring(start))
+        return out
+    }
 
     /**
      * Canonical pair identity (Windows `dictionary::canonical_entry_key`).
@@ -82,7 +105,7 @@ object DecisionCore {
      * (`[^\p{L}\p{N}_]` per edge, matching Windows `tokenize`).
      */
     fun tokenize(text: String): List<String> {
-        return wordSplit.split(text)
+        return splitWhitespace(text)
             .map { w -> w.trimEdges() }
             .filter { w -> w.isNotEmpty() }
     }
