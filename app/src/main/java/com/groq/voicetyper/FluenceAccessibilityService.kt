@@ -492,8 +492,14 @@ class FluenceAccessibilityService : AccessibilityService() {
             // flight, the pill + focused node + foreground service form one
             // coupled unit; generic focus churn (Home swipe, app switch,
             // keyboard dismissal) must never tear it down mid-session - the
-            // IDLE collector re-evaluates after the session ends.
-            if (shouldSuppressGenericHide(BubbleController.recordingState.value)) {
+            // IDLE collector re-evaluates after the session ends. The armed
+            // observation needs the same protection after the recording has
+            // gone IDLE: device QA showed post-dictation churn re-entered
+            // here tens of ms after the arm and hid the pill (and the old
+            // close killed the session) before any update could settle.
+            if (shouldSuppressGenericHide(BubbleController.recordingState.value) ||
+                AutoLearnSessionManager.hasActiveBubbleSession()
+            ) {
                 return
             }
             BubbleController.hideBubble()

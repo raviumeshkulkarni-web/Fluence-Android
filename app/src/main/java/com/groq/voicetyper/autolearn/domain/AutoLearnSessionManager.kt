@@ -91,6 +91,15 @@ object AutoLearnSessionManager {
     @Volatile
     private var sessionWindowId: Long? = null
 
+    /**
+     * Captured at [beginSession] for bubble-origin sessions (null otherwise)
+     * so close-site revalidation can compare the incoming field identity
+     * without the IME surface's targetPackage churn: onStartInput rewrites
+     * targetPackage in-process while a bubble session may still be live.
+     */
+    @Volatile
+    private var bubbleSessionPackage: String? = null
+
     /** Captured at [startSession] so [endSession]'s exit diff keeps a context without changing the public signatures. */
     @Volatile
     private var sessionContext: Context? = null
@@ -295,6 +304,7 @@ object AutoLearnSessionManager {
         isPrivacyAllowed = true
         sessionOrigin = origin
         sessionWindowId = windowId
+        bubbleSessionPackage = if (origin == AutoLearnSurface.BUBBLE) sessionPackage else null
         // Application context only (audit finding 6): the singleton must not
         // retain the IME service beyond the session.
         sessionContext = context.applicationContext ?: context
@@ -540,6 +550,35 @@ object AutoLearnSessionManager {
     }
 
     /**
+     * True while a bubble-origin session is armed and observing. The pill's
+     * visibility is irrelevant to this predicate: device QA showed the
+     * post-dictation hide churn arrived tens of milliseconds after the arm,
+     * so close sites keyed on pill state killed a just-armed session before
+     * any correction could settle. Close sites must treat pill visibility
+     * churn as a no-op for the session.
+     */
+    fun hasActiveBubbleSession(): Boolean =
+        activeCommittedText != null && sessionOrigin == AutoLearnSurface.BUBBLE
+
+    /**
+     * True when showBubble is re-entered for the SAME field the live bubble
+     * session observes (window + package identity; bounds drift, IME inset
+     * and layout resizes are normal anchor resyncs, not field switches).
+     * Generic a11y re-evaluations fire repeatedly after a paste and each
+     * showBubble call must keep the observation growing instead of running
+     * the re-show swap-close. A different window (or package) still counts
+     * as a real field switch. Missed-learning for a second editable field
+     * sharing the same window+package is fail-closed by design: the feed's
+     * anchor-identity check drops its events instead of feeding a foreign
+     * baseline.
+     */
+    fun isSameFieldReShow(windowId: Long?, packageName: String?): Boolean {
+        if (!hasActiveBubbleSession()) return false
+        return sessionWindowId == windowId &&
+            (packageName == null || bubbleSessionPackage == packageName)
+    }
+
+    /**
      * A bubble write path or a privacy suppression discovered that the
      * surface is (or became) secure/excluded (review must-fix:
      * revoke-first). Security exit: privacy down FIRST so the close
@@ -613,6 +652,7 @@ object AutoLearnSessionManager {
         isPrivacyAllowed = false
         sessionOrigin = AutoLearnSurface.IME
         sessionWindowId = null
+        bubbleSessionPackage = null
         sessionInjectedText = null
         // Teardown clears the context too - even an application context has
         // no business surviving the session (audit finding 6).

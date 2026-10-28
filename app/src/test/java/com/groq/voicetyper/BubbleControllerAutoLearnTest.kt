@@ -265,23 +265,30 @@ class BubbleControllerAutoLearnTest {
     }
 
     @Test
-    fun bubbleHideClosesBubbleSessionButLeavesImeSessionAlive() {
+    fun genericHideKeepsBubbleSessionButLeavesImeSessionAlive() {
         stubLiveLearnPath()
         showBubbleFor(node)
 
-        // A bubble-origin session closes with the bubble (regular close).
+        // A bubble-origin session does NOT close with a generic hide (device
+        // QA fix): the session belongs to the field, not the pill - pills
+        // hide on post-dictation churn tens of ms after the arm, and a close
+        // there killed every observation before a correction could settle.
+        // Multi-token injection: single-token rewrites are vetoed by the
+        // LCS rewrite guard (DecisionCore contract, see the delivered test).
         assertTrue(AutoLearnSessionManager.armBubbleSession(
             field = bubbleSnapshot,
             windowId = 9L,
-            injectedText = "shunade",
-            confirmedFieldText = "I went to the shunade",
+            injectedText = "the shunade project ",
+            confirmedFieldText = "Report for the shunade project ",
             context = context
         ))
         BubbleController.hideBubble()
-        AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE)
+        AutoLearnSessionManager.onTextUpdated(
+            "Report for the Sinead project", context, bubbleSnapshot, origin = AutoLearnSurface.BUBBLE
+        )
         scheduler.advanceUntilIdle()
-        coVerify(exactly = 0) {
-            SuggestionRepository.recordCorrectionCandidate(any(), any(), any(), any())
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
 
         // An IME-origin session must survive generic bubble hide churn -
@@ -292,7 +299,7 @@ class BubbleControllerAutoLearnTest {
         BubbleController.hideBubble()
         AutoLearnSessionManager.onTextUpdated("I went to the Sinead", context)
         scheduler.advanceUntilIdle()
-        coVerify(exactly = 1) {
+        coVerify(exactly = 2) {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
     }
@@ -302,27 +309,62 @@ class BubbleControllerAutoLearnTest {
     }
 
     @Test
-    fun reShowClosesLiveBubbleSessionBeforeAnchorSwap() {
-        // Stage-6 must-fix (finding 3): a re-show swaps the anchor to the
-        // incoming field. The live session must be closed FIRST so the
-        // swapped anchor identity can never feed the old baseline.
+    fun sameFieldReShowKeepsLiveBubbleSession() {
+        // Device-QA fix: post-paste churn re-enters gatedShowBubble ->
+        // showBubble for the SAME field repeatedly. The old unconditional
+        // re-show close killed the just-armed session (Ended ~50 ms after
+        // Started) so no correction was ever recorded. Same anchor identity
+        // (same window, same package) must keep the observation running.
         stubLiveLearnPath()
         showBubbleFor(node)
         assertTrue(AutoLearnSessionManager.armBubbleSession(
             field = bubbleSnapshot,
-            windowId = 9L,
+            windowId = 5L,
+            injectedText = "the shunade project ",
+            confirmedFieldText = "Report for the shunade project ",
+            context = context
+        ))
+
+        // Same-field re-show churn (node cache returns the same node).
+        showBubbleFor(node)
+
+        // The observation still feeds: the settled correction is recorded
+        // (multi-token injection; single-token rewrites are vetoed by the
+        // LCS rewrite guard - see the delivered test's comment).
+        AutoLearnSessionManager.onTextUpdated(
+            "Report for the Sinead project", context, bubbleSnapshot,
+            origin = AutoLearnSurface.BUBBLE, windowId = 5L
+        )
+        scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
+        }
+    }
+
+    @Test
+    fun differentFieldReShowClosesLiveBubbleSessionBeforeAnchorSwap() {
+        // Stage-6 must-fix (finding 3), narrowed by the device-QA fix: a
+        // re-show that arrives for a DIFFERENT window still swaps the anchor
+        // to the incoming field, so the live session must be closed FIRST -
+        // the swapped anchor identity can never feed the old baseline.
+        stubLiveLearnPath()
+        showBubbleFor(node)
+        assertTrue(AutoLearnSessionManager.armBubbleSession(
+            field = bubbleSnapshot,
+            windowId = 5L,
             injectedText = "shunade",
             confirmedFieldText = "I went to the shunade",
             context = context
         ))
 
-        // Non-anchor editable churn reaches gatedShowBubble -> showBubble.
+        // A different field's focus flipped the anchor window.
+        every { node.windowId } returns 120
         showBubbleFor(node)
 
         // Even an update that would once have fed the old session is gone.
         AutoLearnSessionManager.onTextUpdated(
             "I went to the Sinead", context, bubbleSnapshot,
-            origin = AutoLearnSurface.BUBBLE, windowId = 9L
+            origin = AutoLearnSurface.BUBBLE, windowId = 5L
         )
         scheduler.advanceUntilIdle()
         coVerify(exactly = 0) {

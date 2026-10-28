@@ -747,4 +747,39 @@ class AutoLearnSessionManagerTest {
             SuggestionRepository.recordCorrectionCandidate(any(), "shunade", "Sinead", any())
         }
     }
+
+    @Test
+    fun bubbleSessionIdentityTracksArmAndClose() {
+        // Device-QA fix support: close sites consult the live bubble
+        // session's anchor identity (window + package) so a same-field pill
+        // re-show keeps the observation growing while a genuine field
+        // switch still swaps fail-closed, and nothing survives the close.
+        val testDispatcher = StandardTestDispatcher()
+        stubLivePath(testDispatcher, settleDelay = 500L)
+
+        // No session: nothing is live, re-show is never "same field".
+        assertFalse(AutoLearnSessionManager.hasActiveBubbleSession())
+        assertFalse(AutoLearnSessionManager.isSameFieldReShow(42L, "com.example.app"))
+
+        assertTrue(bubbleArm()) // windowId 42, package com.example.app
+        assertTrue(AutoLearnSessionManager.hasActiveBubbleSession())
+        assertTrue(AutoLearnSessionManager.isSameFieldReShow(42L, "com.example.app"))
+        // A null-derived incoming identifier is tolerated as the same
+        // package (bounds/bundle-less nodes); a different window is not.
+        assertTrue(AutoLearnSessionManager.isSameFieldReShow(42L, null))
+        assertFalse(AutoLearnSessionManager.isSameFieldReShow(99L, "com.example.app"))
+        assertFalse(AutoLearnSessionManager.isSameFieldReShow(42L, "com.example.other"))
+
+        // A different surface superseding the field clears the identity.
+        AutoLearnSessionManager.startSession("I went to the shunade", context)
+        assertFalse(AutoLearnSessionManager.hasActiveBubbleSession())
+        assertFalse(AutoLearnSessionManager.isSameFieldReShow(42L, "com.example.app"))
+
+        // A bubble re-arm restores it, and the session close clears it.
+        assertTrue(bubbleArm())
+        assertTrue(AutoLearnSessionManager.hasActiveBubbleSession())
+        AutoLearnSessionManager.endBubbleSessionIfAny()
+        assertFalse(AutoLearnSessionManager.hasActiveBubbleSession())
+        assertFalse(AutoLearnSessionManager.isSameFieldReShow(42L, "com.example.app"))
+    }
 }

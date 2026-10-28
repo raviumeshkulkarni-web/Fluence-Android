@@ -159,14 +159,24 @@ object BubbleController {
 
         applicationContext = context.applicationContext
 
-        // Stage-6 must-fix: a re-show swaps the pill's anchor to the
-        // incoming field. While a bubble-origin session is live, that swap
-        // IS a field switch - close the old session first (regular close,
-        // flush), so a sibling field whose events now match the swapped
-        // anchor identity can never feed the old baseline. Fail-closed on
-        // a same-field re-focus: a pending diff window is lost, never
-        // poisoned.
-        AutoLearnSessionManager.endBubbleSessionIfAny()
+        // Stage-6 must-fix (rewritten): a re-show swaps the pill's anchor to
+        // the incoming field. A DIFFERENT field still closes the old session
+        // first (regular close, flush) so the swapped anchor identity can
+        // never feed the old baseline - fail-closed on a genuine switch. But
+        // the same field re-enters here constantly: post-paste a11y churn and
+        // re-evaluations call showBubble within the settle window, and device
+        // QA showed each one used to kill the just-armed session (Ended ~50
+        // ms after Started) before any correction could settle. When the
+        // incoming anchor identity matches the live session's observation
+        // (same window, same package), keep the session growing and just
+        // re-show the pill. Fail-closed on an ambiguous identity.
+        if (!AutoLearnSessionManager.isSameFieldReShow(
+                node.windowId.toLong(),
+                node.packageName?.toString()
+            )
+        ) {
+            AutoLearnSessionManager.endBubbleSessionIfAny()
+        }
 
         // A bubble re-show within the defer window keeps the service alive.
         mainHandler.removeCallbacks(deferredStopService)
@@ -255,18 +265,21 @@ object BubbleController {
             state == RecordingState.TRANSCRIBING && reason == CancelReason.PRIVACY_GUARD ->
                 applicationContext?.let { TranscriptionSessionManager.cancelRecording(it, reason) }
         }
-        // Session close is reason-dependent (review fix 11): a
-        // PRIVACY_GUARD hide reports secure/excluded discovery - a
+        // Session close is reason-dependent (review fix 11 + device-QA fix):
+        // a PRIVACY_GUARD hide reports secure/excluded discovery - a
         // security-equivalent exit (monitor.rs SecureFieldDetected parity)
-        // that revokes FIRST so nothing pending can flush. Any other reason
-        // is a REGULAR close of a bubble-origin session (flush when privacy
-        // is still up - monitor.rs FocusChanged parity). IME-origin sessions
-        // are deliberately left to their own surface's lifecycle in both
-        // cases; see endBubbleSessionIfAny.
+        // that revokes FIRST so nothing pending can flush. A generic hide
+        // is NOT a field event: the session belongs to the field, not the
+        // pill - post-dictation hide churn arrived tens of ms after the arm
+        // in device QA and a regular close here killed the just-armed
+        // session before any correction could settle (Windows monitor
+        // closes on field events, never on UI visibility). The bubble
+        // session therefore closes on timeout, a real anchor swap (next
+        // showBubble), security revokes, or stopService (feature off) -
+        // never on generic hide churn. IME-origin sessions remain untouched
+        // here; review fix 12.
         if (reason == CancelReason.PRIVACY_GUARD) {
             AutoLearnSessionManager.revokeAndEndForSecureField()
-        } else {
-            AutoLearnSessionManager.endBubbleSessionIfAny()
         }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
@@ -300,6 +313,11 @@ object BubbleController {
      */
     fun stopService(context: Context) {
         hideBubble()
+        // Feature-off / accessibility destroyed: an authoritative regular
+        // close so the observation cannot outlive the feature toggle. A
+        // generic hide intentionally no longer closes (see hideBubble) -
+        // this is the one non-security hide path that still means "done".
+        AutoLearnSessionManager.endBubbleSessionIfAny()
         try {
             context.stopService(Intent(context, FloatingBubbleService::class.java))
         } catch (e: Exception) {
