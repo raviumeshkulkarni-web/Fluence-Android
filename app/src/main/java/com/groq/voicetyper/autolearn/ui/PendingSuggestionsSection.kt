@@ -172,19 +172,19 @@ fun PendingSuggestionsSection(
                         onClick = {
                             if (!accepting) {
                                 accepting = true
-                                    scope.launch {
-                                        try {
-                                            val applied = SuggestionRepository.acceptSuggestion(context, suggestion)
-                                            if (applied) {
-                                                FeedbackBus.show("Added to Custom Dictionary")
-                                            } else {
-                                                FeedbackBus.show("Can't add: rule text is over the 200 / 1000 character limit")
-                                            }
-                                        } finally {
-                                            accepting = false
-                                            pendingAccept = null
+                                scope.launch {
+                                    try {
+                                        val applied = SuggestionRepository.acceptSuggestion(context, suggestion)
+                                        if (applied) {
+                                            FeedbackBus.show("Added to Custom Dictionary")
+                                        } else {
+                                            FeedbackBus.show("Can't add: rule text is over the 200 / 1000 character limit")
                                         }
+                                    } finally {
+                                        accepting = false
+                                        pendingAccept = null
                                     }
+                                }
                             }
                         },
                         enabled = !accepting
