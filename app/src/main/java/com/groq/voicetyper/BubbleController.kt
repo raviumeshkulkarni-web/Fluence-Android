@@ -29,6 +29,8 @@ import com.groq.voicetyper.offline.*
 object BubbleController {
     private const val TAG = "BubbleController"
 
+    private enum class InjectionOutcome { DELIVERED, FAILED, SECURE_REFUSED }
+
     // Defer stopService so an accessibility show/hide flap can't race an in-flight
     // startForeground() (crashes with ForegroundServiceDidNotStartInTimeException).
     private const val STOP_SERVICE_DELAY_MS = 1500L
@@ -453,7 +455,9 @@ object BubbleController {
                 override fun onTranscription(text: String) {
                     mainHandler.post {
                         if (!PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
-                            injectText(context, "$text ")
+                            if (injectTextOutcome(context, "$text ") == InjectionOutcome.FAILED) {
+                                rescueTranscriptToClipboard(context, text)
+                            }
                         }
                         _isBubbleExpanded.value = false
                     }
@@ -623,12 +627,10 @@ object BubbleController {
         node: AccessibilityNodeInfo,
         textToPaste: String,
         onPasteDelivered: (() -> Unit)? = null,
-        fallback: () -> Unit
-    ) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: run {
-            fallback()
-            return
-        }
+        fallback: () -> Boolean
+    ): Boolean {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            ?: return fallback()
 
         // Capture the original clip up front so every path below can restore it.
         val primaryClip = try {
@@ -639,18 +641,17 @@ object BubbleController {
         }
 
         try {
-            if (!isNodeTargetAllowed(context, node)) return
+            if (!isNodeTargetAllowed(context, node)) return false
             clipboard.setPrimaryClip(ClipData.newPlainText("voice_input", textToPaste))
             if (!isNodeTargetAllowed(context, node)) {
                 restoreClipboard(clipboard, primaryClip)
-                return
+                return false
             }
             val success = performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_PASTE)
             if (!success) {
                 Log.w(TAG, "ACTION_PASTE returned false, restoring clipboard and running fallback")
                 restoreClipboard(clipboard, primaryClip)
-                fallback()
-                return
+                return fallback()
             }
             // Delivered via paste: let the dictation caller arm its
             // auto-learn read-back (arm-after-confirm; agent-command
@@ -666,12 +667,13 @@ object BubbleController {
                     restoreClipboard(clipboard, primaryClip)
                 }
             }
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error in pasteTextViaClipboard", e)
             // The clip was swapped to the transcription; always restore it, even on
             // failure, so the transcription never lingers in the system clipboard.
             restoreClipboard(clipboard, primaryClip)
-            fallback()
+            return fallback()
         }
     }
 
@@ -787,11 +789,15 @@ object BubbleController {
 
     /**
      * Injects text into the active node at the current cursor position.
+     * Returns true only when ACTION_SET_TEXT or ACTION_PASTE reported success.
      */
-    fun injectText(context: Context, text: String) {
-        if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return
-        val node = synchronized(nodeLock) { activeNode } ?: return
-        if (!isNodeTargetAllowed(context, node)) return
+    fun injectText(context: Context, text: String): Boolean =
+        injectTextOutcome(context, text) == InjectionOutcome.DELIVERED
+
+    private fun injectTextOutcome(context: Context, text: String): InjectionOutcome {
+        if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return InjectionOutcome.FAILED
+        val node = synchronized(nodeLock) { activeNode } ?: return InjectionOutcome.FAILED
+        if (!isNodeTargetAllowed(context, node)) return InjectionOutcome.FAILED
 
         // Attempt to refresh the node to get up-to-date text/cursor state.
         // If refresh fails (common in WebViews or after window changes), we
@@ -800,7 +806,7 @@ object BubbleController {
         if (!refreshed) {
             Log.w(TAG, "Node refresh returned false — attempting injection anyway")
         }
-        if (!isNodeTargetAllowed(context, node)) return
+        if (!isNodeTargetAllowed(context, node)) return InjectionOutcome.FAILED
         // Defense in depth: the bubble is never shown over a secure field, but
         // a mid-session focus change could surface this node though other
         // paths. Injection into a password field is forbidden outright.
@@ -810,7 +816,7 @@ object BubbleController {
             // where a later regular hide could still flush it. Same
             // revoke-first posture as the write choke above.
             AutoLearnSessionManager.revokeAndEndForSecureField()
-            return
+            return InjectionOutcome.SECURE_REFUSED
         }
 
         val placeholderText = isPlaceholderText(node)
@@ -833,14 +839,14 @@ object BubbleController {
                 val newCursorPos = selectionStart + textToInsert.length
                 if (trySetText(context, node, newText, newCursorPos)) {
                     initiateAutoLearnArmConfirm(context, node, textToInsert)
-                    return
+                    return InjectionOutcome.DELIVERED
                 }
             }
 
-            pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
+            val delivered = pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
                 initiateAutoLearnArmConfirm(context, node, textToInsert)
             }) {
-                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
+                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard false
                 val newText = StringBuilder(currentText)
                     .replace(selectionStart, selectionEnd, textToInsert)
                     .toString()
@@ -855,20 +861,22 @@ object BubbleController {
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
                     performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
+                success
             }
+            return if (delivered) InjectionOutcome.DELIVERED else InjectionOutcome.FAILED
         } else {
             if (shouldPreferSetText(node, currentText) && !placeholderText) {
                 val newText = currentText.toString() + textToInsert
                 if (trySetText(context, node, newText, newText.length)) {
                     initiateAutoLearnArmConfirm(context, node, textToInsert)
-                    return
+                    return InjectionOutcome.DELIVERED
                 }
             }
 
-            pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
+            val delivered = pasteTextViaClipboard(context, node, textToInsert, onPasteDelivered = {
                 initiateAutoLearnArmConfirm(context, node, textToInsert)
             }) {
-                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard
+                if (!isTargetAllowed(context, activeNodePackage(), verifyActiveWindow = true)) return@pasteTextViaClipboard false
                 val newText = currentText.toString() + textToInsert
                 val bundle = Bundle()
                 bundle.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
@@ -876,7 +884,9 @@ object BubbleController {
                 if (success) {
                     initiateAutoLearnArmConfirm(context, node, textToInsert)
                 }
+                success
             }
+            return if (delivered) InjectionOutcome.DELIVERED else InjectionOutcome.FAILED
         }
     }
 
@@ -920,6 +930,7 @@ object BubbleController {
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newCursorPos)
                     performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
+                success
             }
         } else {
             // Fallback: replace everything
@@ -943,6 +954,7 @@ object BubbleController {
                     selectBundle2.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, newText.length)
                     performAllowedAction(context, node, AccessibilityNodeInfo.ACTION_SET_SELECTION, selectBundle2)
                 }
+                success
             }
         }
     }

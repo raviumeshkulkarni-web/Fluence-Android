@@ -302,12 +302,24 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                             inputTypeVariation = currentInputVariation,
                             listener = object : SessionListener {
                                 override fun onTranscription(text: String) {
-                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
-                                    val connection = currentInputConnection ?: return
-                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
-                                    connection.commitText("$text ", 1)
-                                    if (!isCurrentTargetAllowed() || isVoiceGated) return
-                                    AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
+                                    val connection = if (isCurrentTargetAllowed() && !isVoiceGated) {
+                                        currentInputConnection
+                                    } else {
+                                        null
+                                    }
+                                    val delivered = connection != null && try {
+                                        connection.commitText("$text ", 1)
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "Failed to commit transcript to input connection", e)
+                                        false
+                                    }
+                                    if (delivered) {
+                                        if (isCurrentTargetAllowed() && !isVoiceGated) {
+                                            AutoLearnSessionManager.startSession(text, this@VoiceInputIME)
+                                        }
+                                    } else {
+                                        rescueTranscriptToClipboard(this@VoiceInputIME, text)
+                                    }
                                 }
 
                                 override fun onCommand(command: CommandResult, contextText: String) {
