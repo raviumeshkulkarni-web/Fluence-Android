@@ -215,7 +215,7 @@ fun BucketPickerScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary,
-                    focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                    focusedBorderColor = colors.controlFocusBorder,
                     unfocusedBorderColor = colors.inputBorder,
                     focusedContainerColor = colors.panelElevated,
                     unfocusedContainerColor = colors.panelElevated,

@@ -1,6 +1,6 @@
 # Fluence Design System
 
-Version: 2.1 — Frozen
+Version: 2.2 — Frozen
 Status: Universal source of truth for the entire Fluence ecosystem
 (Android, Web, Desktop, Website, and all future applications).
 
@@ -60,6 +60,42 @@ names.
 
 - brand-amethyst: `#8B45D8`
 - brand-cyan: `#0BD6E3`
+
+#### Functional Accent Presets
+
+`functional-accent` is the existing cyan accent role with a user-selected
+dark/light color pair. Fluence Original remains the default. Presets change
+functional accents only; app surfaces, typography, identity artwork, the
+floating overlay, and IME mode colors do not follow the selected preset.
+
+| Preset | Dark | Light |
+|---|---|---|
+| Fluence Original | `#0BD6E3` | `#0E7490` |
+| Orange | `#FFB45E` | `#C2410C` |
+| Olive Green | `#B7D36B` | `#5C7C00` |
+| Yellow | `#FFD166` | `#946A00` |
+| Rose | `#FF9FB7` | `#C1164A` |
+| Monochrome | `#FFFFFF` | `#27272A` |
+
+The Fluence logo lockup keeps its original appearance-aware cyan: `#0BD6E3`
+in dark mode and `#0E7490` in light mode. It does not read `functional-accent`.
+Agent Mode and recording colors in the floating overlay and IME remain fixed.
+
+Fluence Original keeps the current chart ramp. Other color presets tint the
+existing chart ramp at 25%, 60%, and 100% accent. Monochrome uses neutral ramps:
+dark `#737373` / `#A3A3A3` / `#FFFFFF`; light `#71717A` / `#52525B` / `#27272A`.
+The chart ramp remains an opt-in chart role and does not introduce accent into
+other surfaces.
+
+Preset values are calibrated for both appearances: accent text on white is at
+least 4.84:1, and accent text on the dark `#363636` surface is at least 6.27:1.
+Accent-filled dark controls use dark ink; accent-filled light controls use
+white ink. Fluence Original preserves current neutral switch, checkbox, and
+radio fills;
+alternative presets apply the selected accent to active controls, primary
+button fills, focus borders, selection borders, and chart roles, with the
+same ink rules as the controls. Existing neutral Material color schemes
+remain neutral by default; the preset is applied explicitly to those roles.
 
 **Gradient rule:** the amethyst→cyan gradient (135deg) is restricted to
 exactly two places:
@@ -253,6 +289,14 @@ The notebook color system (9-index shared palette, index-based sync) is
 a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
+
+**2026-10-30 — Functional accent presets (Windows/Android parity).**
+Added six dark/light pairs for the existing functional cyan role. The user's
+choice is device-local and defaults to Fluence Original. Only sanctioned
+functional accent roles and chart ramps follow the choice; the logo lockup,
+floating overlay, and IME mode colors remain frozen. Android keeps Material
+defaults neutral and applies the accent explicitly to selected controls,
+including primary button fills under the same ink rules.
 
 **2026-09-12 — Light pill halo goes contrast gray.**
 White glow is invisible on white apps, so the Light preset uses a mid-gray halo (`#8E8E93`) that reads on bright surfaces and stays subtle on dark ones. Nothing else changes. Files touched: `DESIGN_SYSTEM.md` (this entry), `FloatingBubbleUI.kt`.

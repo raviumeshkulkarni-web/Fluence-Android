@@ -223,7 +223,7 @@ fun FluenceEmptyState(
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(
-                        containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                        containerColor = colors.activeControl,
                         contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
                 ),
                 shape = FluenceShapes.Small

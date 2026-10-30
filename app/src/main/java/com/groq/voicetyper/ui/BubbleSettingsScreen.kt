@@ -275,7 +275,7 @@ fun BubbleSettingsScreen(
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            checkedTrackColor = colors.activeControl,
                             uncheckedThumbColor = colors.textPrimary,
                             uncheckedTrackColor = colors.panel,
                             uncheckedBorderColor = colors.outlineSubtle
@@ -325,7 +325,7 @@ fun BubbleSettingsScreen(
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            checkedTrackColor = colors.activeControl,
                             uncheckedThumbColor = colors.textPrimary,
                             uncheckedTrackColor = colors.panel,
                             uncheckedBorderColor = colors.outlineSubtle
@@ -400,7 +400,7 @@ fun BubbleSettingsScreen(
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            checkedTrackColor = colors.activeControl,
                             uncheckedThumbColor = colors.textPrimary,
                             uncheckedTrackColor = colors.panel,
                             uncheckedBorderColor = colors.outlineSubtle
@@ -532,7 +532,7 @@ fun BubbleSettingsScreen(
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            checkedTrackColor = colors.activeControl,
                             uncheckedThumbColor = colors.textPrimary,
                             uncheckedTrackColor = colors.panel,
                             uncheckedBorderColor = colors.outlineSubtle
@@ -572,8 +572,8 @@ fun BubbleSettingsScreen(
                         },
                         valueRange = FloatingBubblePreferences.MIN_OPACITY..FloatingBubblePreferences.MAX_OPACITY,
                         colors = SliderDefaults.colors(
-                            thumbColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
-                            activeTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            thumbColor = colors.activeControl,
+                            activeTrackColor = colors.activeControl,
                             inactiveTrackColor = colors.outlineSubtle
                         ),
                         modifier = Modifier.fillMaxWidth()
@@ -651,7 +651,7 @@ private fun PillThemeRow(
                 .size(20.dp)
                 .border(
                     1.dp,
-                    if (selected) colors.textPrimary else colors.inputBorder,
+                    if (selected) colors.selectedControl else colors.inputBorder,
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -661,7 +661,7 @@ private fun PillThemeRow(
                     modifier = Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(colors.textPrimary)
+                        .background(colors.selectedControl)
                 )
             }
         }
@@ -733,7 +733,7 @@ private fun CollapsedStyleRow(
                 .size(20.dp)
                 .border(
                     1.dp,
-                    if (selected) colors.textPrimary else colors.inputBorder,
+                    if (selected) colors.selectedControl else colors.inputBorder,
                     CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -743,7 +743,7 @@ private fun CollapsedStyleRow(
                     modifier = Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(colors.textPrimary)
+                        .background(colors.selectedControl)
                 )
             }
         }

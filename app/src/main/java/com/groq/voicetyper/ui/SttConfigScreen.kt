@@ -71,7 +71,7 @@ private fun ApiKeySection(
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = colors.textPrimary,
             unfocusedTextColor = colors.textPrimary,
-            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+            focusedBorderColor = colors.controlFocusBorder,
             unfocusedBorderColor = colors.inputBorder,
             focusedContainerColor = colors.inputBg,
             unfocusedContainerColor = colors.inputBg,
@@ -324,7 +324,7 @@ fun SttConfigScreen(
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     borderColor = colors.inputBorder,
-                                    selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                    selectedBorderColor = colors.selectionBorder,
                                     enabled = true,
                                     selected = selectedProvider == id
                                 )
@@ -584,7 +584,7 @@ fun SttConfigScreen(
                             ),
                             border = FilterChipDefaults.filterChipBorder(
                                 borderColor = colors.inputBorder,
-                                selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                selectedBorderColor = colors.selectionBorder,
                                 enabled = true,
                                 selected = !isStreamingEnabled || !isStreamingSupported
                             )
@@ -610,7 +610,7 @@ fun SttConfigScreen(
                             ),
                             border = FilterChipDefaults.filterChipBorder(
                                 borderColor = colors.inputBorder,
-                                selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                selectedBorderColor = colors.selectionBorder,
                                 enabled = isStreamingSupported,
                                 selected = isStreamingEnabled && isStreamingSupported
                             )
@@ -728,7 +728,7 @@ fun SttConfigScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = colors.textPrimary,
                                 unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                focusedBorderColor = colors.controlFocusBorder,
                                 unfocusedBorderColor = colors.inputBorder,
                                 focusedContainerColor = colors.inputBg,
                                 unfocusedContainerColor = colors.inputBg,
@@ -757,7 +757,7 @@ fun SttConfigScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = colors.textPrimary,
                                 unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                focusedBorderColor = colors.controlFocusBorder,
                                 unfocusedBorderColor = colors.inputBorder,
                                 focusedContainerColor = colors.inputBg,
                                 unfocusedContainerColor = colors.inputBg,
@@ -778,7 +778,7 @@ fun SttConfigScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = colors.textPrimary,
                                 unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                focusedBorderColor = colors.controlFocusBorder,
                                 unfocusedBorderColor = colors.inputBorder,
                                 focusedContainerColor = colors.inputBg,
                                 unfocusedContainerColor = colors.inputBg,

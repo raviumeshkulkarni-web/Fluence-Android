@@ -20,6 +20,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.rotate
@@ -39,8 +41,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.AudioFocusMode
 import com.groq.voicetyper.AudioFocusPreferences
@@ -137,6 +142,17 @@ fun SettingsScreen(
         context.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
     }
     val themeMode = remember { mutableStateOf(getThemeMode(prefs)) }
+    val accentPreset = remember { mutableStateOf(getAccentPreset(prefs)) }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                ThemePrefKey -> themeMode.value = getThemeMode(prefs)
+                AccentThemePrefKey -> accentPreset.value = getAccentPreset(prefs)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -378,9 +394,9 @@ fun SettingsScreen(
                 val appearancePressSource = remember { MutableInteractionSource() }
                 val effectiveDark = resolveDarkTheme(themeMode.value)
                 val appearanceSummary = when (themeMode.value) {
-                    ThemeModeSystem -> "Follow phone \u00b7 currently ${if (effectiveDark) "dark" else "light"}"
-                    ThemeModeLight -> "Light surfaces, deepened teal accents"
-                    else -> "Signature dark surfaces"
+                    ThemeModeSystem -> "Follow phone \u00b7 currently ${if (effectiveDark) "dark" else "light"} \u00b7 ${accentPreset.value.label}"
+                    ThemeModeLight -> "Light surfaces \u00b7 ${accentPreset.value.label} accents"
+                    else -> "Signature dark surfaces \u00b7 ${accentPreset.value.label} accents"
                 }
                 var appearanceExpanded by rememberSaveable { mutableStateOf(false) }
                 val appearanceReducedMotion = LocalMotionPreferences.current.reducedMotion
@@ -483,6 +499,27 @@ fun SettingsScreen(
                                     setThemeMode(prefs, mode)
                                 }
                             )
+
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Base))
+                            Text(
+                                text = "Accent theme",
+                                color = colors.textPrimary,
+                                style = FluenceTypography.titleSmall
+                            )
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
+                            Text(
+                                text = "Choose an accent for controls and charts. The logo, floating bubble, and Agent Mode colors stay unchanged.",
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
+                            AccentPresetSelector(
+                                selected = accentPreset.value,
+                                onSelect = { preset ->
+                                    accentPreset.value = preset
+                                    setAccentPreset(prefs, preset)
+                                },
+                            )
                         }
                     }
                 }
@@ -516,5 +553,102 @@ private fun offlineModelReady(context: Context): Boolean {
         OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING ->
             com.groq.voicetyper.offline.v2.MoonshineV2ModelManager.isModelReadySync(
                 context, com.groq.voicetyper.offline.v2.MoonshineV2ModelType.MEDIUM)
+    }
+}
+
+@Composable
+private fun AccentPresetSelector(
+    selected: AccentPreset,
+    onSelect: (AccentPreset) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectableGroup(),
+        verticalArrangement = Arrangement.spacedBy(FluenceSpacing.Xs),
+    ) {
+        AccentPreset.values().forEach { preset ->
+            AccentPresetOption(
+                preset = preset,
+                selected = preset == selected,
+                onSelect = { onSelect(preset) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccentPresetOption(
+    preset: AccentPreset,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    val colors = PrecisionTheme.colors
+    val shape = FluenceShapes.Small
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (selected) colors.buttonSubtle else Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = if (selected) colors.brandCyan else colors.outlineSubtle,
+                shape = shape,
+            )
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            )
+            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .border(1.dp, colors.outlineSubtle, CircleShape),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(preset.dark),
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(preset.light),
+            )
+        }
+        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+        Text(
+            text = preset.label,
+            color = colors.textPrimary,
+            style = FluenceTypography.labelLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(FluenceSpacing.Base))
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .border(
+                    width = 1.5.dp,
+                    color = if (selected) colors.brandCyan else colors.textTertiary,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(colors.brandCyan, CircleShape),
+                )
+            }
+        }
     }
 }

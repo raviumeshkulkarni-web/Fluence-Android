@@ -58,7 +58,7 @@ fun FluenceProductLockup(
         )
         Text(
             text = "ence",
-            color = colors.brandCyan,
+            color = colors.logoCyan,
             fontSize = wordmarkSize,
             fontWeight = FontWeight.Bold,
             fontFamily = SoraFont,

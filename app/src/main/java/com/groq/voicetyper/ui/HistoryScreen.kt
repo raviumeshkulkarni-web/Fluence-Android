@@ -643,7 +643,7 @@ private fun HistorySearchBar(
         },
         shape = FluenceShapes.Medium,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+            focusedBorderColor = colors.controlFocusBorder,
             unfocusedBorderColor = colors.inputBorder,
             focusedContainerColor = colors.panel,
             unfocusedContainerColor = colors.panel,

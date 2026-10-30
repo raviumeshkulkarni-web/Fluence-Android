@@ -9,8 +9,7 @@ Agents must consult the relevant document before modifying a subsystem.
 Examples:
 - "E:\App dev" Gradle is installed here, you will never clutter system directory
 - docs/RELEASE_PIPELINE.md
-- docs/ARCHITECTURE.md
-- docs/SYNC.md
+- DESIGN_SYSTEM.md (repo root)
 - docs/DESIGN_SYSTEM.md
 
 Do not duplicate documentation inside AGENTS.md.

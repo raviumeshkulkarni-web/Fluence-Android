@@ -131,7 +131,7 @@ val LightTextSecondary  = Color(0xFF52525B)
 val LightTextTertiary   = Color(0xFF71717A)
 val LightTextDisabled   = Color(0xFFA1A1AA)
 val LightTextLink       = Color(0xFF6D28D9)
-val LightBrandCyan      = Color(0xFF0E7490) // functional teal, AA on white; the logo lockup is FROZEN and keeps #0BD6E3 in both modes (Brand.kt untouched)
+val LightBrandCyan      = Color(0xFF0E7490) // functional teal; the logo lockup keeps its Original cyan/teal by appearance
 val LightChartDuoStart  = Color(0xFF6E5AA8) // deepened light stops (Windows DashboardPage parity)
 val LightChartDuoMid    = Color(0xFF4E7FA8)
 val LightChartDuoEnd    = Color(0xFF2E8B99)
@@ -149,3 +149,30 @@ val LightSunken         = Color(0xFFE7E8EC) // skeleton, sunken wells
 // Matte charcoal: light-mode primary-button + toggle-ON fill
 // (Windows --color-charcoal). No dark equivalent — dark reserves white.
 val Charcoal            = Color(0xFF3F3F46)
+
+// Monochrome chart ramps from the shared Windows accent-preset palette.
+val MonochromeChartDarkStart  = Color(0xFF737373)
+val MonochromeChartDarkMid    = Color(0xFFA3A3A3)
+val MonochromeChartDarkEnd    = Color(0xFFFFFFFF)
+val MonochromeChartLightStart = Color(0xFF71717A)
+val MonochromeChartLightMid   = Color(0xFF52525B)
+val MonochromeChartLightEnd   = Color(0xFF27272A)
+
+enum class AccentPreset(
+    val preferenceValue: String,
+    val label: String,
+    val dark: Color,
+    val light: Color,
+) {
+    FLUENCE_ORIGINAL("fluence", "Fluence Original", BrandCyan, LightBrandCyan),
+    ORANGE("orange", "Orange", Color(0xFFFFB45E), Color(0xFFC2410C)),
+    OLIVE_GREEN("olive", "Olive Green", Color(0xFFB7D36B), Color(0xFF5C7C00)),
+    YELLOW("yellow", "Yellow", Color(0xFFFFD166), Color(0xFF946A00)),
+    ROSE("rose", "Rose", Color(0xFFFF9FB7), Color(0xFFC1164A)),
+    MONOCHROME("monochrome", "Monochrome", Color.White, Color(0xFF27272A));
+
+    companion object {
+        fun fromPreference(value: String?): AccentPreset =
+            values().firstOrNull { it.preferenceValue == value } ?: FLUENCE_ORIGINAL
+    }
+}

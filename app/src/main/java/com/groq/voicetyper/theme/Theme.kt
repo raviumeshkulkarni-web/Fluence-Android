@@ -30,13 +30,15 @@ import androidx.compose.ui.platform.LocalContext
 // value (8.05:1 on AppBackground). It previously rendered BrandAmethyst,
 // which fails WCAG AA at 3.65:1 / 3.52:1 on the two darkest surfaces and
 // below 4.5:1 on all seven; light renders #6D28D9 (Windows parity).
-// focusRing: solid functional accent, the only sanctioned accent use here
-// ("Focus rings", closed-list entry 1). Windows --color-focus-ring parity.
+// brandCyan: user-selected functional accent; logoCyan stays appearance-aware
+// Fluence cyan/teal and never follows the accent preset. Material defaults
+// stay neutral; explicit focus, selection, control, and chart roles read accent.
 // sunken: AppBackground #0D0D0D, giving the ladder a real floor below Canvas.
 // It previously collapsed onto Canvas, so no surface was darker than the page.
 // charcoal: light-mode primary-button + toggle-ON fill (#3F3F46); in dark it
 // mirrors textPrimary because dark reserves white for primary buttons.
-// chartDuo*: activity-chart ramp — muted trio in dark, deepened stops in light.
+// chartDuo*: activity-chart ramp — canonical for Fluence Original, tinted for
+// other presets, grayscale for Monochrome.
 @Immutable
 data class PrecisionColors(
     val isLight: Boolean = false,
@@ -66,8 +68,13 @@ data class PrecisionColors(
     // Accent
     val brandAmethyst: Color,
     val brandCyan: Color,
+    val logoCyan: Color,
     val charcoal: Color,
     val focusRing: Color,
+    val controlFocusBorder: Color,
+    val selectionBorder: Color,
+    val activeControl: Color,
+    val selectedControl: Color,
     val chartDuoStart: Color,
     val chartDuoMid: Color,
     val chartDuoEnd: Color,
@@ -108,8 +115,13 @@ private val FluenceDarkPrecisionColors = PrecisionColors(
     textLink = TextLink,
     brandAmethyst = BrandAmethyst,
     brandCyan = BrandCyan,
+    logoCyan = BrandCyan,
     charcoal = TextPrimary,
     focusRing = FocusRing,
+    controlFocusBorder = TextPrimary,
+    selectionBorder = TextPrimary.copy(alpha = 0.50f),
+    activeControl = TextPrimary,
+    selectedControl = TextPrimary,
     chartDuoStart = ChartDuoStart,
     chartDuoMid = ChartDuoMid,
     chartDuoEnd = ChartDuoEnd,
@@ -257,8 +269,13 @@ private val FluenceLightPrecisionColors = PrecisionColors(
     textLink = LightTextLink,
     brandAmethyst = BrandAmethyst,
     brandCyan = LightBrandCyan,
+    logoCyan = LightBrandCyan,
     charcoal = Charcoal,
     focusRing = LightBrandCyan,
+    controlFocusBorder = LightBrandCyan,
+    selectionBorder = LightBrandCyan,
+    activeControl = Charcoal,
+    selectedControl = LightTextPrimary,
     chartDuoStart = LightChartDuoStart,
     chartDuoMid = LightChartDuoMid,
     chartDuoEnd = LightChartDuoEnd,
@@ -289,6 +306,7 @@ private class FluenceRippleTheme(private val rippleColor: Color, private val lig
 // anyone. Stored in the shared `fluence_prefs` file alongside `chart_metric`.
 const val FluencePrefsName = "fluence_prefs"
 const val ThemePrefKey = "theme_mode"
+const val AccentThemePrefKey = "accent_theme"
 const val ThemeModeDark = "dark"
 const val ThemeModeLight = "light"
 const val ThemeModeSystem = "system"
@@ -306,6 +324,13 @@ fun setThemeMode(prefs: SharedPreferences, mode: String) {
         else -> ThemeModeDark
     }
     prefs.edit().putString(ThemePrefKey, safe).apply()
+}
+
+fun getAccentPreset(prefs: SharedPreferences): AccentPreset =
+    AccentPreset.fromPreference(prefs.getString(AccentThemePrefKey, AccentPreset.FLUENCE_ORIGINAL.preferenceValue))
+
+fun setAccentPreset(prefs: SharedPreferences, preset: AccentPreset) {
+    prefs.edit().putString(AccentThemePrefKey, preset.preferenceValue).apply()
 }
 
 // Legacy boolean shims. MainActivity/Settings now use get/setThemeMode.
@@ -327,19 +352,50 @@ fun resolveDarkTheme(themeMode: String): Boolean = when (themeMode) {
 }
 
 // ── Theme Composable ────────────────────────────────────────────────────────
-// darkTheme defaults true: the app stays exactly as today until a later slice
-// wires the persisted white-mode preference (Windows parity: dark default).
-// The overlay never reads this directly. It has its own opt-in follow toggle
-// in FloatingBubblePreferences.
+// Dark and Fluence Original are safe defaults for existing installs. The
+// activity accent preset is independent of the overlay/IME palettes.
 @Composable
 fun FluenceTranscribeTheme(
     darkTheme: Boolean = true,
+    accentPreset: AccentPreset = AccentPreset.FLUENCE_ORIGINAL,
     content: @Composable () -> Unit
 ) {
-    val precisionColors = if (darkTheme) {
+    val basePrecisionColors = if (darkTheme) {
         FluenceDarkPrecisionColors
     } else {
         FluenceLightPrecisionColors
+    }
+    val precisionColors = remember(darkTheme, accentPreset) {
+        val accent = if (darkTheme) accentPreset.dark else accentPreset.light
+        val (chartStart, chartMid, chartEnd) = when (accentPreset) {
+            AccentPreset.FLUENCE_ORIGINAL -> Triple(
+                basePrecisionColors.chartDuoStart,
+                basePrecisionColors.chartDuoMid,
+                basePrecisionColors.chartDuoEnd,
+            )
+            AccentPreset.MONOCHROME -> if (darkTheme) {
+                Triple(MonochromeChartDarkStart, MonochromeChartDarkMid, MonochromeChartDarkEnd)
+            } else {
+                Triple(MonochromeChartLightStart, MonochromeChartLightMid, MonochromeChartLightEnd)
+            }
+            else -> Triple(
+                blend(basePrecisionColors.chartDuoStart, accent, 0.25f),
+                blend(basePrecisionColors.chartDuoMid, accent, 0.60f),
+                accent,
+            )
+        }
+        val isOriginal = accentPreset == AccentPreset.FLUENCE_ORIGINAL
+        basePrecisionColors.copy(
+            brandCyan = accent,
+            focusRing = accent,
+            controlFocusBorder = if (isOriginal) basePrecisionColors.controlFocusBorder else accent,
+            selectionBorder = if (isOriginal) basePrecisionColors.selectionBorder else accent,
+            activeControl = if (isOriginal) basePrecisionColors.activeControl else accent,
+            selectedControl = if (isOriginal) basePrecisionColors.selectedControl else accent,
+            chartDuoStart = chartStart,
+            chartDuoMid = chartMid,
+            chartDuoEnd = chartEnd,
+        )
     }
     val rippleTheme = remember(darkTheme) {
         if (darkTheme) FluenceRippleTheme(TextPrimary, light = false)
@@ -397,3 +453,10 @@ fun FluenceTranscribeTheme(
         )
     }
 }
+
+private fun blend(from: Color, to: Color, weight: Float): Color = Color(
+    red = from.red + (to.red - from.red) * weight,
+    green = from.green + (to.green - from.green) * weight,
+    blue = from.blue + (to.blue - from.blue) * weight,
+    alpha = from.alpha + (to.alpha - from.alpha) * weight,
+)

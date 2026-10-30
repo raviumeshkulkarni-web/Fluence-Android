@@ -193,7 +193,7 @@ fun OfflineConfigScreen(
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                            checkedTrackColor = colors.activeControl,
                             uncheckedThumbColor = colors.textPrimary,
                             uncheckedTrackColor = colors.panel,
                             uncheckedBorderColor = colors.outlineSubtle
@@ -401,7 +401,7 @@ private fun ModelOptionCard(
                 selected = isSelected,
                 onClick = null,
                 colors = RadioButtonDefaults.colors(
-                    selectedColor = colors.textPrimary,
+                    selectedColor = colors.selectedControl,
                     unselectedColor = colors.textSecondary
                 )
             )

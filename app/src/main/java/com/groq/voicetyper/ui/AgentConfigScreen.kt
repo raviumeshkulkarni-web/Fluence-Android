@@ -199,7 +199,7 @@ fun AgentConfigScreen(
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     borderColor = colors.inputBorder,
-                                    selectedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary.copy(alpha = 0.50f),
+                                    selectedBorderColor = colors.selectionBorder,
                                     enabled = true,
                                     selected = selectedProvider == value
                                 )
@@ -230,7 +230,7 @@ fun AgentConfigScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = colors.textPrimary,
                                 unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                focusedBorderColor = colors.controlFocusBorder,
                                 unfocusedBorderColor = colors.inputBorder,
                                 focusedContainerColor = colors.inputBg,
                                 unfocusedContainerColor = colors.inputBg,
@@ -257,7 +257,7 @@ fun AgentConfigScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = colors.textPrimary,
                                 unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                                focusedBorderColor = colors.controlFocusBorder,
                                 unfocusedBorderColor = colors.inputBorder,
                                 focusedContainerColor = colors.inputBg,
                                 unfocusedContainerColor = colors.inputBg,
@@ -393,7 +393,7 @@ fun AgentConfigScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = colors.textPrimary,
                             unfocusedTextColor = colors.textPrimary,
-                            focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                            focusedBorderColor = colors.controlFocusBorder,
                             unfocusedBorderColor = colors.inputBorder,
                             focusedContainerColor = colors.inputBg,
                             unfocusedContainerColor = colors.inputBg,

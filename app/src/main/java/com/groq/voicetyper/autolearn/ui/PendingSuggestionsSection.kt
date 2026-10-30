@@ -77,7 +77,7 @@ fun PendingSuggestionsSection(
                         else pendingSuggestions.map { it.id }.toSet()
                 },
                 colors = CheckboxDefaults.colors(
-                    checkedColor = colors.textPrimary,
+                    checkedColor = colors.selectedControl,
                     checkmarkColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
                     uncheckedColor = colors.textSecondary
                 )
@@ -232,7 +232,7 @@ private fun SuggestionRow(
                 contentDescription = "Select suggestion ${suggestion.spokenText} -> ${suggestion.correctedText}"
             },
             colors = CheckboxDefaults.colors(
-                checkedColor = colors.textPrimary,
+                checkedColor = colors.selectedControl,
                 checkmarkColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
                 uncheckedColor = colors.textSecondary
             )

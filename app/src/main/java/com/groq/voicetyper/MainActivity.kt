@@ -159,9 +159,13 @@ class MainActivity : ComponentActivity() {
                 applicationContext.getSharedPreferences(FluencePrefsName, Context.MODE_PRIVATE)
             }
             var themeMode by remember { mutableStateOf(getThemeMode(prefs)) }
+            var accentPreset by remember { mutableStateOf(getAccentPreset(prefs)) }
             DisposableEffect(prefs) {
                 val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                    if (key == ThemePrefKey) themeMode = getThemeMode(prefs)
+                    when (key) {
+                        ThemePrefKey -> themeMode = getThemeMode(prefs)
+                        AccentThemePrefKey -> accentPreset = getAccentPreset(prefs)
+                    }
                 }
                 prefs.registerOnSharedPreferenceChangeListener(listener)
                 onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
@@ -174,7 +178,7 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = !effectiveDark
                 }
             }
-            FluenceTranscribeTheme(darkTheme = effectiveDark) {
+            FluenceTranscribeTheme(darkTheme = effectiveDark, accentPreset = accentPreset) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = PrecisionTheme.colors.appBackground

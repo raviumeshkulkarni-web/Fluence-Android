@@ -440,7 +440,7 @@ private fun LearningRow(
             },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                checkedTrackColor = colors.activeControl,
                 uncheckedThumbColor = colors.textPrimary,
                 uncheckedTrackColor = colors.panel,
                 uncheckedBorderColor = colors.outlineSubtle
@@ -601,7 +601,7 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        focusedBorderColor = colors.controlFocusBorder,
                         unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
@@ -624,7 +624,7 @@ private fun AddEditDictionaryDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        focusedBorderColor = colors.controlFocusBorder,
                         unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,

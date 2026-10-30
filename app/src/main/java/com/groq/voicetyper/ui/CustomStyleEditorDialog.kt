@@ -82,7 +82,7 @@ fun CustomStyleEditorDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        focusedBorderColor = colors.controlFocusBorder,
                         unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,
@@ -121,7 +121,7 @@ fun CustomStyleEditorDialog(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.inputBg,
                         unfocusedContainerColor = colors.inputBg,
-                        focusedBorderColor = if (colors.isLight) colors.brandCyan else colors.textPrimary,
+                        focusedBorderColor = colors.controlFocusBorder,
                         unfocusedBorderColor = colors.inputBorder,
                         focusedLabelColor = colors.textPrimary,
                         unfocusedLabelColor = colors.textSecondary,

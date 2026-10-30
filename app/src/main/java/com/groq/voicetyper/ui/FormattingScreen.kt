@@ -389,7 +389,7 @@ private fun ToggleRow(
             onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                checkedTrackColor = colors.activeControl,
                 uncheckedThumbColor = colors.textPrimary,
                 uncheckedTrackColor = colors.panel,
                 uncheckedBorderColor = colors.outlineSubtle

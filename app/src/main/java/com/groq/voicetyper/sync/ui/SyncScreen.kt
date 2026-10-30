@@ -289,7 +289,7 @@ fun SyncScreen(
                             Spacer(modifier = Modifier.height(FluenceSpacing.Base))
                             Button(
                                 onClick = { if (status.recoveryPending) onConsentClick() else onSignInClick() },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary, contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas),
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.activeControl, contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas),
                                 shape = FluenceShapes.Medium,
                                 modifier = Modifier.fillMaxWidth().height(48.dp)
                             ) {
@@ -354,7 +354,7 @@ fun SyncScreen(
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                                checkedTrackColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                checkedTrackColor = colors.activeControl,
                                 uncheckedThumbColor = colors.textPrimary,
                                 uncheckedTrackColor = colors.panel,
                                 uncheckedBorderColor = colors.outlineSubtle
@@ -378,7 +378,7 @@ fun SyncScreen(
                                 onClick = { manager.syncNow() },
                                 enabled = status.signedIn && status.syncEnabled && !status.running,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                    containerColor = colors.activeControl,
                                     contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas,
                                     disabledContainerColor = colors.panelElevated,
                                     disabledContentColor = colors.textDisabled
@@ -462,7 +462,7 @@ fun SyncScreen(
                         Button(
                             onClick = onSignInClick,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (colors.isLight) colors.charcoal else colors.textPrimary,
+                                containerColor = colors.activeControl,
                                 contentColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.canvas
                             ),
                             shape = FluenceShapes.Medium,

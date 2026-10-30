@@ -498,7 +498,7 @@ private fun AgentRow(
                     .padding(start = FluenceSpacing.Base)
                     .size(18.dp)
                     .clip(CircleShape)
-                    .background(colors.textPrimary),
+                    .background(colors.selectedControl),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -630,7 +630,7 @@ private fun AgentRow(
                     selected = isDefault,
                     onClick = onClick,
                     colors = RadioButtonDefaults.colors(
-                        selectedColor = colors.textPrimary,
+                        selectedColor = colors.selectedControl,
                         unselectedColor = colors.textSecondary
                     ),
                     modifier = Modifier.padding(end = FluenceSpacing.Sm)
