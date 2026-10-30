@@ -290,6 +290,22 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-10-30 — Waveform animation style: Waves / Amp Bars (Windows parity).**
+A second waveform animation for the recording pill mirrors the Windows
+Floating Bubble pick. `waveform_style` in `fluence_prefs` (device-local,
+default `waves` = today's look, unknown values fall back to `waves`), set
+from "Recording Pill" via a radio group (Waves / Amp Bars).
+BAR is paint-only: equalizer bars on the same live amplitude meter, phase
+integrator, edge envelope, and mode-owned colors (amethyst transcription /
+teal agent, per-preset pairs) — with a Windows-parity metering curve
+(gamma 0.6 on the eased input so mid-range speech keeps headroom instead of
+pinning every bar), a no-bounce easing pass, and a faint forefront halo as
+Windows shadow-glow parity. No sensing, sizing, or color changes in either
+style. Live pass branches inside `SiriWaveform`; the frozen settings
+preview gains the matching static bars frame. Files touched:
+`DESIGN_SYSTEM.md` (this entry), `FloatingBubblePreferences.kt`,
+`FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`.
+
 **2026-10-30 — Functional accent presets (Windows/Android parity).**
 Added six dark/light pairs for the existing functional cyan role. The user's
 choice is device-local and defaults to Fluence Original. Only sanctioned

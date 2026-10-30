@@ -147,6 +147,30 @@ object FloatingBubblePreferences {
             .apply()
     }
 
+    // Waveform animation style (Windows Floating Bubble parity). waves =
+    // today's layered sine wave (default, everyone's current look); bars =
+    // equalizer-style vertical bars driven by the same amplitude meter.
+    // Colors are NOT part of this pick: the waveform stays mode-colored
+    // (amethyst transcription / teal agent) in every style. Unknown values
+    // fall back to waves (today's look).
+    const val KEY_WAVEFORM_STYLE = "floating_bubble_waveform_style"
+    const val WAVEFORM_WAVES = "waves"
+    const val WAVEFORM_BARS = "bars"
+
+    fun getWaveformStyle(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_WAVEFORM_STYLE, WAVEFORM_WAVES)
+        return if (raw == WAVEFORM_BARS) raw else WAVEFORM_WAVES
+    }
+
+    fun setWaveformStyle(context: Context, style: String) {
+        val safe = if (style == WAVEFORM_BARS) style else WAVEFORM_WAVES
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_WAVEFORM_STYLE, safe)
+            .apply()
+    }
+
     fun getOpacity(context: Context): Float {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getFloat(KEY_OPACITY, DEFAULT_OPACITY).coerceIn(MIN_OPACITY, MAX_OPACITY)

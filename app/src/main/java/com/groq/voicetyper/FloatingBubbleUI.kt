@@ -48,6 +48,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.composed
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 
 // ── Pill themes (paint only) ────────────────────────────────────────────────
@@ -252,6 +256,7 @@ fun FloatingBubbleUI(
     var glowEnabled by remember { mutableStateOf(FloatingBubblePreferences.isGlowEnabled(context)) }
     var collapsedStyleName by remember { mutableStateOf(FloatingBubblePreferences.getCollapsedStyle(context)) }
     var followSystem by remember { mutableStateOf(FloatingBubblePreferences.isFollowSystem(context)) }
+    var waveformStyleName by remember { mutableStateOf(FloatingBubblePreferences.getWaveformStyle(context)) }
     DisposableEffect(context) {
         val prefs = context.getSharedPreferences("fluence_prefs", android.content.Context.MODE_PRIVATE)
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
@@ -265,6 +270,8 @@ fun FloatingBubbleUI(
                 collapsedStyleName = FloatingBubblePreferences.getCollapsedStyle(context)
             } else if (key == FloatingBubblePreferences.KEY_FOLLOW_SYSTEM) {
                 followSystem = FloatingBubblePreferences.isFollowSystem(context)
+            } else if (key == FloatingBubblePreferences.KEY_WAVEFORM_STYLE) {
+                waveformStyleName = FloatingBubblePreferences.getWaveformStyle(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -566,6 +573,7 @@ fun FloatingBubbleUI(
                                 SiriWaveform(
                                     theme = pillTheme,
                                     agentMode = waveAgentMode,
+                                    waveformStyle = waveformStyleName,
                                 )
                             }
                         }
@@ -871,12 +879,15 @@ fun MinimalCollapsedIcon(theme: PillTheme, drawIn: Float = 1f) {
 }
 
 /**
- * Siri-Style multi-layered animated sine wave visualizer.
+ * Multi-layered animated waveform visualizer (Windows Floating Bubble parity).
+ * Style pick rides FloatingBubblePreferences.WAVEFORM_STYLE; colors stay
+ * mode-owned (amethyst transcription / teal agent) in every style.
  */
 @Composable
 fun SiriWaveform(
     theme: PillTheme,
     agentMode: Boolean,
+    waveformStyle: String = FloatingBubblePreferences.WAVEFORM_WAVES,
 ) {
     val rawAmplitude by BubbleController.amplitude.collectAsState()
     val reducedMotion = rememberReducedMotion()
@@ -894,6 +905,16 @@ fun SiriWaveform(
         targetValue = (rawAmplitude * 6f).coerceIn(0f, 1f),
         animationSpec = if (reducedMotion) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "amplitude"
+    )
+
+    // Bars ride a dedicated level easing on top of that spring: no bounce
+    // (bouncy overshoot reads as pulsing on separate bars) and the same low
+    // stiffness, so the equalizer glides instead of pumping. Waves keep the
+    // original spring unchanged.
+    val barsLevel by animateFloatAsState(
+        targetValue = (rawAmplitude * 6f).coerceIn(0f, 1f),
+        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "barsAmplitude"
     )
 
     // Dynamically integrate phase for speed changes without jumps
@@ -920,6 +941,90 @@ fun SiriWaveform(
         val width = size.width
         val height = size.height
         val centerY = height / 2
+
+        // Amp Bars branch (Windows drawBars mirror): equalizer bars on the
+        // same meter, phase, and mode colors as the waves. Only the paint
+        // differs, never sensing.
+        if (waveformStyle == FloatingBubblePreferences.WAVEFORM_BARS) {
+            // Windows metering curve on the same eased input: gamma below 1
+            // keeps expressive headroom in the mid range (Android's AGC peak
+            // + the 6x boost saturates a straight scale, pinning every bar —
+            // the waves tolerate the same scale, bars clearly do not).
+            val level = barsLevel.pow(0.6f)
+            val barsBase = (level * 0.88f + 0.06f) * (height * 0.40f)
+            val barCount = if (width < 60.dp.toPx()) 7
+                else minOf(25, maxOf(9, (width / 6.dp.toPx()).toInt()))
+            val barEdge = { x: Float -> sin((x / width) * Math.PI.toFloat()).pow(1.22f) }
+            val clampH = { h: Float -> min(h, height * 0.48f) }
+
+            // Soft primary bed: taller, fainter, the background role.
+            val bedBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.42f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            for (i in 0 until barCount) {
+                val x = ((i + 0.5f) / barCount) * width
+                val e = barEdge(x)
+                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val hBg = clampH((barsBase * (0.34f + 0.52f * min(1f, u1 * 0.62f + u2 * 0.38f)) + 1.2.dp.toPx()) * e)
+                drawLine(
+                    brush = bedBrush,
+                    start = Offset(x, centerY - hBg),
+                    end = Offset(x, centerY + hBg),
+                    strokeWidth = 2.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // Crisp forefront row: only swells with real loudness, so a
+            // quiet room keeps a calm low row of bars (same contract as the
+            // waves' forefront wave).
+            val foreBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.88f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            // Soft halo behind the crisp row (Windows shadow-glow parity).
+            // One wide, faint pass reads as a blur without native shadows.
+            val glowBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.16f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            for (i in 0 until barCount) {
+                val x = ((i + 0.5f) / barCount) * width
+                val e = barEdge(x)
+                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
+                val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
+                drawLine(
+                    brush = glowBrush,
+                    start = Offset(x, centerY - hFt),
+                    end = Offset(x, centerY + hFt),
+                    strokeWidth = 1.9.dp.toPx() * 2.8f,
+                    cap = StrokeCap.Round
+                )
+            }
+            for (i in 0 until barCount) {
+                val x = ((i + 0.5f) / barCount) * width
+                val e = barEdge(x)
+                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
+                val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
+                drawLine(
+                    brush = foreBrush,
+                    start = Offset(x, centerY - hFt),
+                    end = Offset(x, centerY + hFt),
+                    strokeWidth = 1.9.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+            return@Canvas
+        }
 
         // Determine actual height amplitude (minimum idle height of 0.1f)
         val activeAmplitude = (smoothedAmplitude * 0.8f + 0.1f) * (height * 0.45f)

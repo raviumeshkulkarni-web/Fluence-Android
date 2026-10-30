@@ -80,6 +80,10 @@ import com.groq.voicetyper.isAccessibilityServiceEnabled
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.*
 import com.groq.voicetyper.ui.icons.FluenceIcons
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -106,6 +110,9 @@ fun BubbleSettingsScreen(
     }
     var collapsedStyleName by remember {
         mutableStateOf(FloatingBubblePreferences.getCollapsedStyle(context))
+    }
+    var waveformStyleName by remember {
+        mutableStateOf(FloatingBubblePreferences.getWaveformStyle(context))
     }
     // Day/night auto-switch (opt-in). When on, the preview and the overlay
     // resolve the fixed day/night pair at read time; the manual selections
@@ -169,6 +176,8 @@ fun BubbleSettingsScreen(
                     bubbleEnabled = FloatingBubblePreferences.isBubbleEnabled(context)
                 FloatingBubblePreferences.KEY_BUBBLE_IME_ONLY ->
                     imeOnly = FloatingBubblePreferences.isImeOnly(context)
+                FloatingBubblePreferences.KEY_WAVEFORM_STYLE ->
+                    waveformStyleName = FloatingBubblePreferences.getWaveformStyle(context)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -339,6 +348,7 @@ fun BubbleSettingsScreen(
                     pillTheme = pillTheme,
                     collapsedTheme = collapsedTheme,
                     collapsedStyleName = effectiveCollapsedName,
+                    waveformStyleName = waveformStyleName,
                     bubbleOpacity = bubbleOpacity,
                     glowOn = glowOn,
                 )
@@ -487,6 +497,42 @@ fun BubbleSettingsScreen(
             ModeLegendRow(dot = pillTheme.waveT, label = "Transcription mode")
             Spacer(modifier = Modifier.height(8.dp))
             ModeLegendRow(dot = pillTheme.waveA, label = "Agent mode")
+
+            // Waveform animation (Windows Floating Bubble parity). Paint-only
+            // pick: colors stay mode-owned in every style.
+            Spacer(modifier = Modifier.height(24.dp))
+            SettingsSectionHeader(
+                title = "Waveform Animation",
+                description = "Choose how the recording waveform animates"
+            )
+
+            SettingsJointCard {
+                CollapsedStyleRow(
+                    title = "Waves",
+                    description = "Layered ripples. The animation Fluence ships with",
+                    selected = waveformStyleName == FloatingBubblePreferences.WAVEFORM_WAVES,
+                    onSelect = {
+                        waveformStyleName = FloatingBubblePreferences.WAVEFORM_WAVES
+                        FloatingBubblePreferences.setWaveformStyle(
+                            context,
+                            FloatingBubblePreferences.WAVEFORM_WAVES
+                        )
+                    }
+                )
+                SettingsDivider()
+                CollapsedStyleRow(
+                    title = "Amp Bars",
+                    description = "Equalizer bars that track how loud you speak",
+                    selected = waveformStyleName == FloatingBubblePreferences.WAVEFORM_BARS,
+                    onSelect = {
+                        waveformStyleName = FloatingBubblePreferences.WAVEFORM_BARS
+                        FloatingBubblePreferences.setWaveformStyle(
+                            context,
+                            FloatingBubblePreferences.WAVEFORM_BARS
+                        )
+                    }
+                )
+            }
 
             // Section 6: Appearance & Opacity
             SettingsSectionHeader(
@@ -712,12 +758,12 @@ private fun CollapsedStyleRow(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
-                onClickLabel = "Select $title collapsed style",
+                onClickLabel = "Select $title",
                 role = Role.RadioButton,
                 onClick = onSelect
             )
             .semantics {
-                contentDescription = "$title collapsed style"
+                contentDescription = title
                 stateDescription = when {
                     !enabled -> "Locked by day night auto-switch"
                     selected -> "Selected"
@@ -769,6 +815,7 @@ private fun BubblePreviewContent(
     pillTheme: PillTheme,
     collapsedTheme: PillTheme,
     collapsedStyleName: String,
+    waveformStyleName: String,
     bubbleOpacity: Float,
     glowOn: Boolean,
 ) {
@@ -895,7 +942,7 @@ private fun BubblePreviewContent(
                                     .border(1.dp, pillTheme.waveWellBorder, RoundedCornerShape(24.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                StaticWaveform(theme = pillTheme)
+                                StaticWaveform(theme = pillTheme, waveformStyle = waveformStyleName)
                             }
                             Box(
                                 modifier = Modifier
@@ -932,9 +979,14 @@ private fun BubblePreviewContent(
 }
 
 @Composable
-private fun StaticWaveform(theme: PillTheme) {
+private fun StaticWaveform(
+    theme: PillTheme,
+    waveformStyle: String = FloatingBubblePreferences.WAVEFORM_WAVES,
+) {
     // Frozen copy of SiriWaveform's draw pass: same 3-stroke structure,
     // same edge-fade gradients, fixed amplitude/phase instead of live input.
+    // Amp Bars mirrors the frozen Windows preview (same bar math, fixed
+    // phase), so the picker row shows the shipped shapes without motion.
     val primaryColor = theme.waveT
     val forefrontColor = theme.waveTFore
     val amplitude = 0.35f
@@ -944,6 +996,69 @@ private fun StaticWaveform(theme: PillTheme) {
         val width = size.width
         val height = size.height
         val centerY = height / 2
+
+        if (waveformStyle == FloatingBubblePreferences.WAVEFORM_BARS) {
+            // Same Windows metering curve and halo as the live branch, on the
+            // frozen amplitude the preview always shows.
+            val level = amplitude.pow(0.6f)
+            val barsBase = (level * 0.88f + 0.06f) * (height * 0.40f)
+            val barCount = if (width < 60.dp.toPx()) 7
+                else minOf(25, maxOf(9, (width / 6.dp.toPx()).toInt()))
+            val clampH = { h: Float -> min(h, height * 0.48f) }
+            val bedBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.42f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            val foreBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.88f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            val glowBrush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.16f), Color.Transparent),
+                startX = 0f,
+                endX = width
+            )
+            for (i in 0 until barCount) {
+                val x = ((i + 0.5f) / barCount) * width
+                val e = sin((x / width) * Math.PI.toFloat()).pow(1.22f)
+                val u1 = abs(sin(x * 0.11f + phase1 * 1.35f))
+                val u2 = abs(sin(x * 0.17f - phase1 * 1.05f))
+                val hBg = clampH((barsBase * (0.34f + 0.52f * min(1f, u1 * 0.62f + u2 * 0.38f)) + 1.2.dp.toPx()) * e)
+                drawLine(
+                    brush = bedBrush,
+                    start = androidx.compose.ui.geometry.Offset(x, centerY - hBg),
+                    end = androidx.compose.ui.geometry.Offset(x, centerY + hBg),
+                    strokeWidth = 2.4.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+            for (i in 0 until barCount) {
+                val x = ((i + 0.5f) / barCount) * width
+                val e = sin((x / width) * Math.PI.toFloat()).pow(1.22f)
+                val u1 = abs(sin(x * 0.11f + phase1 * 1.35f))
+                val u2 = abs(sin(x * 0.17f - phase1 * 1.05f))
+                val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
+                val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
+                drawLine(
+                    brush = glowBrush,
+                    start = androidx.compose.ui.geometry.Offset(x, centerY - hFt),
+                    end = androidx.compose.ui.geometry.Offset(x, centerY + hFt),
+                    strokeWidth = 1.9.dp.toPx() * 2.8f,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    brush = foreBrush,
+                    start = androidx.compose.ui.geometry.Offset(x, centerY - hFt),
+                    end = androidx.compose.ui.geometry.Offset(x, centerY + hFt),
+                    strokeWidth = 1.9.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+            return@Canvas
+        }
+
         val activeAmplitude = (amplitude * 0.8f + 0.1f) * (height * 0.45f)
         val gradientBrush = Brush.horizontalGradient(
             colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.9f), Color.Transparent),
