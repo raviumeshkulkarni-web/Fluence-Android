@@ -954,20 +954,36 @@ fun SiriWaveform(
             val barsBase = (level * 0.88f + 0.06f) * (height * 0.40f)
             val barCount = if (width < 60.dp.toPx()) 7
                 else minOf(25, maxOf(9, (width / 6.dp.toPx()).toInt()))
-            val barEdge = { x: Float -> sin((x / width) * Math.PI.toFloat()).pow(1.22f) }
+            // Edge taper: raised-floor envelope so all bars — including the outermost
+            // ones — react visibly on every voice frame, matching the Windows behaviour
+            // where the full row lights up left-to-right. edgeFloor (0.22) gives the
+            // edge bars a base height while the softer pow(0.7) exponent keeps the
+            // classic centre-peak shape without collapsing the sides to near-zero.
+            val edgeFloor = 0.22f
+            val barEdge = { x: Float ->
+                edgeFloor + (1f - edgeFloor) * sin((x / width) * Math.PI.toFloat()).pow(0.7f)
+            }
             val clampH = { h: Float -> min(h, height * 0.48f) }
+            // Wobble fields (u1/u2) are tuned in CSS px on Windows
+            // (0.11/0.17 rad per CSS px). Android canvas x is device px, so
+            // phone density multiplies the spatial frequency ~2.75-3.5x,
+            // decohering the row: bars stop riding the same left-to-right
+            // dance and the short edge bars flicker instead of reacting
+            // visibly with it. Sample in dp to keep Windows' spatial field.
+            val dpPx = 1.dp.toPx()
 
             // Soft primary bed: taller, fainter, the background role.
+            // Gradient starts/ends at a non-zero alpha so edge bars remain visible.
             val bedBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.42f), Color.Transparent),
+                colors = listOf(primaryColor.copy(alpha = 0.22f), primaryColor.copy(alpha = 0.42f), primaryColor.copy(alpha = 0.22f)),
                 startX = 0f,
                 endX = width
             )
             for (i in 0 until barCount) {
                 val x = ((i + 0.5f) / barCount) * width
                 val e = barEdge(x)
-                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
                 val hBg = clampH((barsBase * (0.34f + 0.52f * min(1f, u1 * 0.62f + u2 * 0.38f)) + 1.2.dp.toPx()) * e)
                 drawLine(
                     brush = bedBrush,
@@ -981,23 +997,24 @@ fun SiriWaveform(
             // Crisp forefront row: only swells with real loudness, so a
             // quiet room keeps a calm low row of bars (same contract as the
             // waves' forefront wave).
+            // Non-zero edge alpha keeps side bars visible on every frame.
             val foreBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.88f), Color.Transparent),
+                colors = listOf(forefrontColor.copy(alpha = 0.55f), forefrontColor.copy(alpha = 0.88f), forefrontColor.copy(alpha = 0.55f)),
                 startX = 0f,
                 endX = width
             )
             // Soft halo behind the crisp row (Windows shadow-glow parity).
             // One wide, faint pass reads as a blur without native shadows.
             val glowBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.16f), Color.Transparent),
+                colors = listOf(forefrontColor.copy(alpha = 0.08f), forefrontColor.copy(alpha = 0.16f), forefrontColor.copy(alpha = 0.08f)),
                 startX = 0f,
                 endX = width
             )
             for (i in 0 until barCount) {
                 val x = ((i + 0.5f) / barCount) * width
                 val e = barEdge(x)
-                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
                 val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
                 val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
                 drawLine(
@@ -1011,8 +1028,8 @@ fun SiriWaveform(
             for (i in 0 until barCount) {
                 val x = ((i + 0.5f) / barCount) * width
                 val e = barEdge(x)
-                val u1 = abs(sin(x * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
+                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
+                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
                 val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
                 val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
                 drawLine(

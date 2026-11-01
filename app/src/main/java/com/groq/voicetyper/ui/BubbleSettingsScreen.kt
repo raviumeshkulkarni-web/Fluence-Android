@@ -561,13 +561,13 @@ fun BubbleSettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Outer glow",
+                            text = "Halo Glow",
                             color = colors.textPrimary,
                             style = FluenceTypography.titleMedium
                         )
                         Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
                         Text(
-                            text = "Glow around the pill",
+                            text = "Adds a soft glow around the bubble. Purple while you dictate, teal in Agent mode",
                             color = colors.textSecondary,
                             style = FluenceTypography.bodySmall
                         )
@@ -1005,26 +1005,36 @@ private fun StaticWaveform(
             val barCount = if (width < 60.dp.toPx()) 7
                 else minOf(25, maxOf(9, (width / 6.dp.toPx()).toInt()))
             val clampH = { h: Float -> min(h, height * 0.48f) }
+            // Same density normalization as the live bubble: the wobble
+            // fields are CSS-px-tuned on Windows; raw device px decoheres
+            // the row on any phone-density canvas.
+            val dpPx = 1.dp.toPx()
+            // Raised-floor envelope + non-zero edge alphas, mirroring the live
+            // bubble bars branch so the preview shows the shipped shape.
+            val edgeFloor = 0.22f
+            val barEdge = { x: Float ->
+                edgeFloor + (1f - edgeFloor) * sin((x / width) * Math.PI.toFloat()).pow(0.7f)
+            }
             val bedBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.42f), Color.Transparent),
+                colors = listOf(primaryColor.copy(alpha = 0.22f), primaryColor.copy(alpha = 0.42f), primaryColor.copy(alpha = 0.22f)),
                 startX = 0f,
                 endX = width
             )
             val foreBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.88f), Color.Transparent),
+                colors = listOf(forefrontColor.copy(alpha = 0.55f), forefrontColor.copy(alpha = 0.88f), forefrontColor.copy(alpha = 0.55f)),
                 startX = 0f,
                 endX = width
             )
             val glowBrush = Brush.horizontalGradient(
-                colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.16f), Color.Transparent),
+                colors = listOf(forefrontColor.copy(alpha = 0.08f), forefrontColor.copy(alpha = 0.16f), forefrontColor.copy(alpha = 0.08f)),
                 startX = 0f,
                 endX = width
             )
             for (i in 0 until barCount) {
                 val x = ((i + 0.5f) / barCount) * width
-                val e = sin((x / width) * Math.PI.toFloat()).pow(1.22f)
-                val u1 = abs(sin(x * 0.11f + phase1 * 1.35f))
-                val u2 = abs(sin(x * 0.17f - phase1 * 1.05f))
+                val e = barEdge(x)
+                val u1 = abs(sin(x / dpPx * 0.11f + phase1 * 1.35f))
+                val u2 = abs(sin(x / dpPx * 0.17f - phase1 * 1.05f))
                 val hBg = clampH((barsBase * (0.34f + 0.52f * min(1f, u1 * 0.62f + u2 * 0.38f)) + 1.2.dp.toPx()) * e)
                 drawLine(
                     brush = bedBrush,
@@ -1036,9 +1046,9 @@ private fun StaticWaveform(
             }
             for (i in 0 until barCount) {
                 val x = ((i + 0.5f) / barCount) * width
-                val e = sin((x / width) * Math.PI.toFloat()).pow(1.22f)
-                val u1 = abs(sin(x * 0.11f + phase1 * 1.35f))
-                val u2 = abs(sin(x * 0.17f - phase1 * 1.05f))
+                val e = barEdge(x)
+                val u1 = abs(sin(x / dpPx * 0.11f + phase1 * 1.35f))
+                val u2 = abs(sin(x / dpPx * 0.17f - phase1 * 1.05f))
                 val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
                 val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
                 drawLine(
