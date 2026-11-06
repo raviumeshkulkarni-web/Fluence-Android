@@ -124,11 +124,44 @@ private fun UpdateAvailableDialog(
                         .padding(12.dp)
                 ) {
                     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                        Text(
-                            text = formatReleaseNotes(state.releaseNotes),
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
+                        val sections = parseReleaseNotes(state.releaseNotes)
+                        if (sections.isEmpty()) {
+                            Text(
+                                text = "The publisher did not include release notes. You can still download this update.",
+                                color = colors.textSecondary,
+                                style = FluenceTypography.bodySmall
+                            )
+                        } else {
+                            sections.forEachIndexed { sectionIndex, section ->
+                                if (sectionIndex > 0) {
+                                    Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+                                }
+
+                                Text(
+                                    text = section.title,
+                                    color = colors.textPrimary,
+                                    style = FluenceTypography.labelLarge
+                                )
+
+                                Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
+
+                                section.items.forEach { item ->
+                                    Row(verticalAlignment = Alignment.Top) {
+                                        Text(
+                                            text = "•",
+                                            color = colors.textPrimary,
+                                            style = FluenceTypography.bodySmall
+                                        )
+                                        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                                        Text(
+                                            text = item,
+                                            color = colors.textSecondary,
+                                            style = FluenceTypography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -377,10 +410,51 @@ private fun UpdateErrorDialog(
     )
 }
 
-private fun formatReleaseNotes(raw: String): String {
-    if (raw.isBlank()) return "No detailed release notes provided."
-    return raw.replace("\r\n", "\n").trim()
+private data class ReleaseNotesSection(
+    val title: String,
+    val items: List<String>
+)
+
+private fun parseReleaseNotes(raw: String): List<ReleaseNotesSection> {
+    if (raw.isBlank() || raw.trim().equals("No release notes provided.", ignoreCase = true)) {
+        return emptyList()
+    }
+
+    val sections = mutableListOf<ReleaseNotesSection>()
+    var title = "Release highlights"
+    var items = mutableListOf<String>()
+
+    for (line in raw.replace("\r\n", "\n").split('\n')) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) continue
+
+        val heading = Regex("^#{1,6}\\s+(.+?)\\s*#*$").matchEntire(trimmed)
+        if (heading != null) {
+            val headingTitle = plainReleaseNoteText(heading.groupValues[1])
+            if (items.isNotEmpty()) {
+                sections += ReleaseNotesSection(title, items)
+            }
+            items = mutableListOf()
+            title = headingTitle
+            continue
+        }
+
+        val bullet = Regex("^(?:[-*+]\\s+|\\d+[.)]\\s+)(.*)$").matchEntire(trimmed)
+        val item = plainReleaseNoteText(bullet?.groupValues?.get(1) ?: trimmed)
+        if (item.isNotEmpty()) items += item
+    }
+
+    if (items.isNotEmpty()) sections += ReleaseNotesSection(title, items)
+    return sections
 }
+
+private fun plainReleaseNoteText(markdown: String): String = markdown
+    .replace(Regex("!?\\[([^\\]]*)\\]\\([^)]+\\)"), "\$1")
+    .replace(Regex("(\\*\\*|__)(.*?)\\1"), "\$2")
+    .replace(Regex("([*_])([^*_]+)\\1"), "\$2")
+    .replace(Regex("`([^`]+)`"), "\$1")
+    .replace(Regex("<[^>]*>"), "")
+    .trim()
 
 private fun formatBytes(bytes: Long): String {
     if (bytes <= 0) return "0 MB"

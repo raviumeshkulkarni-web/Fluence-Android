@@ -290,6 +290,13 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-11-06 — Android release notes: structured update presentation (Windows parity).**
+Formal design review: release Markdown now appears as titled sections with
+readable bullet items, using the existing Fluence type, spacing, surface, and
+text-color tokens. The scrollable notes panel keeps longer releases readable,
+and missing notes receive a clear fallback message. No design tokens were
+added. Files touched: `update/ui/UpdateDialog.kt`, this entry.
+
 **2026-10-30 — Waveform animation style: Waves / Amp Bars (Windows parity).**
 A second waveform animation for the recording pill mirrors the Windows
 Floating Bubble pick. `waveform_style` in `fluence_prefs` (device-local,
