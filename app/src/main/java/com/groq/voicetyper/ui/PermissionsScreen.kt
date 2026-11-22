@@ -271,6 +271,15 @@ fun PermissionsScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(FluenceSpacing.Md))
+
+            // Honest trade-off next to the permission that creates it: the
+            // payment-app block is enforced by the payment app and survives
+            // Fluence's privacy exclusions.
+            AccessibilityPaymentNotice(
+                body = "Google Pay and some banking apps block payments while a third-party accessibility service is enabled. This is enforced by the payment app and cannot be bypassed from Fluence. Turn the Accessibility Service off above before paying; the voice keyboard keeps working, and the floating bubble returns when you enable it again."
+            )
+
             Spacer(modifier = Modifier.height(FluenceSpacing.Xl))
         }
     }

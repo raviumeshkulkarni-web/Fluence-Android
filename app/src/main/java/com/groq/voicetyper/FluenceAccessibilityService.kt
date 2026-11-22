@@ -138,12 +138,25 @@ class FluenceAccessibilityService : AccessibilityService() {
             val service = activeInstance ?: return true
             return try {
                 val windows = service.windows ?: return true
-                val appWindows = windows
-                    .filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
-                val roots = appWindows.mapNotNull { it.root }
-                if (roots.isEmpty()) return true
-                roots.any { it.packageName?.toString() == targetPackage }
-            } catch (_: Exception) {
+                val roots = mutableListOf<AccessibilityNodeInfo>()
+                try {
+                    val appWindows = windows
+                        .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                    for (window in appWindows) {
+                        window.root?.let { roots.add(it) }
+                    }
+                    if (roots.isEmpty()) return true
+                    roots.any { it.packageName?.toString() == targetPackage }
+                } finally {
+                    roots.forEach {
+                        try { it.recycle() } catch (_: Exception) {}
+                    }
+                    windows.forEach {
+                        try { it.recycle() } catch (_: Exception) {}
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed checking target visibility from windows", e)
                 true
             }
         }
@@ -365,7 +378,8 @@ class FluenceAccessibilityService : AccessibilityService() {
     private fun isImeVisible(): Boolean {
         val infos = try {
             windows
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to retrieve accessibility windows", e)
             null
         } ?: return false
         var found = false
@@ -374,8 +388,9 @@ class FluenceAccessibilityService : AccessibilityService() {
                 if (info.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
                     found = true
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // Treat an unreadable entry as absent; keep scanning.
+                Log.d(TAG, "Error inspecting window info", e)
             } finally {
                 try {
                     info.recycle()
@@ -532,10 +547,16 @@ class FluenceAccessibilityService : AccessibilityService() {
      * state is returned as null so privacy-sensitive callers can fail closed.
      */
     private fun resolveActiveApplicationPackage(): String? {
+        val windowList = try {
+            windows
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to retrieve accessibility windows", e)
+            null
+        } ?: return null
+
         return try {
-            val appWindows = windows
-                ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-                .orEmpty()
+            val appWindows = windowList
+                .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
 
             val focusedWindows = appWindows.filter { it.isFocused }
             val candidateWindows = if (focusedWindows.isNotEmpty()) {
@@ -559,6 +580,10 @@ class FluenceAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "Unable to resolve active application package", e)
             null
+        } finally {
+            windowList.forEach {
+                try { it.recycle() } catch (_: Exception) {}
+            }
         }
     }
 

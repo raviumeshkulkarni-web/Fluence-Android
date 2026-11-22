@@ -15,7 +15,13 @@ import com.groq.voicetyper.offline.OfflinePipelineProvider
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.offline.OfflineTranscriber
 import com.groq.voicetyper.history.HistoryRepository
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -108,6 +114,7 @@ object TranscriptionSessionManager {
 
     private var appContext: Context? = null
     private var noisyReceiver: BroadcastReceiver? = null
+    private var micPrivacyWatcher: com.groq.voicetyper.audio.MicPrivacyWatcher? = null
 
     private var amplitudeCollectJob: Job? = null
     private var engineStateCollectJob: Job? = null
@@ -117,6 +124,8 @@ object TranscriptionSessionManager {
     @Volatile
     private var activeEngineType: OfflineEngineType? = null
     private var recordingStartTimestampMs = 0L
+    @Volatile
+    private var lastAudibleFrameMs = 0L
     private val offlineTextAccumulator = StringBuilder()
 
     /** Delay before retrying a streaming mic start (mic may be transiently held). */
@@ -398,6 +407,7 @@ object TranscriptionSessionManager {
             null
         }
         recordingStartTimestampMs = System.currentTimeMillis()
+        lastAudibleFrameMs = 0L
 
         val engineType = OfflinePreferences.getEngineType(context)
         val useOffline = isOffline && !agentMode && isEngineModelReady(context, engineType)
@@ -438,6 +448,9 @@ object TranscriptionSessionManager {
                     amplitudeCollectJob = scope.launch {
                         pipeline.amplitude.collect {
                             _amplitude.value = it
+                            if (it > 0f) {
+                                lastAudibleFrameMs = System.currentTimeMillis()
+                            }
                         }
                     }
 
@@ -463,6 +476,7 @@ object TranscriptionSessionManager {
                                 if (sessionGeneration == generation) {
                                     showError("Offline transcription unavailable: $error")
                                     unregisterNoisyReceiver(context)
+                                    unregisterMicPrivacyCallback(context)
                                     scope.launch {
                                         if (sessionGeneration == generation) {
                                             OfflinePipelineProvider.releaseInstance()
@@ -488,6 +502,7 @@ object TranscriptionSessionManager {
                     }
 
                     pipeline.start(modelDir)
+                    registerMicPrivacyCallback(context)
                 } catch (e: Exception) {
                     showError("Offline recording start failed: ${e.localizedMessage}")
                 } catch (e: Error) {
@@ -503,6 +518,9 @@ object TranscriptionSessionManager {
             amplitudeCollectJob = scope.launch {
                 audioRecorder?.amplitude?.collect {
                     _amplitude.value = it
+                    if (it > 0f) {
+                        lastAudibleFrameMs = System.currentTimeMillis()
+                    }
                 }
             }
 
@@ -516,7 +534,10 @@ object TranscriptionSessionManager {
                 // release the noisy resources we just claimed.
                 _recordingState.value = RecordingState.IDLE
                 unregisterNoisyReceiver(context)
+                unregisterMicPrivacyCallback(context)
                 showError("Could not start the microphone. Check that microphone permission is granted and try again.")
+            } else {
+                registerMicPrivacyCallback(context)
             }
         }
     }
@@ -547,6 +568,9 @@ object TranscriptionSessionManager {
         amplitudeCollectJob = scope.launch {
             capture.amplitude.collect {
                 _amplitude.value = it
+                if (it > 0f) {
+                    lastAudibleFrameMs = System.currentTimeMillis()
+                }
             }
         }
 
@@ -579,6 +603,7 @@ object TranscriptionSessionManager {
 
         try {
             capture.startCapture(frameListener)
+            registerMicPrivacyCallback(context)
         } catch (e: SecurityException) {
             // No permission — fail immediately, never retry.
             Log.e(TAG, "Streaming capture start denied", e)
@@ -595,6 +620,7 @@ object TranscriptionSessionManager {
                 }
                 try {
                     capture.startCapture(frameListener)
+                    registerMicPrivacyCallback(context)
                 } catch (e2: Exception) {
                     Log.e(TAG, "Streaming capture start failed after retry", e2)
                     failStreamingStart(context, generation)
@@ -657,7 +683,8 @@ object TranscriptionSessionManager {
                         is com.groq.voicetyper.streaming.StreamingTranscriptEvent.Final -> {
                             val rawText = event.finalText.trim()
                             if (rawText.isNotEmpty()) {
-                                val dicted = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                                val tidiedStream = applyVoiceTextCleanup(context, rawText, language)
+                                val dicted = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, tidiedStream)
                                 // Moonshine offline streaming lands here too: gate on
                                 // the session's engine so offline stays truly offline.
                                 // Agent sessions bypass post-processing entirely:
@@ -756,6 +783,7 @@ object TranscriptionSessionManager {
             activeAgentId = null
         }
         unregisterNoisyReceiver(context)
+        unregisterMicPrivacyCallback(context)
     }
 
     private suspend fun failStreamingStart(context: Context, generation: Long) {
@@ -772,6 +800,7 @@ object TranscriptionSessionManager {
         if (_recordingState.value != RecordingState.RECORDING) return
         _recordingState.value = RecordingState.TRANSCRIBING
         unregisterNoisyReceiver(context)
+        unregisterMicPrivacyCallback(context)
 
         val durationMs = if (recordingStartTimestampMs > 0L) {
             (System.currentTimeMillis() - recordingStartTimestampMs).coerceAtLeast(0L)
@@ -825,7 +854,8 @@ object TranscriptionSessionManager {
                     }
                     val rawTranscription = offlineTextAccumulator.toString().trim()
                     if (rawTranscription.isNotEmpty()) {
-                        val dictedOffline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawTranscription)
+                        val tidiedOffline = applyVoiceTextCleanup(context, rawTranscription, getEffectiveLanguage(context))
+                        val dictedOffline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, tidiedOffline)
                         // Offline stays offline: cleanup skips (identity), V1 rules still apply.
                         // Agent sessions bypass post-processing entirely (verbatim for the agent pipeline).
                         val finalTranscription = if (_isAgentMode.value) dictedOffline
@@ -928,6 +958,7 @@ object TranscriptionSessionManager {
             currentListener = null
         }
         unregisterNoisyReceiver(context)
+        unregisterMicPrivacyCallback(context)
     }
 
     private fun transcribeAudioOnline(context: Context, file: File, durationMs: Long, generation: Long) {
@@ -965,7 +996,8 @@ object TranscriptionSessionManager {
             result.fold(
                 onSuccess = { rawText ->
                     if (rawText.isNotBlank()) {
-                        val dictedOnline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, rawText)
+                        val tidiedOnline = applyVoiceTextCleanup(context, rawText, languageCode)
+                        val dictedOnline = com.groq.voicetyper.dictionary.DictionaryTextPostProcessor.process(context, tidiedOnline)
                         // Online transcription: AI cleanup may run. Agent sessions
                         // bypass post-processing entirely (verbatim for the agent pipeline).
                         val text = if (_isAgentMode.value) dictedOnline
@@ -1141,6 +1173,10 @@ object TranscriptionSessionManager {
         _errorMessage.value = message
         _recordingState.value = RecordingState.ERROR
         currentListener?.onError(message)
+        appContext?.let {
+            unregisterNoisyReceiver(it)
+            unregisterMicPrivacyCallback(it)
+        }
         Log.e(TAG, "Operation failed.")
 
         // Auto-clear error state back to IDLE after 4 seconds
@@ -1208,6 +1244,7 @@ object TranscriptionSessionManager {
         val ctx = appContext
         if (ctx != null) {
             unregisterNoisyReceiver(ctx)
+            unregisterMicPrivacyCallback(ctx)
         }
 
         // Release the offline pipeline synchronously on a background thread.
@@ -1267,5 +1304,53 @@ object TranscriptionSessionManager {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to unregister audio becoming noisy receiver", e)
         }
+    }
+
+    private fun applyVoiceTextCleanup(
+        context: Context,
+        rawText: String,
+        languageTag: String
+    ): String {
+        if (_isAgentMode.value) return rawText
+        val spokenPunct = com.groq.voicetyper.voice.VoicePunctuationPreferences
+            .isSpokenPunctuationEnabled(context)
+        val punctuated = com.groq.voicetyper.voice.VoicePunctuationProcessor.process(
+            rawText,
+            enabled = spokenPunct,
+            languageTag = languageTag
+        )
+        return com.groq.voicetyper.voice.VoiceTextNormalizer.normalize(punctuated)
+    }
+
+    private fun registerMicPrivacyCallback(context: Context) {
+        if (micPrivacyWatcher != null) return
+        val appCtx = context.applicationContext
+        val generation = sessionGeneration
+        val watcher = com.groq.voicetyper.audio.MicPrivacyWatcher(
+            context = appCtx,
+            handler = handler
+        ) {
+            if (sessionGeneration != generation) return@MicPrivacyWatcher
+            if (_recordingState.value != RecordingState.RECORDING) return@MicPrivacyWatcher
+            if (activeOffline && _offlineEngineState.value != OfflineEngineState.READY) return@MicPrivacyWatcher
+            val nowMs = System.currentTimeMillis()
+            val audibleRecently = lastAudibleFrameMs > 0L &&
+                (nowMs - lastAudibleFrameMs) < com.groq.voicetyper.audio.MicPrivacyWatcher.CONFIRM_MS
+            if (audibleRecently) return@MicPrivacyWatcher
+
+            val listener = currentListener
+            cancelSessionInternal(appCtx, CancelReason.INCIDENTAL)
+            // Null synchronously before showError so listener.onError is never invoked twice.
+            currentListener = null
+            showError("Microphone is muted by system privacy switch")
+            listener?.onError("Microphone is muted by system privacy switch")
+        }
+        micPrivacyWatcher = watcher
+        watcher.start()
+    }
+
+    private fun unregisterMicPrivacyCallback(context: Context) {
+        micPrivacyWatcher?.stop()
+        micPrivacyWatcher = null
     }
 }

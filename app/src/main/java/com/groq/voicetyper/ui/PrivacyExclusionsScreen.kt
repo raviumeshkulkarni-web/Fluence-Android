@@ -33,7 +33,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -62,7 +61,6 @@ import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceEmptyState
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsDivider
-import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
@@ -144,39 +142,15 @@ fun PrivacyExclusionsScreen(
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
-            // User-approved expectation note: bank security warnings about
-            // accessibility-enabled apps are misattributed to Fluence.
-            SettingsJointCard(
+            // Exclusions are a Fluence-level policy, not an OS permission
+            // change: payment apps that block on an enabled accessibility
+            // service still block for excluded packages.
+            AccessibilityPaymentNotice(
+                body = "Google Pay and some banking apps block payments while a third-party accessibility service is enabled. That block is enforced by the payment app and cannot be bypassed from Fluence, even when the app is excluded. To pay, turn the Accessibility Service off; the voice keyboard keeps working without it. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = FluenceSpacing.Base)
-            ) {
-                Row(
-                    modifier = Modifier.padding(FluenceSpacing.Md),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                    Column {
-                        Text(
-                            text = "A note on banking apps",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                        Text(
-                            text = "Your bank may warn that an app with advanced control capabilities is active. That warning comes from the bank, not Fluence. It appears because Fluence's floating bubble requires Android's accessibility permission, and it would appear even with every app excluded. Your exclusions still hold: Fluence never reads, dictates into, or learns from excluded apps.",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
-                    }
-                }
-            }
+            )
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
@@ -236,7 +210,7 @@ fun PrivacyExclusionsScreen(
 
             SettingsSectionHeader(
                 title = "Installed Apps",
-                description = "Toggle apps to completely exclude them from Fluence",
+                description = "Toggle apps to exclude them from Fluence's features",
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 

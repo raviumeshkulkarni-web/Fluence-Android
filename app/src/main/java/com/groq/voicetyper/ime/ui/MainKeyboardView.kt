@@ -28,7 +28,7 @@ import com.groq.voicetyper.ime.KeyboardPanelMode
  *   [Switch Keyboard] [123] | (( [ MIC ] )) | [.,?!] [Delete]
  *
  * Row 2 (Utility Row):
- *   [Hide] | [         SPACEBAR         ] | [Enter / Action]
+ *   [123] | [         SPACEBAR         ] | [.,?!] [Enter / Action]
  */
 @Composable
 fun MainKeyboardView(
@@ -43,6 +43,7 @@ fun MainKeyboardView(
     onBackspaceDeleteSelected: () -> Unit = {},
     onBackspaceCancelSelect: () -> Unit = {},
     onCommitText: (String) -> Unit,
+    onCommitSpace: () -> Unit = { onCommitText(" ") },
     onPerformAction: () -> Unit,
     onSwitchKeyboard: () -> Unit,
     onSwitchMode: (KeyboardPanelMode) -> Unit,
@@ -142,7 +143,7 @@ fun MainKeyboardView(
 
                 // Dead Center: Expanded Spacebar with swipe cursor navigation (Weight 2.0f)
                 ImeSpacebar(
-                    onSpace = { onCommitText(" ") },
+                    onSpace = onCommitSpace,
                     onMoveCursor = onMoveCursor,
                     modifier = Modifier
                         .weight(2.0f)

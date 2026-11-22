@@ -166,6 +166,26 @@ object FluenceIcons {
             "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2",
         ),
     )
+    // Lucide share-2 + download (same v1.41.0 source as the Windows icons):
+    // single-transcript share and bulk history export.
+    val Share2: ImageVector = lucideIcon(
+        "Share2",
+        listOf(
+            "M18 2 A3 3 0 1 0 18 8 M18 8 A3 3 0 1 0 18 2",
+            "M6 9 A3 3 0 1 0 6 15 M6 15 A3 3 0 1 0 6 9",
+            "M18 16 A3 3 0 1 0 18 22 M18 22 A3 3 0 1 0 18 16",
+            "M8.59 13.51 L15.42 17.49",
+            "M15.41 6.51 L8.59 10.49",
+        ),
+    )
+    val Download: ImageVector = lucideIcon(
+        "Download",
+        listOf(
+            "M12 15 V3",
+            "M21 15 v4 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 v-4",
+            "M7 10 L12 15 L17 10",
+        ),
+    )
     val TrendingUp: ImageVector = lucideIcon(
         "TrendingUp",
         listOf(

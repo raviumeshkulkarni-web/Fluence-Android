@@ -123,6 +123,7 @@ fun TranscriptionDetailSheet(
                     horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)
                 ) {
                     val copyInteractionSource = remember { MutableInteractionSource() }
+                    val shareInteractionSource = remember { MutableInteractionSource() }
                     val deleteInteractionSource = remember { MutableInteractionSource() }
                     // §29 #3b: rows synced by another account are read-only.
                     val foreign = com.groq.voicetyper.sync.SyncAccounts.isForeign(item.syncAccount)
@@ -148,6 +149,24 @@ fun TranscriptionDetailSheet(
                         )
                         Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
                         Text(text = "Copy", color = colors.textPrimary, style = FluenceTypography.labelLarge)
+                    }
+
+                    Button(
+                        onClick = { shareTranscript(context, item.text) },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                        shape = FluenceShapes.Medium,
+                        modifier = Modifier
+                            .weight(1f)
+                            .pressScale(shareInteractionSource)
+                    ) {
+                        Icon(
+                            imageVector = FluenceIcons.Share2,
+                            contentDescription = null,
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                        Text(text = "Share", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                     }
 
                     if (!foreign) {

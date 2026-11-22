@@ -24,7 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
-import com.groq.voicetyper.offline.*
+import com.groq.voicetyper.offline.OfflinePreferences
 
 object BubbleController {
     private const val TAG = "BubbleController"
@@ -53,8 +53,6 @@ object BubbleController {
 
     private val _isAnchoredRight = MutableStateFlow(true)
     val isAnchoredRight: StateFlow<Boolean> = _isAnchoredRight.asStateFlow()
-
-
 
     fun updateAnchoredRight(anchoredRight: Boolean) {
         _isAnchoredRight.value = anchoredRight
@@ -112,10 +110,10 @@ object BubbleController {
             clampCardY(yPx, paddingPx, collapsedPx, newScreenHPx)
 
     // Delegate recording flows to the centralized TranscriptionSessionManager
-    val recordingState: StateFlow<RecordingState> = TranscriptionSessionManager.recordingState
-    val isAgentMode: StateFlow<Boolean> = TranscriptionSessionManager.isAgentMode
-    val errorMessage: StateFlow<String?> = TranscriptionSessionManager.errorMessage
-    val amplitude: StateFlow<Float> = TranscriptionSessionManager.amplitude
+    val recordingState: StateFlow<RecordingState> get() = TranscriptionSessionManager.recordingState
+    val isAgentMode: StateFlow<Boolean> get() = TranscriptionSessionManager.isAgentMode
+    val errorMessage: StateFlow<String?> get() = TranscriptionSessionManager.errorMessage
+    val amplitude: StateFlow<Float> get() = TranscriptionSessionManager.amplitude
 
     private var applicationContext: Context? = null
 
@@ -142,7 +140,7 @@ object BubbleController {
 
     private fun newScope(): CoroutineScope =
         CoroutineScope((dispatcherOverride ?: Dispatchers.Main) + SupervisorJob())
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     private val deferredStopService = Runnable {
         stopFloatingBubbleService()
@@ -360,8 +358,7 @@ object BubbleController {
             if (active != null) {
                 try {
                     active.refresh()
-                } catch (e: Exception) {
-                    null
+                } catch (_: Exception) {
                 }
                 nodeBoundsOrNull(active)
             } else {

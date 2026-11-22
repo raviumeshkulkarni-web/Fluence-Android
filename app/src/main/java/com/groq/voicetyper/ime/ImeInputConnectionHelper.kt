@@ -1,19 +1,96 @@
 package com.groq.voicetyper.ime
 
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 
 class ImeInputConnectionHelper(private val connectionProvider: () -> InputConnection?) {
 
+    private var lastSpaceTimeMs = 0L
+    private var lastSpaceContext: SpaceContext? = null
+
+    private data class SpaceContext(
+        val connection: InputConnection,
+        val textBefore: String,
+        val textAfter: String
+    )
+
+    fun resetSpaceSequence() {
+        lastSpaceTimeMs = 0L
+        lastSpaceContext = null
+    }
+
+    /**
+     * Commits a space, transforming a second tap within 400ms at the same cursor context into ". "
+     * when preceded by an alphanumeric character or closing quote/bracket.
+     * Suppressed in URI, Email, and numeric input fields.
+     */
+    fun commitSpace(editorInfo: EditorInfo? = null, currentTimeMs: Long = SystemClock.uptimeMillis()) {
+        val conn = connectionProvider() ?: run {
+            resetSpaceSequence()
+            return
+        }
+        val hasSelection = !conn.getSelectedText(0).isNullOrEmpty()
+        val before = conn.getTextBeforeCursor(20, 0)?.toString()
+        val after = conn.getTextAfterCursor(10, 0)?.toString()
+        val textBefore = before.orEmpty()
+        val textAfter = after.orEmpty()
+
+        val isUriOrEmailOrNumber = if (editorInfo != null) {
+            val variation = editorInfo.inputType and android.text.InputType.TYPE_MASK_VARIATION
+            variation == android.text.InputType.TYPE_TEXT_VARIATION_URI ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
+                EditorInfoHelper.isNumericField(editorInfo)
+        } else false
+
+        val sameSpaceContext = lastSpaceContext?.let {
+            it.connection === conn && it.textBefore == textBefore && it.textAfter == textAfter
+        } == true
+        val canDoubleSpaceToPeriod = !isUriOrEmailOrNumber &&
+            !hasSelection &&
+            sameSpaceContext &&
+            currentTimeMs >= lastSpaceTimeMs &&
+            currentTimeMs - lastSpaceTimeMs < 400L &&
+            (textAfter.isEmpty() || textAfter.first().isWhitespace()) &&
+            textBefore.endsWith(" ") &&
+            !textBefore.endsWith("  ") &&
+            textBefore.length >= 2 &&
+            (textBefore[textBefore.length - 2].isLetterOrDigit() ||
+                textBefore[textBefore.length - 2] in setOf('"', '\'', '”', '’', ')', ']', '}'))
+
+        if (canDoubleSpaceToPeriod) {
+            var replaced = false
+            conn.beginBatchEdit()
+            try {
+                if (conn.deleteSurroundingText(1, 0)) {
+                    replaced = conn.commitText(". ", 1)
+                }
+            } finally {
+                conn.endBatchEdit()
+            }
+            resetSpaceSequence()
+            if (!replaced) commitTextSafely(" ", 1)
+        } else {
+            val committed = commitTextSafely(" ", 1)
+            if (committed && !isUriOrEmailOrNumber && !hasSelection && before != null && after != null) {
+                lastSpaceTimeMs = currentTimeMs
+                lastSpaceContext = SpaceContext(conn, (textBefore + " ").takeLast(20), textAfter)
+            } else {
+                resetSpaceSequence()
+            }
+        }
+    }
+
     /**
      * Inserts text safely wrapped in a batch edit.
      */
-    fun commitTextSafely(text: String, newCursorPosition: Int = 1) {
-        val conn = connectionProvider() ?: return
+    fun commitTextSafely(text: String, newCursorPosition: Int = 1): Boolean {
+        val conn = connectionProvider() ?: return false
         conn.beginBatchEdit()
         try {
-            conn.commitText(text, newCursorPosition)
+            return conn.commitText(text, newCursorPosition)
         } finally {
             conn.endBatchEdit()
         }

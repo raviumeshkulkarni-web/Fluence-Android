@@ -95,6 +95,9 @@ fun FormattingScreen(
     var masterEnabled by remember {
         mutableStateOf(FormattingPreferences.isMasterEnabled(context))
     }
+    var spokenPunctuationEnabled by remember {
+        mutableStateOf(com.groq.voicetyper.voice.VoicePunctuationPreferences.isSpokenPunctuationEnabled(context))
+    }
     var cleanupEnabled by remember { mutableStateOf(CleanupPreferences.isCleanupEnabled(context)) }
     var cleanupPreset by remember { mutableStateOf(CleanupPreferences.getCleanupPreset(context)) }
     var cleanupModel by remember { mutableStateOf(CleanupPreferences.getCleanupModel(context)) }
@@ -187,6 +190,17 @@ fun FormattingScreen(
                         onCheckedChange = { enabled ->
                             FormattingPreferences.setMasterEnabled(context, enabled)
                             masterEnabled = enabled
+                        }
+                    )
+                    SettingsDivider()
+                    ToggleRow(
+                        title = "Spoken punctuation",
+                        description = if (spokenPunctuationEnabled) "On · convert commands like 'period' to marks" else "Off · verbatim spoken words",
+                        checked = spokenPunctuationEnabled,
+                        toggleLabel = "Spoken punctuation",
+                        onCheckedChange = { enabled ->
+                            com.groq.voicetyper.voice.VoicePunctuationPreferences.setSpokenPunctuationEnabled(context, enabled)
+                            spokenPunctuationEnabled = enabled
                         }
                     )
                 }

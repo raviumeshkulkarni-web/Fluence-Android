@@ -290,6 +290,15 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-11-22 — BubbleSettingsScreen layout polish & Agent Mode preview toggle.**
+Pinned only the compact `BubblePreviewContent` card at the top of `BubbleSettingsScreen` (moving the intro copy and Activation & Visibility switches into the scrollable column to nearly double scroll room), tightened preview horizontal padding with a `<304dp` stacked fallback to eliminate 360dp halo crowding, added tap-to-toggle Transcription/Agent mode preview using existing `PillTheme` and `amethystObsidianGlow` paints (no new tokens), and wired the disabled Accessibility gate on the master switch to open system Accessibility Settings directly. Live overlay (`FloatingBubbleService`/`FloatingBubbleUI`) untouched. Files touched: `ui/BubbleSettingsScreen.kt`, `DESIGN_SYSTEM.md`.
+
+**2026-11-22 — Android waveform polish: full-width Amp Bars motion & zero-recomposition draw loop.**
+Paint-only refinement to `SiriWaveform` and `StaticWaveform` (no new tokens, no pill sizing/color/gesture/service changes): added `10.dp` horizontal capsule inset, symmetric odd bar count (13 bars on the 120dp well), raised edge envelope (`0.50` floor, `pow(0.45)`), three-harmonic raised-cosine modulation with per-bar attack/release inertia, and linear gamma-curved height scaling so outer bars animate visibly left-to-right alongside center bars. Moved amplitude collection and vsync phase integration off Compose recomposition into a cached `Canvas` draw pass, and upgraded `Waves` segments to smooth quadratic curves. Files touched: `FloatingBubbleUI.kt`, `ui/BubbleSettingsScreen.kt`, `WaveformBarMathTest.kt`, `DESIGN_SYSTEM.md`.
+
+**2026-11-14 — Payment-app accessibility guardrails (copy/UX only).**
+Added a shared `AccessibilityPaymentNotice` card to Permissions & Services and Privacy & App Exclusions. It uses the existing Info-icon + `SettingsJointCard` pattern and existing type, spacing, and text tokens — no new tokens. The copy states that Google Pay and some banking apps block payments while a third-party accessibility service is enabled, that the block is enforced by the payment app and is unaffected by Fluence's app exclusions, and links to system accessibility settings. Replaced the incorrect "misattributed" banking note, which implied the warning was unrelated to Fluence. Also removed the unused `canRequestFilterKeyEvents` capability from the accessibility service config (no `onKeyEvent` exists; no behavior change). Accessibility service and floating bubble behavior are unchanged, so the bubble still works with third-party keyboards. Files touched: Android `app/src/main/res/xml/accessibility_service_config.xml`, `ui/AccessibilityPaymentNotice.kt` (new), `ui/PermissionsScreen.kt`, `ui/PrivacyExclusionsScreen.kt`, this entry.
+
 **2026-11-06 — Android release notes: structured update presentation (Windows parity).**
 Formal design review: release Markdown now appears as titled sections with
 readable bullet items, using the existing Fluence type, spacing, surface, and
