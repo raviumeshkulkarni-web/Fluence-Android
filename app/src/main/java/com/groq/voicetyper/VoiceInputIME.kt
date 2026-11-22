@@ -12,6 +12,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -37,9 +38,13 @@ import java.io.File
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.ime.EditorInfoHelper
+import com.groq.voicetyper.ime.FieldStallGuard
 import com.groq.voicetyper.ime.ImeInputConnectionHelper
 import com.groq.voicetyper.ime.KeyboardPanelMode
-import com.groq.voicetyper.offline.*
+import com.groq.voicetyper.ime.ui.StableMeasureFrame
+import com.groq.voicetyper.offline.ModelAssetManager
+import com.groq.voicetyper.offline.OfflineEngineType
+import com.groq.voicetyper.offline.OfflinePreferences
 
 class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
 
@@ -79,7 +84,24 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
     private var currentPanelMode by mutableStateOf(KeyboardPanelMode.MAIN)
     private var isVoiceGated by mutableStateOf(false)
     private var activeCardBounds: android.graphics.Rect? = null
-    private val inputConnectionHelper = ImeInputConnectionHelper { currentInputConnection }
+
+    private var stallGuard: FieldStallGuard? = null
+    private var guardedFor: InputConnection? = null
+    private var guardedConnection: InputConnection? = null
+    private var stableMeasureFrame: StableMeasureFrame? = null
+
+    override fun getCurrentInputConnection(): InputConnection? {
+        val raw = super.getCurrentInputConnection() ?: return null
+        if (guardedFor !== raw) {
+            guardedFor = raw
+            guardedConnection = FieldStallGuard(raw).also { stallGuard = it }
+        }
+        return guardedConnection
+    }
+
+    internal fun getGuardedInputConnection(): InputConnection? = currentInputConnection
+
+    private val inputConnectionHelper = ImeInputConnectionHelper { getGuardedInputConnection() }
 
     private fun updateCardBounds(rect: android.graphics.Rect) {
         if (activeCardBounds != rect) {
@@ -188,7 +210,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 apiKey = apiKey,
                 onBackspace = {
                     if (!isCurrentTargetAllowed()) return@IMEScreen
-                    val conn = currentInputConnection
+                    val conn = getGuardedInputConnection()
                     if (conn != null) {
                         if (!isCurrentTargetAllowed()) return@IMEScreen
                         val selectedText = conn.getSelectedText(0)
@@ -205,7 +227,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 onBackspaceSelect = { words ->
                     if (!isCurrentTargetAllowed()) return@IMEScreen
-                    val conn = currentInputConnection ?: return@IMEScreen
+                    val conn = getGuardedInputConnection() ?: return@IMEScreen
                     if (initialCursorPos == -1) {
                         if (!isCurrentTargetAllowed()) return@IMEScreen
                         val extracted = conn.getExtractedText(ExtractedTextRequest(), 0)
@@ -223,7 +245,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 onBackspaceDeleteSelected = {
                     if (!isCurrentTargetAllowed()) return@IMEScreen
-                    val conn = currentInputConnection
+                    val conn = getGuardedInputConnection()
                     if (conn != null && swipeSelectLength > 0) {
                         if (!isCurrentTargetAllowed()) return@IMEScreen
                         conn.commitText("", 1)
@@ -234,7 +256,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 },
                 onBackspaceCancelSelect = {
                     if (!isCurrentTargetAllowed()) return@IMEScreen
-                    val conn = currentInputConnection
+                    val conn = getGuardedInputConnection()
                     if (conn != null && initialCursorPos != -1) {
                         if (!isCurrentTargetAllowed()) return@IMEScreen
                         conn.setSelection(initialCursorPos, initialCursorPos)
@@ -261,6 +283,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 onCommitText = { text ->
                     if (isCurrentTargetAllowed()) {
                         inputConnectionHelper.commitTextSafely(text)
+                    }
+                },
+                onCommitSpace = {
+                    if (isCurrentTargetAllowed()) {
+                        inputConnectionHelper.commitSpace(currentInputEditorInfo)
                     }
                 },
                 onPerformAction = {
@@ -303,12 +330,30 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                             listener = object : SessionListener {
                                 override fun onTranscription(text: String) {
                                     val connection = if (isCurrentTargetAllowed() && !isVoiceGated) {
-                                        currentInputConnection
+                                        getGuardedInputConnection()
                                     } else {
                                         null
                                     }
                                     val delivered = connection != null && try {
-                                        connection.commitText("$text ", 1)
+                                        val before = connection.getTextBeforeCursor(100, 0)?.toString()
+                                        val after = connection.getTextAfterCursor(100, 0)?.toString()
+                                        val plan = com.groq.voicetyper.voice.VoiceSpacing.calculateInsertion(
+                                            textBefore = before,
+                                            textToInsert = text,
+                                            textAfter = after
+                                        )
+                                        var commitSucceeded = false
+                                        connection.beginBatchEdit()
+                                        try {
+                                            val deletionSucceeded = plan.deleteBefore == 0 ||
+                                                connection.deleteSurroundingText(plan.deleteBefore, 0)
+                                            if (deletionSucceeded) {
+                                                commitSucceeded = connection.commitText(plan.formattedText, 1)
+                                            }
+                                        } finally {
+                                            connection.endBatchEdit()
+                                        }
+                                        commitSucceeded
                                     } catch (e: Exception) {
                                         Log.w(TAG, "Failed to commit transcript to input connection", e)
                                         false
@@ -330,7 +375,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
                                 override fun getContextText(): String {
                                     if (!isCurrentTargetAllowed() || isVoiceGated) return ""
-                                    return currentInputConnection?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
+                                    return getGuardedInputConnection()?.getTextBeforeCursor(5000, 0)?.toString() ?: ""
                                 }
 
                                 override fun onError(message: String) {
@@ -367,7 +412,17 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
                 isOfflineMode = isOfflineMode
             )
         }
-        return composeView
+        val frame = StableMeasureFrame(this).apply {
+            addView(
+                composeView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        stableMeasureFrame = frame
+        return frame
     }
 
     override fun onEvaluateFullscreenMode(): Boolean = false
@@ -407,6 +462,8 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
+        stallGuard?.noteResponsive()
+        inputConnectionHelper.resetSpaceSequence()
         currentTargetPackage = info?.packageName?.toString()
         currentInputVariation = info?.inputType
             ?.takeIf { it != InputType.TYPE_NULL }
@@ -457,6 +514,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
     }
 
+    override fun onWindowShown() {
+        super.onWindowShown()
+        stableMeasureFrame?.onShownAgain()
+    }
+
     override fun onUpdateSelection(
         oldSelStart: Int,
         oldSelEnd: Int,
@@ -466,11 +528,12 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         candidatesEnd: Int
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        stallGuard?.noteResponsive()
         if (!isCurrentTargetAllowed()) {
             AutoLearnSessionManager.endSession()
             return
         }
-        val conn = currentInputConnection ?: return
+        val conn = getGuardedInputConnection() ?: return
         val textBefore = conn.getTextBeforeCursor(1000, 0)?.toString() ?: ""
         val textAfter = conn.getTextAfterCursor(1000, 0)?.toString() ?: ""
         val surroundingText = textBefore + textAfter
@@ -483,6 +546,7 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        inputConnectionHelper.resetSpaceSequence()
         AutoLearnSessionManager.endSession()
         TranscriptionSessionManager.cancelPreWarm()
 
@@ -532,11 +596,15 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // This is safe to cancel because TranscriptionSessionManager has its own process-level scope.
         scope.cancel()
         super.onDestroy()
+        guardedFor = null
+        guardedConnection = null
+        stallGuard = null
+        stableMeasureFrame = null
     }
 
     private fun executeCommandAction(result: CommandResult, contextText: String) {
         if (!isCurrentTargetAllowed() || isVoiceGated) return
-        val conn = currentInputConnection ?: return
+        val conn = getGuardedInputConnection() ?: return
         Log.d(TAG, "Executing IME command action: ${result.action}")
         when (result.action) {
             "DELETE_CHARS" -> {

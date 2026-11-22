@@ -2,6 +2,7 @@ package com.groq.voicetyper.ime.ui
 
 import android.view.HapticFeedbackConstants
 import android.view.inputmethod.EditorInfo
+import com.groq.voicetyper.ime.SpacebarScrubTracker
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -192,26 +193,23 @@ fun ImeSpacebar(
                         while (true) {
                             val downEvent = awaitFirstDown()
                             isPressed = true
-                            val startX = downEvent.position.x
-                            var lastTickX = startX
-                            var hasDragged = false
-                            val stepPx = 14.dp.toPx()
+                            val tracker = SpacebarScrubTracker(
+                                stepPx = 14.dp.toPx(),
+                                reversalThresholdPx = 12.dp.toPx()
+                            )
+                            tracker.start(downEvent.position.x)
 
                             do {
                                 val event = awaitPointerEvent()
                                 val dragEvent = event.changes.firstOrNull()
                                 if (dragEvent != null && dragEvent.pressed) {
-                                    val currentX = dragEvent.position.x
-                                    val deltaX = currentX - lastTickX
-                                    val steps = (deltaX / stepPx).toInt()
+                                    val steps = tracker.onMove(dragEvent.position.x)
                                     if (steps != 0) {
-                                        hasDragged = true
                                         val direction = if (steps > 0) 1 else -1
                                         repeat(kotlin.math.abs(steps)) {
                                             currentOnMoveCursor(direction)
                                         }
                                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        lastTickX += steps * stepPx
                                     }
                                 }
                                 event.changes.forEach { it.consume() }
@@ -219,7 +217,7 @@ fun ImeSpacebar(
 
                             // Released / touch up: if not dragged beyond threshold, insert space
                             isPressed = false
-                            if (!hasDragged) {
+                            if (!tracker.onUp()) {
                                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                 currentOnSpace()
                             }

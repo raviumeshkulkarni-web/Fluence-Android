@@ -1,10 +1,14 @@
 package com.groq.voicetyper.ui
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.provider.Settings
 import com.groq.voicetyper.FeedbackBus
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -22,13 +26,33 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -43,7 +67,15 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -66,15 +98,24 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.history.ExportFormat
+import com.groq.voicetyper.history.HistoryExporter
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.StatsCalculator
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.GeistMonoFont
 import com.groq.voicetyper.theme.LocalMotionPreferences
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.PrecisionTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,6 +143,22 @@ private data class DayGroup(
     val label: String,
     val items: List<TranscriptionEntry>,
 )
+
+private fun transcriptionCountLabel(count: Int): String =
+    if (count == 1) "1 transcription" else "$count transcriptions"
+
+/** Opens the platform share sheet for one transcript. */
+internal fun shareTranscript(context: Context, text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(send, "Share transcription"))
+    }.onFailure {
+        FeedbackBus.show("No app available to share transcription")
+    }
+}
 
 private fun midnightOf(timestampMs: Long): Long {
     val cal = java.util.Calendar.getInstance()
@@ -211,7 +268,86 @@ fun HistoryScreen(
     var expandedEntryId by rememberSaveable { mutableStateOf<Long?>(null) }
     var currentSortOption by rememberSaveable { mutableStateOf(SortOption.NEWEST) }
     var showSortSheet by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var pendingExportFormat by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingExportIds by rememberSaveable { mutableStateOf<LongArray?>(null) }
     val repository = remember { HistoryRepository.init(context); HistoryRepository }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val formatName = pendingExportFormat
+        val exportIdSet = pendingExportIds?.toSet()
+        pendingExportFormat = null
+        pendingExportIds = null
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null || formatName == null) {
+            return@rememberLauncherForActivityResult
+        }
+        val format = runCatching { ExportFormat.valueOf(formatName) }.getOrNull()
+            ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val (wrote, count) = withContext(Dispatchers.IO) {
+                val source = if (allEntries.isNotEmpty()) allEntries else {
+                    runCatching { repository.getAll().first() }.getOrDefault(emptyList())
+                }
+                val exportEntries = if (exportIdSet != null) {
+                    source.filter { it.id in exportIdSet }
+                } else {
+                    source
+                }
+                if (exportEntries.isEmpty()) {
+                    return@withContext Pair(null, 0)
+                }
+                val success = runCatching {
+                    val content = HistoryExporter.content(format, exportEntries)
+                    val stream = runCatching {
+                        context.contentResolver.openOutputStream(uri, "wt")
+                    }.getOrNull() ?: context.contentResolver.openOutputStream(uri)
+                        ?: error("No output stream for export destination")
+                    stream.use { out ->
+                        out.write(content.toByteArray(Charsets.UTF_8))
+                    }
+                }.isSuccess
+                Pair(success, exportEntries.size)
+            }
+            if (wrote == null) {
+                FeedbackBus.show("No transcriptions to export")
+            } else if (wrote) {
+                FeedbackBus.show("Exported ${transcriptionCountLabel(count)}")
+            } else {
+                FeedbackBus.show("Could not export history")
+            }
+        }
+    }
+
+    // Export mirrors Windows: all transcriptions in the current view's
+    // source, newest first; an active selection narrows the export to it.
+    fun startExport(format: ExportFormat) {
+        val selectedSnapshot = if (selectedIds.isNotEmpty()) selectedIds.toLongArray() else null
+        val exportEntries = if (selectedSnapshot != null) {
+            val idSet = selectedSnapshot.toSet()
+            allEntries.filter { it.id in idSet }
+        } else {
+            allEntries
+        }
+        if (exportEntries.isEmpty()) {
+            FeedbackBus.show("No transcriptions to export")
+            return
+        }
+        pendingExportFormat = format.name
+        pendingExportIds = selectedSnapshot
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = format.mime
+            putExtra(Intent.EXTRA_TITLE, HistoryExporter.fileName(format))
+        }
+        runCatching { exportLauncher.launch(intent) }.onFailure {
+            pendingExportFormat = null
+            pendingExportIds = null
+            FeedbackBus.show("Could not export history")
+        }
+    }
 
     LaunchedEffect(Unit) {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -304,6 +440,12 @@ fun HistoryScreen(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(FluenceIcons.Download, "Export selected", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(
                         onClick = {
                             pendingDeleteIds = selectedIds.toList()
                             showDeleteDialog = true
@@ -373,6 +515,12 @@ fun HistoryScreen(
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
+                    IconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(FluenceIcons.Download, "Export history", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    }
                     val clearInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
@@ -543,6 +691,7 @@ fun HistoryScreen(
                                         clipboard.setPrimaryClip(ClipData.newPlainText("transcription", entry.text))
                                         FeedbackBus.show("Copied to clipboard")
                                     },
+                                    onShare = { shareTranscript(context, entry.text) },
                                     onDelete = {
                                         pendingDeleteIds = listOf(entry.id)
                                         showDeleteDialog = true
@@ -607,6 +756,58 @@ fun HistoryScreen(
             )
         }
 
+        if (showExportDialog) {
+            val exportCount = if (selectedIds.isNotEmpty()) selectedIds.size else allEntries.size
+            AlertDialog(
+                onDismissRequest = { showExportDialog = false },
+                containerColor = colors.dialog,
+                titleContentColor = colors.textPrimary,
+                textContentColor = colors.textSecondary,
+                title = { Text("Export history") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(FluenceSpacing.Md)) {
+                        Text(
+                            if (selectedIds.isNotEmpty())
+                                "Export ${transcriptionCountLabel(exportCount)} selected, newest first."
+                            else
+                                "Export all transcriptions on this device, newest first. Search and filters do not apply."
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(FluenceSpacing.Sm)
+                        ) {
+                            listOf(ExportFormat.TXT, ExportFormat.CSV, ExportFormat.JSON).forEach { format ->
+                                Button(
+                                    onClick = {
+                                        showExportDialog = false
+                                        startExport(format)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSecondary),
+                                    shape = FluenceShapes.Medium,
+                                    contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = FluenceSpacing.Xxl)
+                                ) {
+                                    Text(
+                                        text = format.extension.uppercase(Locale.US),
+                                        color = colors.textPrimary,
+                                        style = FluenceTypography.labelLarge
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showExportDialog = false }) {
+                        Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
+                    }
+                }
+            )
+        }
+
         if (showSortSheet) {
             HistorySortBottomSheet(
                 selectedOption = currentSortOption,
@@ -628,9 +829,17 @@ private fun HistorySearchBar(
         value = searchQuery,
         onValueChange = onSearchChange,
         placeholder = {
-            Text("Search transcriptions…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
+            Text(
+                text = "Search…",
+                color = colors.textSecondary,
+                style = FluenceTypography.bodySmall,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
         },
         singleLine = true,
+        maxLines = 1,
         leadingIcon = {
             Icon(FluenceIcons.Search, "Search", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
         },
@@ -735,6 +944,7 @@ private fun HistoryTranscriptRow(
     onToggleExpand: () -> Unit,
     onOpenDetail: () -> Unit,
     onCopy: () -> Unit,
+    onShare: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -868,6 +1078,11 @@ private fun HistoryTranscriptRow(
                         text = { Text("Copy", color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
                         leadingIcon = { Icon(FluenceIcons.Copy, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
                         onClick = { onCopy(); showMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share", color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
+                        leadingIcon = { Icon(FluenceIcons.Share2, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp)) },
+                        onClick = { onShare(); showMenu = false }
                     )
                     if (!foreign) {
                         DropdownMenuItem(

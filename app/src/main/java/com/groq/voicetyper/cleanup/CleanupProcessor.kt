@@ -349,14 +349,87 @@ object CleanupProcessor {
                 model,
                 systemPrompt,
                 wrapTranscript(truncateForRequest(rawText))
-            )
-            if (cleaned.isNullOrBlank()) return@withContext rawText
-            val trimmed = cleaned.trim()
-            if (isSuspiciousResponse(rawText, trimmed)) return@withContext rawText
-            trimmed
+            ) ?: return@withContext rawText
+            sanitizeAndGuardOutput(rawText, cleaned)
         } catch (_: Exception) {
             rawText
         }
+    }
+
+    /**
+     * Sanitizes and guards LLM cleanup outputs:
+     * - Strips markdown code blocks/fences (```)
+     * - Strips outer wrapping quotes added by the LLM when rawText did not have them
+     * - Applies [VoiceTextNormalizer.normalize] for spacing, punctuation, and capitalization sanity
+     * - Detects and rejects runaway hallucination expansions (where output explodes relative to input)
+     * - Rejects conversational / chatty / off-topic hallucinations via [isSuspiciousResponse]
+     * Pure helper; falls back safely to [rawText] on any violation.
+     */
+    fun sanitizeAndGuardOutput(rawText: String, llmOutput: String): String {
+        if (llmOutput.isBlank()) return rawText
+
+        var cleaned = llmOutput.trim()
+
+        // 1. Strip markdown code fences if wrapped by the LLM (``` or ```text ... ```)
+        if (cleaned.startsWith("```")) {
+            val lines = cleaned.lines()
+            if (lines.size >= 2 && lines.first().startsWith("```") && lines.last().startsWith("```")) {
+                cleaned = lines.subList(1, lines.size - 1).joinToString("\n").trim()
+            } else {
+                cleaned = cleaned.removePrefix("```").removeSuffix("```").trim()
+            }
+        }
+
+        // 2. Strip accidental wrapping quotes if the raw input did not start and end with quotes
+        // and the interior does not contain separate quote delimiters.
+        val rawTrimmed = rawText.trim()
+        if (cleaned.length >= 2) {
+            val hasDoubleQuotes = (cleaned.startsWith("\"") && cleaned.endsWith("\"")) ||
+                (cleaned.startsWith("“") && cleaned.endsWith("”"))
+            val rawHasDoubleQuotes = (rawTrimmed.startsWith("\"") && rawTrimmed.endsWith("\"")) ||
+                (rawTrimmed.startsWith("“") && rawTrimmed.endsWith("”"))
+            if (hasDoubleQuotes && !rawHasDoubleQuotes) {
+                val interior = cleaned.substring(1, cleaned.length - 1)
+                if (interior.none { it == '"' || it == '“' || it == '”' }) {
+                    cleaned = interior.trim()
+                }
+            }
+
+            if (cleaned.length >= 2) {
+                val hasSingleQuotes = (cleaned.startsWith("'") && cleaned.endsWith("'")) ||
+                    (cleaned.startsWith("‘") && cleaned.endsWith("’"))
+                val rawHasSingleQuotes = (rawTrimmed.startsWith("'") && rawTrimmed.endsWith("'")) ||
+                    (rawTrimmed.startsWith("‘") && rawTrimmed.endsWith("’"))
+                if (hasSingleQuotes && !rawHasSingleQuotes) {
+                    val interior = cleaned.substring(1, cleaned.length - 1)
+                    val hasInternalQuoteDelimiter = Regex("(?<!\\p{L})['‘’]|['‘’](?!\\p{L})")
+                        .containsMatchIn(interior)
+                    if (!hasInternalQuoteDelimiter) {
+                        cleaned = interior.trim()
+                    }
+                }
+            }
+        }
+
+        // 3. Normalize spacing, punctuation, and capitalization artifacts via VoiceTextNormalizer
+        cleaned = com.groq.voicetyper.voice.VoiceTextNormalizer.normalize(cleaned)
+
+        // 4. Guard against extreme hallucination expansion:
+        // A cleanup request should not blow up to huge text (e.g. > 4x input length + 100 chars, with min threshold)
+        val maxAllowed = maxOf(100, rawTrimmed.length * 4 + 100)
+        if (rawTrimmed.isNotEmpty() && cleaned.length > maxAllowed) {
+            try {
+                Log.w(TAG, "Cleanup output failed length expansion sanity check (${cleaned.length} chars vs input ${rawTrimmed.length} chars)")
+            } catch (_: Throwable) {}
+            return rawText
+        }
+
+        // 5. Check if output is chatty or suspicious
+        if (isSuspiciousResponse(rawText, cleaned)) {
+            return rawText
+        }
+
+        return cleaned.ifBlank { rawText }
     }
 
     /**

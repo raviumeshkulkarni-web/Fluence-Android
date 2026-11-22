@@ -41,6 +41,7 @@ fun PunctuationKeyboardView(
     onBackspaceCancelSelect: () -> Unit = {},
     onCommitPunctuation: (String) -> Unit,
     onCommitText: (String) -> Unit = {},
+    onCommitSpace: () -> Unit = { onCommitText(" ") },
     onPerformAction: () -> Unit,
     onSwitchMode: (KeyboardPanelMode) -> Unit,
     onHideKeyboard: () -> Unit = {},
@@ -149,7 +150,7 @@ fun PunctuationKeyboardView(
                 )
 
                 ImeSpacebar(
-                    onSpace = { onCommitText(" ") },
+                    onSpace = onCommitSpace,
                     onMoveCursor = onMoveCursor,
                     modifier = Modifier
                         .weight(2.2f)

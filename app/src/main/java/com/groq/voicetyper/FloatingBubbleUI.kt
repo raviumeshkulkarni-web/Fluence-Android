@@ -47,8 +47,11 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.composed
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -879,9 +882,212 @@ fun MinimalCollapsedIcon(theme: PillTheme, drawIn: Float = 1f) {
 }
 
 /**
+ * Pure, unit-tested geometry and modulation math shared by live [SiriWaveform]
+ * and the frozen [BubbleSettingsScreen] preview so both render identical bar
+ * proportions, inset, and full-width edge presence.
+ */
+internal object WaveformBarMath {
+    const val MAX_BARS = 19
+    const val MIN_BARS = 5
+    const val DEFAULT_BARS = 13
+    const val IDLE_PHASE = 0.6f
+
+    private const val EDGE_FLOOR = 0.50f
+    private const val EDGE_EXPONENT = 0.45f
+    private const val LEVEL_GAMMA = 0.58f
+
+    /** Horizontal inset inside the 24dp rounded capsule well so outer bars never clip. */
+    fun horizontalInsetDp(widthDp: Float): Float {
+        if (widthDp <= 0f) return 0f
+        return min(10f, widthDp * 0.10f)
+    }
+
+    /** Symmetric odd bar count tuned for crisp spacing on mobile pill widths. */
+    fun barCountForWidthDp(widthDp: Float): Int {
+        if (widthDp <= 0f) return DEFAULT_BARS
+        val usableDp = (widthDp - horizontalInsetDp(widthDp) * 2f).coerceAtLeast(0f)
+        val raw = (usableDp / 7.5f).toInt().coerceIn(MIN_BARS, MAX_BARS)
+        return if (raw % 2 == 0) (raw - 1).coerceAtLeast(MIN_BARS) else raw
+    }
+
+    /** Normalized horizontal coordinate [0..1] for bar [index] out of [barCount]. */
+    fun barPositionFraction(index: Int, barCount: Int): Float {
+        if (barCount <= 0) return 0.5f
+        return (index + 0.5f) / barCount.toFloat()
+    }
+
+    /**
+     * Raised-floor arch envelope: keeps a subtle center peak while giving
+     * outermost bars >=50% height headroom so the entire row dances left-to-right.
+     */
+    fun edgeEnvelope(u: Float): Float {
+        val clamped = u.coerceIn(0f, 1f)
+        val arch = sin(clamped * PI.toFloat()).coerceIn(0f, 1f).pow(EDGE_EXPONENT)
+        return EDGE_FLOOR + (1f - EDGE_FLOOR) * arch
+    }
+
+    /**
+     * Three-harmonic raised-cosine spatial pattern spanning [0.18..1.0].
+     * Smooth peaks and valleys (no sharp abs(sin) cusps) travel in both
+     * directions so neighboring bars move independently across the full width.
+     */
+    fun barPattern(u: Float, phase: Float): Float {
+        val twoPi = 2f * PI.toFloat()
+        val w1 = 0.5f + 0.5f * sin(u * twoPi * 1.35f + phase * 1.45f)
+        val w2 = 0.5f + 0.5f * sin(u * twoPi * 2.40f - phase * 1.10f + 1.1f)
+        val w3 = 0.5f + 0.5f * sin(u * twoPi * 3.70f + phase * 0.85f + 2.3f)
+        val combined = (w1 * 0.48f + w2 * 0.34f + w3 * 0.18f).coerceIn(0f, 1f)
+        return 0.18f + 0.82f * combined.pow(1.35f)
+    }
+
+    /**
+     * Target normalized half-height fraction [0.08..1.0] for one bar.
+     * Scales linearly with the gamma-curved [rawLevel] (no level^2 collapse)
+     * so conversational speech drives lively full-width motion.
+     */
+    fun barTargetFraction(u: Float, phase: Float, rawLevel: Float): Float {
+        val shapedLevel = rawLevel.coerceIn(0f, 1f).pow(LEVEL_GAMMA)
+        val env = edgeEnvelope(u)
+        val pat = barPattern(u, phase)
+        val idleFrac = (0.12f + 0.06f * pat) * env
+        val activeFrac = shapedLevel * (0.14f + 0.86f * pat) * env
+        return (idleFrac * (1f - shapedLevel * 0.60f) + activeFrac).coerceIn(0.08f, 1f)
+    }
+
+    /** Smoothstep ramp [0..1] preventing hard visual threshold pops. */
+    fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
+        if (edge1 <= edge0) return if (x >= edge1) 1f else 0f
+        val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /** Frame-rate-independent exponential smoothing step (60/90/120Hz consistent). */
+    fun smoothApproach(current: Float, target: Float, ratePerSec: Float, dtSec: Float): Float {
+        if (dtSec <= 0f) return current
+        val factor = 1f - exp(-ratePerSec * dtSec)
+        return current + (target - current) * factor
+    }
+}
+
+private class WaveformRenderState {
+    var targetAmplitude: Float = 0f
+    var smoothWaveAmplitude: Float = 0f
+    var smoothBarsLevel: Float = 0f
+    var phase: Float = WaveformBarMath.IDLE_PHASE
+    var barCount: Int = WaveformBarMath.DEFAULT_BARS
+    val barHeights: FloatArray = FloatArray(WaveformBarMath.MAX_BARS) { i ->
+        val u = WaveformBarMath.barPositionFraction(i, WaveformBarMath.DEFAULT_BARS)
+        WaveformBarMath.barTargetFraction(u, WaveformBarMath.IDLE_PHASE, 0f)
+    }
+}
+
+private class WaveformDrawCache {
+    var cachedWidth: Float = -1f
+    var cachedPrimary: Color = Color.Unspecified
+    var cachedForefront: Color = Color.Unspecified
+
+    var waveForeBrush: Brush? = null
+    var waveBgBrush: Brush? = null
+    var barBedBrush: Brush? = null
+    var barForeBrush: Brush? = null
+    var barGlowBrush: Brush? = null
+
+    val path1: Path = Path()
+    val path2: Path = Path()
+    val path3: Path = Path()
+
+    fun ensureBrushes(width: Float, primaryColor: Color, forefrontColor: Color) {
+        if (cachedWidth == width &&
+            cachedPrimary == primaryColor &&
+            cachedForefront == forefrontColor &&
+            waveForeBrush != null
+        ) {
+            return
+        }
+        cachedWidth = width
+        cachedPrimary = primaryColor
+        cachedForefront = forefrontColor
+
+        val sameTone = primaryColor == forefrontColor
+        val bedEdgeAlpha = if (sameTone) 0.18f else 0.30f
+        val bedCenterAlpha = if (sameTone) 0.26f else 0.44f
+        val foreEdgeAlpha = if (sameTone) 0.82f else 0.78f
+        val glowEdgeAlpha = if (sameTone) 0.08f else 0.14f
+        val glowCenterAlpha = if (sameTone) 0.14f else 0.22f
+
+        waveForeBrush = Brush.horizontalGradient(
+            colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.9f), Color.Transparent),
+            startX = 0f,
+            endX = width
+        )
+        waveBgBrush = Brush.horizontalGradient(
+            colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.4f), Color.Transparent),
+            startX = 0f,
+            endX = width
+        )
+        barBedBrush = Brush.horizontalGradient(
+            colors = listOf(
+                primaryColor.copy(alpha = bedEdgeAlpha),
+                primaryColor.copy(alpha = bedCenterAlpha),
+                primaryColor.copy(alpha = bedEdgeAlpha)
+            ),
+            startX = 0f,
+            endX = width
+        )
+        barForeBrush = Brush.horizontalGradient(
+            colors = listOf(
+                forefrontColor.copy(alpha = foreEdgeAlpha),
+                forefrontColor.copy(alpha = 0.96f),
+                forefrontColor.copy(alpha = foreEdgeAlpha)
+            ),
+            startX = 0f,
+            endX = width
+        )
+        barGlowBrush = Brush.horizontalGradient(
+            colors = listOf(
+                forefrontColor.copy(alpha = glowEdgeAlpha),
+                forefrontColor.copy(alpha = glowCenterAlpha),
+                forefrontColor.copy(alpha = glowEdgeAlpha)
+            ),
+            startX = 0f,
+            endX = width
+        )
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun buildSmoothWavePath(
+    path: Path,
+    width: Float,
+    centerY: Float,
+    stepPx: Float,
+    sampleY: (Float) -> Float
+) {
+    path.reset()
+    path.moveTo(0f, centerY)
+    var prevX = 0f
+    var prevY = centerY
+    var x = stepPx
+    while (x < width) {
+        val y = sampleY(x)
+        val midX = (prevX + x) * 0.5f
+        val midY = (prevY + y) * 0.5f
+        path.quadraticBezierTo(prevX, prevY, midX, midY)
+        prevX = x
+        prevY = y
+        x += stepPx
+    }
+    val endY = sampleY(width)
+    path.quadraticBezierTo(prevX, prevY, width, endY)
+}
+
+/**
  * Multi-layered animated waveform visualizer (Windows Floating Bubble parity).
  * Style pick rides FloatingBubblePreferences.WAVEFORM_STYLE; colors stay
  * mode-owned (amethyst transcription / teal agent) in every style.
+ *
+ * Frame updates run in a single vsync loop and invalidate only the Canvas
+ * draw phase (zero Compose recompositions per second while recording).
  */
 @Composable
 fun SiriWaveform(
@@ -889,8 +1095,8 @@ fun SiriWaveform(
     agentMode: Boolean,
     waveformStyle: String = FloatingBubblePreferences.WAVEFORM_WAVES,
 ) {
-    val rawAmplitude by BubbleController.amplitude.collectAsState()
     val reducedMotion = rememberReducedMotion()
+    val density = LocalDensity.current
 
     // Mode pairs from the preset — amethyst-family wave = transcription, teal
     // wave = agent. This fixed-per-mode mapping is how the modes stay
@@ -898,217 +1104,196 @@ fun SiriWaveform(
     val primaryColor = if (agentMode) theme.waveA else theme.waveT
     val forefrontColor = if (agentMode) theme.waveAFore else theme.waveTFore
 
-    // Smooth and boost the amplitude to prevent jerky jumps from 50ms polling.
-    // Amplitude is live data (not decoration), so it still responds under
-    // reduced motion — only the decorative phase drift freezes.
-    val smoothedAmplitude by animateFloatAsState(
-        targetValue = (rawAmplitude * 6f).coerceIn(0f, 1f),
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "amplitude"
-    )
+    val renderState = remember { WaveformRenderState() }
+    val drawCache = remember { WaveformDrawCache() }
+    val frameTick = remember { mutableLongStateOf(0L) }
 
-    // Bars ride a dedicated level easing on top of that spring: no bounce
-    // (bouncy overshoot reads as pulsing on separate bars) and the same low
-    // stiffness, so the equalizer glides instead of pumping. Waves keep the
-    // original spring unchanged.
-    val barsLevel by animateFloatAsState(
-        targetValue = (rawAmplitude * 6f).coerceIn(0f, 1f),
-        animationSpec = if (reducedMotion) snap() else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
-        label = "barsAmplitude"
-    )
+    val currentReducedMotion by rememberUpdatedState(reducedMotion)
+    val currentWaveformStyle by rememberUpdatedState(waveformStyle)
 
-    // Dynamically integrate phase for speed changes without jumps
-    var phase by remember { mutableFloatStateOf(0f) }
+    // Collect live mic amplitude directly into renderState without triggering
+    // Compose recomposition on every 50ms audio poll.
     LaunchedEffect(Unit) {
-        var lastTime = withFrameNanos { it }
-        while (isActive) {
-            val currentTime = withFrameNanos { it }
-            val dt = (currentTime - lastTime) / 1e9f
-            lastTime = currentTime
-
-            // Speed increases when voice detects (smoothedAmplitude is higher)
-            val speed = 1f + smoothedAmplitude * 4f
-            if (!reducedMotion) {
-                phase = (phase + speed * dt * 2f * Math.PI.toFloat()) % (1000f * Math.PI.toFloat())
-            }
+        BubbleController.amplitude.collect { raw ->
+            renderState.targetAmplitude = (raw * 6f).coerceIn(0f, 1f)
         }
     }
 
-    val phase1 = phase
-    val phase2 = -phase * 0.7f
+    // Single frame-rate-independent animation loop (60/90/120Hz consistent).
+    LaunchedEffect(Unit) {
+        var lastTime = withFrameNanos { it }
+        while (isActive) {
+            val now = withFrameNanos { it }
+            val dt = ((now - lastTime) / 1e9f).coerceIn(0f, 0.05f)
+            lastTime = now
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
+            val target = renderState.targetAmplitude
+            val reduced = currentReducedMotion
+
+            if (reduced) {
+                renderState.smoothWaveAmplitude = target
+                renderState.smoothBarsLevel = target
+                renderState.phase = WaveformBarMath.IDLE_PHASE
+            } else {
+                // Fast attack, smooth release for both styles (no bouncy pump on bars).
+                val waveRate = if (target > renderState.smoothWaveAmplitude) 16f else 7.5f
+                renderState.smoothWaveAmplitude = WaveformBarMath.smoothApproach(
+                    renderState.smoothWaveAmplitude, target, waveRate, dt
+                )
+                val barsRate = if (target > renderState.smoothBarsLevel) 18f else 7f
+                renderState.smoothBarsLevel = WaveformBarMath.smoothApproach(
+                    renderState.smoothBarsLevel, target, barsRate, dt
+                )
+                val driver = if (currentWaveformStyle == FloatingBubblePreferences.WAVEFORM_BARS) {
+                    renderState.smoothBarsLevel
+                } else {
+                    renderState.smoothWaveAmplitude
+                }
+                val speed = 0.85f + driver * 3.6f
+                renderState.phase = (renderState.phase + speed * dt * 2f * PI.toFloat()) % (1000f * PI.toFloat())
+            }
+
+            if (currentWaveformStyle == FloatingBubblePreferences.WAVEFORM_BARS) {
+                val count = renderState.barCount.coerceIn(WaveformBarMath.MIN_BARS, WaveformBarMath.MAX_BARS)
+                for (i in 0 until count) {
+                    val u = WaveformBarMath.barPositionFraction(i, count)
+                    val targetBar = WaveformBarMath.barTargetFraction(
+                        u = u,
+                        phase = renderState.phase,
+                        rawLevel = renderState.smoothBarsLevel
+                    )
+                    renderState.barHeights[i] = if (reduced) {
+                        targetBar
+                    } else {
+                        val barRate = if (targetBar > renderState.barHeights[i]) 24f else 9.5f
+                        WaveformBarMath.smoothApproach(renderState.barHeights[i], targetBar, barRate, dt)
+                    }
+                }
+            }
+
+            frameTick.longValue = now
+        }
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { intSize ->
+                if (intSize.width > 0) {
+                    val widthDp = with(density) { intSize.width.toDp().value }
+                    renderState.barCount = WaveformBarMath.barCountForWidthDp(widthDp)
+                }
+            }
+    ) {
+        // Read frameTick inside DrawScope only -> invalidates draw phase with 0 recompositions.
+        @Suppress("UNUSED_VARIABLE")
+        val tick = frameTick.longValue
+
         val width = size.width
         val height = size.height
-        val centerY = height / 2
+        if (width < 4f || height < 4f) return@Canvas
+        val centerY = height * 0.5f
 
-        // Amp Bars branch (Windows drawBars mirror): equalizer bars on the
-        // same meter, phase, and mode colors as the waves. Only the paint
-        // differs, never sensing.
+        drawCache.ensureBrushes(width, primaryColor, forefrontColor)
+
         if (waveformStyle == FloatingBubblePreferences.WAVEFORM_BARS) {
-            // Windows metering curve on the same eased input: gamma below 1
-            // keeps expressive headroom in the mid range (Android's AGC peak
-            // + the 6x boost saturates a straight scale, pinning every bar —
-            // the waves tolerate the same scale, bars clearly do not).
-            val level = barsLevel.pow(0.6f)
-            val barsBase = (level * 0.88f + 0.06f) * (height * 0.40f)
-            val barCount = if (width < 60.dp.toPx()) 7
-                else minOf(25, maxOf(9, (width / 6.dp.toPx()).toInt()))
-            // Edge taper: raised-floor envelope so all bars — including the outermost
-            // ones — react visibly on every voice frame, matching the Windows behaviour
-            // where the full row lights up left-to-right. edgeFloor (0.22) gives the
-            // edge bars a base height while the softer pow(0.7) exponent keeps the
-            // classic centre-peak shape without collapsing the sides to near-zero.
-            val edgeFloor = 0.22f
-            val barEdge = { x: Float ->
-                edgeFloor + (1f - edgeFloor) * sin((x / width) * Math.PI.toFloat()).pow(0.7f)
-            }
-            val clampH = { h: Float -> min(h, height * 0.48f) }
-            // Wobble fields (u1/u2) are tuned in CSS px on Windows
-            // (0.11/0.17 rad per CSS px). Android canvas x is device px, so
-            // phone density multiplies the spatial frequency ~2.75-3.5x,
-            // decohering the row: bars stop riding the same left-to-right
-            // dance and the short edge bars flicker instead of reacting
-            // visibly with it. Sample in dp to keep Windows' spatial field.
-            val dpPx = 1.dp.toPx()
+            val widthDp = width / 1.dp.toPx()
+            val insetPx = WaveformBarMath.horizontalInsetDp(widthDp) * 1.dp.toPx()
+            val usableWidth = (width - insetPx * 2f).coerceAtLeast(1f)
+            val count = renderState.barCount.coerceIn(WaveformBarMath.MIN_BARS, WaveformBarMath.MAX_BARS)
+            val maxHalfH = height * 0.43f
+            val minHalfH = 1.6.dp.toPx()
+            val barStroke = 2.6.dp.toPx()
+            val bedStroke = 3.0.dp.toPx()
+            val glowStroke = barStroke * 1.95f
+            val bloomAlpha = WaveformBarMath.smoothstep(0.14f, 0.72f, renderState.smoothBarsLevel)
 
-            // Soft primary bed: taller, fainter, the background role.
-            // Gradient starts/ends at a non-zero alpha so edge bars remain visible.
-            val bedBrush = Brush.horizontalGradient(
-                colors = listOf(primaryColor.copy(alpha = 0.22f), primaryColor.copy(alpha = 0.42f), primaryColor.copy(alpha = 0.22f)),
-                startX = 0f,
-                endX = width
-            )
-            for (i in 0 until barCount) {
-                val x = ((i + 0.5f) / barCount) * width
-                val e = barEdge(x)
-                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
-                val hBg = clampH((barsBase * (0.34f + 0.52f * min(1f, u1 * 0.62f + u2 * 0.38f)) + 1.2.dp.toPx()) * e)
+            val bedBrush = drawCache.barBedBrush ?: return@Canvas
+            val glowBrush = drawCache.barGlowBrush ?: return@Canvas
+            val foreBrush = drawCache.barForeBrush ?: return@Canvas
+
+            // Pass 1: subtle primary bed behind each bar (keeps dual-tone mode identity).
+            for (i in 0 until count) {
+                val u = WaveformBarMath.barPositionFraction(i, count)
+                val x = insetPx + u * usableWidth
+                val halfH = max(minHalfH, (renderState.barHeights[i] * maxHalfH * 1.05f).coerceAtMost(height * 0.46f))
                 drawLine(
                     brush = bedBrush,
-                    start = Offset(x, centerY - hBg),
-                    end = Offset(x, centerY + hBg),
-                    strokeWidth = 2.4.dp.toPx(),
+                    start = Offset(x, centerY - halfH),
+                    end = Offset(x, centerY + halfH),
+                    strokeWidth = bedStroke,
                     cap = StrokeCap.Round
                 )
             }
 
-            // Crisp forefront row: only swells with real loudness, so a
-            // quiet room keeps a calm low row of bars (same contract as the
-            // waves' forefront wave).
-            // Non-zero edge alpha keeps side bars visible on every frame.
-            val foreBrush = Brush.horizontalGradient(
-                colors = listOf(forefrontColor.copy(alpha = 0.55f), forefrontColor.copy(alpha = 0.88f), forefrontColor.copy(alpha = 0.55f)),
-                startX = 0f,
-                endX = width
-            )
-            // Soft halo behind the crisp row (Windows shadow-glow parity).
-            // One wide, faint pass reads as a blur without native shadows.
-            val glowBrush = Brush.horizontalGradient(
-                colors = listOf(forefrontColor.copy(alpha = 0.08f), forefrontColor.copy(alpha = 0.16f), forefrontColor.copy(alpha = 0.08f)),
-                startX = 0f,
-                endX = width
-            )
-            for (i in 0 until barCount) {
-                val x = ((i + 0.5f) / barCount) * width
-                val e = barEdge(x)
-                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
-                val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
-                val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
-                drawLine(
-                    brush = glowBrush,
-                    start = Offset(x, centerY - hFt),
-                    end = Offset(x, centerY + hFt),
-                    strokeWidth = 1.9.dp.toPx() * 2.8f,
-                    cap = StrokeCap.Round
-                )
+            // Pass 2: soft halo ramped via smoothstep (zero threshold pop, zero neighbor overlap).
+            if (bloomAlpha > 0.01f) {
+                for (i in 0 until count) {
+                    val u = WaveformBarMath.barPositionFraction(i, count)
+                    val x = insetPx + u * usableWidth
+                    val halfH = max(minHalfH, renderState.barHeights[i] * maxHalfH)
+                    drawLine(
+                        brush = glowBrush,
+                        start = Offset(x, centerY - halfH),
+                        end = Offset(x, centerY + halfH),
+                        strokeWidth = glowStroke,
+                        cap = StrokeCap.Round,
+                        alpha = bloomAlpha
+                    )
+                }
             }
-            for (i in 0 until barCount) {
-                val x = ((i + 0.5f) / barCount) * width
-                val e = barEdge(x)
-                val u1 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.16f else 0.11f) + phase1 * 1.35f))
-                val u2 = abs(sin(x / dpPx * (if (width < 60.dp.toPx()) 0.24f else 0.17f) - phase1 * 1.05f))
-                val shape = min(1f, u1 * 0.62f + u2 * 0.38f)
-                val hFt = clampH((barsBase * (0.10f + 0.62f * shape * max(0.25f, level)) + 1.6.dp.toPx()) * e)
+
+            // Pass 3: crisp rounded foreground bars across full pill width.
+            for (i in 0 until count) {
+                val u = WaveformBarMath.barPositionFraction(i, count)
+                val x = insetPx + u * usableWidth
+                val halfH = max(minHalfH, renderState.barHeights[i] * maxHalfH)
                 drawLine(
                     brush = foreBrush,
-                    start = Offset(x, centerY - hFt),
-                    end = Offset(x, centerY + hFt),
-                    strokeWidth = 1.9.dp.toPx(),
+                    start = Offset(x, centerY - halfH),
+                    end = Offset(x, centerY + halfH),
+                    strokeWidth = barStroke,
                     cap = StrokeCap.Round
                 )
             }
             return@Canvas
         }
 
-        // Determine actual height amplitude (minimum idle height of 0.1f)
+        // Waves mode: exact 3-layer mode-colored waves upgraded to smooth quadratic curves
+        // with zero per-frame Path or Brush allocations.
+        val smoothedAmplitude = renderState.smoothWaveAmplitude
+        val phase1 = renderState.phase
+        val phase2 = -phase1 * 0.7f
         val activeAmplitude = (smoothedAmplitude * 0.8f + 0.1f) * (height * 0.45f)
+        val vibGain = WaveformBarMath.smoothstep(0.03f, 0.18f, smoothedAmplitude) * smoothedAmplitude
+        val stepPx = max(3f, 2.dp.toPx())
+        val dpPx = 1.dp.toPx()
 
-        // Gradient brushes to fade out the waves near the left and right edges
-        val gradientBrush = Brush.horizontalGradient(
-            colors = listOf(Color.Transparent, forefrontColor.copy(alpha = 0.9f), Color.Transparent),
-            startX = 0f,
-            endX = width
-        )
-        val bgGradientBrush = Brush.horizontalGradient(
-            colors = listOf(Color.Transparent, primaryColor.copy(alpha = 0.4f), Color.Transparent),
-            startX = 0f,
-            endX = width
-        )
+        val bgBrush = drawCache.waveBgBrush ?: return@Canvas
+        val foreBrush = drawCache.waveForeBrush ?: return@Canvas
 
-        // Wave 1: Background Wave
-        val path1 = Path()
-        path1.moveTo(0f, centerY)
-        for (x in 0..width.toInt() step 6) {
-            val xVal = x.toFloat()
-            // Parabolic envelope to taper wave heights to 0 at edges
-            val envelope = sin((xVal / width) * Math.PI.toFloat())
-            val angle = (xVal / width) * 2f * Math.PI.toFloat() * 1.5f + phase1
-            // Adding high frequency vibration based on amplitude
-            val vibration = sin(xVal * 0.1f + phase1 * 3f) * smoothedAmplitude * 4f
-            val yVal = centerY + (sin(angle) * activeAmplitude * 0.5f + vibration) * envelope
-            path1.lineTo(xVal, yVal)
+        buildSmoothWavePath(drawCache.path1, width, centerY, stepPx) { xVal ->
+            val envelope = sin((xVal / width) * PI.toFloat())
+            val angle = (xVal / width) * 2f * PI.toFloat() * 1.5f + phase1
+            val vibration = sin((xVal / dpPx) * 0.25f + phase1 * 3f) * vibGain * 3.5f * dpPx
+            centerY + (sin(angle) * activeAmplitude * 0.5f + vibration) * envelope
         }
-        drawPath(
-            path = path1,
-            brush = bgGradientBrush,
-            style = Stroke(width = 1.5.dp.toPx())
-        )
+        drawPath(path = drawCache.path1, brush = bgBrush, style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round))
 
-        // Wave 2: Middle Wave
-        val path2 = Path()
-        path2.moveTo(0f, centerY)
-        for (x in 0..width.toInt() step 6) {
-            val xVal = x.toFloat()
-            val envelope = sin((xVal / width) * Math.PI.toFloat())
-            val angle = (xVal / width) * 2f * Math.PI.toFloat() * 2.5f + phase2
-            val vibration = sin(xVal * 0.15f - phase2 * 4f) * smoothedAmplitude * 3f
-            val yVal = centerY + (sin(angle) * activeAmplitude * 0.7f + vibration) * envelope
-            path2.lineTo(xVal, yVal)
+        buildSmoothWavePath(drawCache.path2, width, centerY, stepPx) { xVal ->
+            val envelope = sin((xVal / width) * PI.toFloat())
+            val angle = (xVal / width) * 2f * PI.toFloat() * 2.5f + phase2
+            val vibration = sin((xVal / dpPx) * 0.35f - phase2 * 4f) * vibGain * 2.6f * dpPx
+            centerY + (sin(angle) * activeAmplitude * 0.7f + vibration) * envelope
         }
-        drawPath(
-            path = path2,
-            brush = bgGradientBrush,
-            style = Stroke(width = 1.8.dp.toPx())
-        )
+        drawPath(path = drawCache.path2, brush = bgBrush, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round))
 
-        // Wave 3: Forefront Delicate Wave
-        val path3 = Path()
-        path3.moveTo(0f, centerY)
-        for (x in 0..width.toInt() step 6) {
-            val xVal = x.toFloat()
-            val envelope = sin((xVal / width) * Math.PI.toFloat())
-            val angle = (xVal / width) * 2f * Math.PI.toFloat() * 1.2f + (phase1 - phase2) * 0.5f
-            val vibration = sin(xVal * 0.08f + phase1 * 5f) * smoothedAmplitude * 5f
-            val yVal = centerY + (sin(angle) * activeAmplitude * 0.9f + vibration) * envelope
-            path3.lineTo(xVal, yVal)
+        buildSmoothWavePath(drawCache.path3, width, centerY, stepPx) { xVal ->
+            val envelope = sin((xVal / width) * PI.toFloat())
+            val angle = (xVal / width) * 2f * PI.toFloat() * 1.2f + (phase1 - phase2) * 0.5f
+            val vibration = sin((xVal / dpPx) * 0.20f + phase1 * 5f) * vibGain * 4.2f * dpPx
+            centerY + (sin(angle) * activeAmplitude * 0.9f + vibration) * envelope
         }
-        drawPath(
-            path = path3,
-            brush = gradientBrush,
-            style = Stroke(width = 2.dp.toPx())
-        )
+        drawPath(path = drawCache.path3, brush = foreBrush, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
     }
 }

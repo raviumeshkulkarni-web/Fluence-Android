@@ -40,6 +40,7 @@ fun NumbersKeyboardView(
     onBackspaceDeleteSelected: () -> Unit = {},
     onBackspaceCancelSelect: () -> Unit = {},
     onCommitChar: (String) -> Unit,
+    onCommitSpace: () -> Unit = { onCommitChar(" ") },
     onPerformAction: () -> Unit,
     onSwitchMode: (KeyboardPanelMode) -> Unit,
     onHideKeyboard: () -> Unit = {},
@@ -148,7 +149,7 @@ fun NumbersKeyboardView(
                 )
 
                 ImeSpacebar(
-                    onSpace = { onCommitChar(" ") },
+                    onSpace = onCommitSpace,
                     onMoveCursor = onMoveCursor,
                     modifier = Modifier
                         .weight(2.2f)
