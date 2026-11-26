@@ -6,16 +6,47 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,7 +59,10 @@ import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -129,7 +163,7 @@ private fun ApiKeySection(
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = result.second,
-            color = if (result.first) colors.success else colors.error,
+            color = if (result.first) colors.success else colors.errorText,
             style = FluenceTypography.bodySmall,
         )
     }
@@ -198,13 +232,14 @@ fun SttConfigScreen(
             "custom" -> customBaseUrl
             else -> ""
         }
+        fetchGeneration++
+        val generation = fetchGeneration
         if (currentKey.isBlank() || currentProvider == "custom") {
             fetchedModels = emptyList()
+            isFetchingModels = false
             return
         }
         isFetchingModels = true
-        fetchGeneration++
-        val generation = fetchGeneration
         coroutineScope.launch {
             val result = GroqClient.fetchModels(baseUrl = currentBaseUrl, apiKey = currentKey)
             result.fold(
@@ -229,6 +264,7 @@ fun SttConfigScreen(
     }
 
     LaunchedEffect(selectedProvider) {
+        showPassword = false
         withContext(Dispatchers.IO) {
             selectedProvider = SecurityUtils.getSttPreset(context)
             apiKey = SecurityUtils.getProviderApiKey(context, "stt", "groq") ?: ""
@@ -433,110 +469,112 @@ fun SttConfigScreen(
                 description = "Speech recognition model and real-time streaming preferences"
             )
             SettingsJointCard {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(FluenceSpacing.Base)
-                ) {
-                    Text(
-                        text = "Transcription Model",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.labelLarge
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Select speech recognition model for this provider.",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.labelMedium,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                if (selectedProvider != "custom") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(FluenceSpacing.Base)
+                    ) {
+                        Text(
+                            text = "Transcription Model",
+                            color = colors.textPrimary,
+                            style = FluenceTypography.labelLarge
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Select speech recognition model for this provider.",
+                            color = colors.textSecondary,
+                            style = FluenceTypography.labelMedium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    if (isFetchingModels) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Fetching models\u2026", color = colors.textSecondary, style = FluenceTypography.bodySmall)
-                        }
-                    } else {
-                        var showModelDropdown by remember { mutableStateOf(false) }
-                        val availableModels = remember(fetchedModels, selectedProvider, selectedModel) {
-                            if (fetchedModels.isNotEmpty()) fetchedModels
-                            else if (selectedModel.isNotBlank()) listOf(selectedModel)
-                            else listOf(SecurityUtils.getSttModel(context, selectedProvider))
-                        }
-
-                        val modelTriggerInteraction = remember { MutableInteractionSource() }
-                        Box(modifier = Modifier.fillMaxWidth()) {
+                        if (isFetchingModels) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .pressScale(modelTriggerInteraction)
-                                    .clickable(
-                                        interactionSource = modelTriggerInteraction,
-                                        indication = LocalIndication.current,
-                                        role = Role.Button,
-                                        onClickLabel = "Select model",
-                                        onClick = { showModelDropdown = true }
-                                    )
-                                    .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
-                                    .background(colors.inputBg, FluenceShapes.Medium)
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    .height(56.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                Text(
-                                    text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
-                                    color = colors.textPrimary,
-                                    style = FluenceTypography.bodyLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Icon(
-                                    imageVector = FluenceIcons.ChevronDown,
-                                    contentDescription = "Select model",
-                                    tint = colors.textSecondary
-                                )
+                                CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Fetching models\u2026", color = colors.textSecondary, style = FluenceTypography.bodySmall)
                             }
-                            DropdownMenu(
-                                expanded = showModelDropdown,
-                                onDismissRequest = { showModelDropdown = false },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 280.dp)
-                                    .background(colors.dialog, FluenceShapes.Medium)
-                                    .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                            ) {
-                                availableModels.forEach { m ->
-                                    val isSelected = m == selectedModel
-                                    DropdownMenuItem(
-                                        text = { Text(text = m, color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
-                                        colors = MenuDefaults.itemColors(
-                                            textColor = colors.textPrimary,
-                                            leadingIconColor = colors.textSecondary,
-                                            trailingIconColor = colors.textSecondary
-                                        ),
-                                        modifier = if (isSelected) Modifier
-                                            .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                        else Modifier,
-                                        onClick = {
-                                            selectedModel = m
-                                            SecurityUtils.saveSttModel(context, selectedProvider, m)
-                                            showModelDropdown = false
-                                        }
+                        } else {
+                            var showModelDropdown by remember { mutableStateOf(false) }
+                            val availableModels = remember(fetchedModels, selectedProvider, selectedModel) {
+                                if (fetchedModels.isNotEmpty()) fetchedModels
+                                else if (selectedModel.isNotBlank()) listOf(selectedModel)
+                                else listOf(SecurityUtils.getSttModel(context, selectedProvider))
+                            }
+
+                            val modelTriggerInteraction = remember { MutableInteractionSource() }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pressScale(modelTriggerInteraction)
+                                        .clickable(
+                                            interactionSource = modelTriggerInteraction,
+                                            indication = LocalIndication.current,
+                                            role = Role.Button,
+                                            onClickLabel = "Select model",
+                                            onClick = { showModelDropdown = true }
+                                        )
+                                        .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
+                                        .background(colors.inputBg, FluenceShapes.Medium)
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = selectedModel.ifBlank { availableModels.firstOrNull() ?: "whisper-large-v3" },
+                                        color = colors.textPrimary,
+                                        style = FluenceTypography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    Icon(
+                                        imageVector = FluenceIcons.ChevronDown,
+                                        contentDescription = "Select model",
+                                        tint = colors.textSecondary
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showModelDropdown,
+                                    onDismissRequest = { showModelDropdown = false },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 280.dp)
+                                        .background(colors.dialog, FluenceShapes.Medium)
+                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
+                                ) {
+                                    availableModels.forEach { m ->
+                                        val isSelected = m == selectedModel
+                                        DropdownMenuItem(
+                                            text = { Text(text = m, color = colors.textPrimary, style = FluenceTypography.bodyLarge) },
+                                            colors = MenuDefaults.itemColors(
+                                                textColor = colors.textPrimary,
+                                                leadingIconColor = colors.textSecondary,
+                                                trailingIconColor = colors.textSecondary
+                                            ),
+                                            modifier = if (isSelected) Modifier
+                                                .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
+                                            else Modifier,
+                                            onClick = {
+                                                selectedModel = m
+                                                SecurityUtils.saveSttModel(context, selectedProvider, m)
+                                                showModelDropdown = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                SettingsDivider()
+                    SettingsDivider()
+                }
 
                 Column(
                     modifier = Modifier
@@ -554,7 +592,7 @@ fun SttConfigScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = if (isStreamingSupported) {
-                            "Choose between standard post-recording upload or live real-time streaming dictation. Agent Mode works with both \u2014 it is independent of the transcription mode."
+                            "Choose between standard post-recording upload or live real-time streaming dictation. Agent Mode works with both and is independent of the transcription mode."
                         } else {
                             "Real-time streaming is not supported by ${selectedProvider.uppercase()}. Standard post-recording mode will be used."
                         },
@@ -848,7 +886,7 @@ fun SttConfigScreen(
                                 if (isTesting) {
                                     CircularProgressIndicator(color = colors.textPrimary, modifier = Modifier.size(16.dp), strokeWidth = 1.5.dp)
                                 } else {
-                                    Text(text = "Test Connection", color = colors.textPrimary)
+                                    Text(text = "Test Connection", color = colors.textPrimary, style = FluenceTypography.labelLarge)
                                 }
                             }
                         }
@@ -857,7 +895,7 @@ fun SttConfigScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = result.second,
-                                color = if (result.first) colors.success else colors.error,
+                                color = if (result.first) colors.success else colors.errorText,
                                 style = FluenceTypography.bodySmall,
                             )
                         }

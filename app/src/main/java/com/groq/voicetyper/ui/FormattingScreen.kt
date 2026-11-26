@@ -19,11 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -40,14 +36,9 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
@@ -58,7 +49,6 @@ import com.groq.voicetyper.formatting.FormattingCategory
 import com.groq.voicetyper.formatting.FormattingPreferences
 import com.groq.voicetyper.navigation.Screen
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.PrecisionTheme
@@ -182,7 +172,7 @@ fun FormattingScreen(
             }
             item {
                 SettingsJointCard {
-                    ToggleRow(
+                    SettingsToggleRow(
                         title = "Text formatting",
                         description = if (masterEnabled) "On" else "Off · transcripts unchanged",
                         checked = masterEnabled,
@@ -193,7 +183,7 @@ fun FormattingScreen(
                         }
                     )
                     SettingsDivider()
-                    ToggleRow(
+                    SettingsToggleRow(
                         title = "Spoken punctuation",
                         description = if (spokenPunctuationEnabled) "On · convert commands like 'period' to marks" else "Off · verbatim spoken words",
                         checked = spokenPunctuationEnabled,
@@ -236,7 +226,7 @@ fun FormattingScreen(
             }
             item {
                 SettingsJointCard {
-                    ToggleRow(
+                    SettingsToggleRow(
                         title = "AI cleanup",
                         description = if (cleanupEnabled) "On · needs internet, skipped offline" else "Off",
                         checked = cleanupEnabled,
@@ -355,63 +345,6 @@ fun FormattingScreen(
                 cleanupModel = ""
             },
             onDismiss = { showModelSheet = false }
-        )
-    }
-}
-
-@Composable
-private fun ToggleRow(
-    title: String,
-    description: String,
-    checked: Boolean,
-    toggleLabel: String,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = PrecisionTheme.colors
-    val interactionSource = remember { MutableInteractionSource() }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .pressScale(interactionSource)
-            .toggleable(
-                value = checked,
-                interactionSource = interactionSource,
-                indication = androidx.compose.foundation.LocalIndication.current,
-                role = Role.Switch,
-                onValueChange = onCheckedChange
-            )
-            .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
-            .heightIn(min = 48.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = colors.textPrimary,
-                style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = description,
-                color = colors.textSecondary,
-                style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                checkedTrackColor = colors.activeControl,
-                uncheckedThumbColor = colors.textPrimary,
-                uncheckedTrackColor = colors.panel,
-                uncheckedBorderColor = colors.outlineSubtle
-            ),
-            modifier = Modifier.semantics {
-                contentDescription = toggleLabel
-                stateDescription = if (checked) "On" else "Off"
-            }
         )
     }
 }

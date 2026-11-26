@@ -163,6 +163,60 @@ fun trendForRange(
     return TrendInfo(current - prior, span)
 }
 
+data class KpiTrends(
+    val wordsDelta: Long,
+    val timeSavedMsDelta: Long,
+    val durationMsDelta: Long,
+    val sessionsDelta: Long,
+    val spanDays: Int,
+)
+
+fun kpiTrendsForRange(
+    daily: Map<String, DayCounters>,
+    range: ChartRange,
+    nowMs: Long = System.currentTimeMillis(),
+): KpiTrends? {
+    val span = when (range) {
+        ChartRange.D7 -> 7
+        ChartRange.D30 -> 30
+        ChartRange.D90 -> 90
+        ChartRange.ALL -> return null
+    }
+    val todayStart = dayStartUtc(nowMs)
+    val firstMs = daily.keys.mapNotNull(::dayMsOfKey).minOrNull() ?: return null
+    if (firstMs > todayStart - (2 * span - 1) * DAY_MS) return null
+
+    data class WindowSum(val sessions: Long, val words: Long, val ms: Long)
+    fun sumWindow(startMs: Long, endMs: Long): WindowSum {
+        var sessions = 0L
+        var words = 0L
+        var ms = 0L
+        var dayMs = startMs
+        while (dayMs < endMs) {
+            val c = daily[StatsCalculator.utcDateOf(dayMs)]
+            if (c != null) {
+                sessions += c.count
+                words += c.words
+                ms += c.ms
+            }
+            dayMs += DAY_MS
+        }
+        return WindowSum(sessions, words, ms)
+    }
+
+    val current = sumWindow(todayStart - (span - 1) * DAY_MS, todayStart + DAY_MS)
+    val prior = sumWindow(todayStart - (2 * span - 1) * DAY_MS, todayStart - (span - 1) * DAY_MS)
+    val currentSavedMs = Math.round((current.words / 40.0) * 60_000.0)
+    val priorSavedMs = Math.round((prior.words / 40.0) * 60_000.0)
+    return KpiTrends(
+        wordsDelta = current.words - prior.words,
+        timeSavedMsDelta = currentSavedMs - priorSavedMs,
+        durationMsDelta = current.ms - prior.ms,
+        sessionsDelta = current.sessions - prior.sessions,
+        spanDays = span,
+    )
+}
+
 // File-private: HistoryScreen.kt declares a same-named constant in this
 // package, so widening this one to internal would collide. ActivityInsights.kt
 // keeps its own copy rather than reaching across files for it.

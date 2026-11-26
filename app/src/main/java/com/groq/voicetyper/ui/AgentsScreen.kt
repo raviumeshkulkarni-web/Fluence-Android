@@ -7,7 +7,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,14 +18,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
@@ -150,47 +144,19 @@ fun AgentsScreen(
             .imePadding()
     ) {
         if (isMultiSelect) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = FluenceSpacing.Base),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(48.dp)) {
-                    Icon(FluenceIcons.X, "Exit selection", tint = colors.textPrimary, modifier = Modifier.size(24.dp))
+            val allAvailableIds = customs.filter { it.available }.map { it.id }.toSet()
+            FluenceMultiSelectTopBar(
+                selectedCount = selectedIds.size,
+                allSelected = selectedIds == allAvailableIds,
+                onExit = { selectedIds = emptySet() },
+                onToggleSelectAll = {
+                    selectedIds = if (selectedIds == allAvailableIds) emptySet() else allAvailableIds
+                },
+                onDeleteSelected = {
+                    pendingDeleteIds = selectedIds.toList()
+                    showDeleteDialog = true
                 }
-                Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                Text(
-                    text = "${selectedIds.size} selected",
-                    color = colors.textPrimary,
-                    style = FluenceTypography.headlineMedium
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                TextButton(
-                    onClick = {
-                        val all = customs.filter { it.available }.map { it.id }.toSet()
-                        selectedIds = if (selectedIds == all) emptySet() else all
-                    },
-                    contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) {
-                    Text(
-                        if (selectedIds == customs.filter { it.available }.map { it.id }.toSet()) "Deselect all" else "Select all",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.labelMedium
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        pendingDeleteIds = selectedIds.toList()
-                        showDeleteDialog = true
-                    },
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(FluenceIcons.Trash2, "Delete selected", tint = colors.error, modifier = Modifier.size(20.dp))
-                }
-            }
+            )
         } else {
             SettingsTopBar(
                 title = "Agents",
@@ -303,10 +269,10 @@ fun AgentsScreen(
                                             FeedbackBus.show(
                                                 when {
                                                     outcome.claimedCount > 0 ->
-                                                        "Added to your account — it will sync to your devices"
+                                                        "Added to your account. It will sync to your devices"
                                                     refusal != null -> refusal
                                                     outcome.skippedCount > 0 ->
-                                                        "Already in your account — nothing changed"
+                                                        "Already in your account. Nothing changed"
                                                     else -> "Nothing to add"
                                                 }
                                             )
@@ -359,64 +325,48 @@ fun AgentsScreen(
         val agentName = if (count == 1) {
             customs.find { it.id == pendingDeleteIds.first() }?.name
         } else null
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            containerColor = colors.dialog,
-            titleContentColor = colors.textPrimary,
-            textContentColor = colors.textSecondary,
-            title = { Text("Delete custom agent${if (count > 1) "s" else ""}") },
-            text = {
-                Text(
-                    if (count == 1 && agentName != null) "This action cannot be undone. Delete \"$agentName\"?"
-                    else "This action cannot be undone. Delete ${if (count > 1) "$count custom agents" else "this agent"}?"
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (deleting) return@TextButton
-                        // Runs on Dispatchers.IO: deleteCustomAgent performs two
-                        // SYNCHRONOUS commit() writes per record (tombstone +
-                        // legacy-shadow removal), so a multi-select delete of N
-                        // agents would otherwise do 2N blocking disk writes on
-                        // the main thread. Same rule the claim handler above
-                        // follows.
-                        deleting = true
-                        claimScope.launch {
-                            try {
-                                val ids = pendingDeleteIds.toList()
-                                val failed = withContext(Dispatchers.IO) {
-                                    ids.filterNot { AgentPreferences.deleteCustomAgent(context, it) }
-                                }
-                                selectedIds = selectedIds - ids.toSet()
-                                refresh()
-                                showDeleteDialog = false
-                                FeedbackBus.show(
-                                    when {
-                                        // The record survives (its legacy shadow is
-                                        // preserved), so the delete simply did not
-                                        // stick. Say that instead of claiming success.
-                                        failed.isNotEmpty() ->
-                                            "Couldn't delete ${failed.size}. Nothing was lost — try again."
-                                        count > 1 -> "Deleted $count agents"
-                                        else -> "Agent deleted"
-                                    }
-                                )
-                            } finally {
-                                deleting = false
-                            }
+        FluenceConfirmDialog(
+            title = "Delete custom agent${if (count > 1) "s" else ""}",
+            message = if (count == 1 && agentName != null) "This action cannot be undone. Delete \"$agentName\"?"
+            else "This action cannot be undone. Delete ${if (count > 1) "$count custom agents" else "this agent"}?",
+            confirmLabel = "Delete",
+            destructive = true,
+            busy = deleting,
+            onConfirm = {
+                if (deleting) return@FluenceConfirmDialog
+                // Runs on Dispatchers.IO: deleteCustomAgent performs two
+                // SYNCHRONOUS commit() writes per record (tombstone +
+                // legacy-shadow removal), so a multi-select delete of N
+                // agents would otherwise do 2N blocking disk writes on
+                // the main thread. Same rule the claim handler above
+                // follows.
+                deleting = true
+                claimScope.launch {
+                    try {
+                        val ids = pendingDeleteIds.toList()
+                        val failed = withContext(Dispatchers.IO) {
+                            ids.filterNot { AgentPreferences.deleteCustomAgent(context, it) }
                         }
-                    },
-                    enabled = !deleting,
-                ) {
-                    Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
+                        selectedIds = selectedIds - ids.toSet()
+                        refresh()
+                        showDeleteDialog = false
+                        FeedbackBus.show(
+                            when {
+                                // The record survives (its legacy shadow is
+                                // preserved), so the delete simply did not
+                                // stick. Say that instead of claiming success.
+                                failed.isNotEmpty() ->
+                                    "Couldn't delete ${failed.size}. Nothing was lost, try again."
+                                count > 1 -> "Deleted $count agents"
+                                else -> "Agent deleted"
+                            }
+                        )
+                    } finally {
+                        deleting = false
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
-                }
-            }
+            onDismiss = { showDeleteDialog = false }
         )
     }
 
@@ -622,7 +572,7 @@ private fun AgentRow(
             }
             if (onDelete != null && enabled) {
                 TextButton(onClick = onDelete, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
+                    Text("Delete", color = colors.errorText, style = FluenceTypography.labelMedium)
                 }
             }
             if (enabled) {

@@ -21,14 +21,29 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -38,8 +53,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,18 +70,16 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.offline.ModelAssetManager
@@ -71,7 +89,21 @@ import com.groq.voicetyper.offline.v2.MoonshineV2ModelManager
 import com.groq.voicetyper.offline.v2.MoonshineV2ModelType
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.stats.DayCounters
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.FluencePrefsName
+import com.groq.voicetyper.theme.FluenceProductLockup
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.GeistMonoFont
+import com.groq.voicetyper.theme.LocalMotionPreferences
+import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.theme.SoraFont
+import com.groq.voicetyper.theme.ThemeModeDark
+import com.groq.voicetyper.theme.ThemeModeLight
+import com.groq.voicetyper.theme.getThemeMode
+import com.groq.voicetyper.theme.resolveDarkTheme
+import com.groq.voicetyper.theme.setThemeMode
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import java.util.Locale
 
@@ -128,6 +160,22 @@ private fun formatDictationShort(ms: Long): String {
 }
 
 private fun formatSessions(n: Long): String = String.format(Locale.US, "%,d", n)
+
+private fun formatSignedCountDelta(delta: Long, abbreviateLarge: Boolean): String {
+    if (delta == 0L) return "±0"
+    val sign = if (delta > 0L) "+" else "-"
+    val abs = Math.abs(delta)
+    val body = if (abbreviateLarge) abbreviate(abs) else formatSessions(abs)
+    return "$sign$body"
+}
+
+private fun formatSignedDurationDelta(deltaMs: Long): String {
+    if (deltaMs == 0L) return "±0m"
+    val sign = if (deltaMs > 0L) "+" else "-"
+    return "$sign${formatDictationShort(Math.abs(deltaMs))}"
+}
+
+private data class FormattedTrend(val delta: Long, val label: String)
 
 // HorizontalPager is still marked experimental in Compose Foundation 1.6.
 // Opting in here rather than in build.gradle keeps the flag next to the only
@@ -253,8 +301,8 @@ fun HomeScreen(
     val todayRing = remember(unifiedDailyStats, chartMetric) {
         buildTodayRing(unifiedDailyStats, chartMetric)
     }
-    val trend = remember(unifiedDailyStats, chartRange) {
-        trendForRange(unifiedDailyStats, chartRange)
+    val kpiTrends = remember(unifiedDailyStats, chartRange) {
+        kpiTrendsForRange(unifiedDailyStats, chartRange)
     }
     val scopeLabel = when (chartRange) {
         ChartRange.D7 -> "in last 7 days"
@@ -488,7 +536,7 @@ fun HomeScreen(
                         },
                         onNavigateToSttConfig = onNavigateToSttConfig,
                         series = activitySeries,
-                        trend = trend,
+                        kpiTrends = kpiTrends,
                         scopeLabel = scopeLabel,
                         ring = todayRing,
                         metric = chartMetric,
@@ -616,7 +664,7 @@ private fun DashboardSummaryPage(
     onNavigateToSettings: () -> Unit,
     onNavigateToSttConfig: () -> Unit,
     series: ActivitySeries,
-    trend: TrendInfo?,
+    kpiTrends: KpiTrends?,
     scopeLabel: String,
     ring: TodayRing,
     metric: ChartMetric,
@@ -661,7 +709,7 @@ private fun DashboardSummaryPage(
             DashboardHeroStats(
                 series = series,
                 scopeLabel = scopeLabel,
-                trend = trend,
+                kpiTrends = kpiTrends,
             )
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
             TodayRingCard(ring = ring, metric = metric)
@@ -889,7 +937,7 @@ private fun isOfflineEngineReady(context: Context): Boolean {
 private fun DashboardHeroStats(
     series: ActivitySeries,
     scopeLabel: String,
-    trend: TrendInfo?,
+    kpiTrends: KpiTrends?,
 ) {
     val colors = PrecisionTheme.colors
     Box(
@@ -909,7 +957,12 @@ private fun DashboardHeroStats(
                     title = "Words Transcribed",
                     value = abbreviate(series.totalWords),
                     foot = "${formatSessions(series.totalSessions)} sessions · $scopeLabel",
-                    trend = trend,
+                    trend = kpiTrends?.let {
+                        FormattedTrend(
+                            it.wordsDelta,
+                            "${formatSignedCountDelta(it.wordsDelta, true)} vs prior ${it.spanDays}d"
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 Box(
@@ -922,7 +975,12 @@ private fun DashboardHeroStats(
                     title = "Typing Time Saved",
                     value = formatSavedShort(series.totalWords),
                     foot = "at ~40 WPM · $scopeLabel",
-                    trend = trend,
+                    trend = kpiTrends?.let {
+                        FormattedTrend(
+                            it.timeSavedMsDelta,
+                            "${formatSignedDurationDelta(it.timeSavedMsDelta)} vs prior ${it.spanDays}d"
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -937,7 +995,12 @@ private fun DashboardHeroStats(
                     title = "Dictation Time",
                     value = formatDictationShort(series.totalMs),
                     foot = "${formatSpokenFull(series.totalMs)} · $scopeLabel",
-                    trend = trend,
+                    trend = kpiTrends?.let {
+                        FormattedTrend(
+                            it.durationMsDelta,
+                            "${formatSignedDurationDelta(it.durationMsDelta)} vs prior ${it.spanDays}d"
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 Box(
@@ -950,7 +1013,12 @@ private fun DashboardHeroStats(
                     title = "Sessions",
                     value = formatSessions(series.totalSessions),
                     foot = scopeLabel,
-                    trend = trend,
+                    trend = kpiTrends?.let {
+                        FormattedTrend(
+                            it.sessionsDelta,
+                            "${formatSignedCountDelta(it.sessionsDelta, false)} vs prior ${it.spanDays}d"
+                        )
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -966,7 +1034,7 @@ private fun DashboardStatCell(
     title: String,
     value: String,
     foot: String,
-    trend: TrendInfo?,
+    trend: FormattedTrend?,
     modifier: Modifier = Modifier
 ) {
     val colors = PrecisionTheme.colors
@@ -1038,7 +1106,7 @@ private fun DashboardStatCell(
 }
 
 @Composable
-private fun TrendBadge(trend: TrendInfo) {
+private fun TrendBadge(trend: FormattedTrend) {
     val colors = PrecisionTheme.colors
     val container: Color
     val content: Color
@@ -1065,8 +1133,6 @@ private fun TrendBadge(trend: TrendInfo) {
             icon = FluenceIcons.Minus
         }
     }
-    val sign = if (trend.delta > 0) "+" else if (trend.delta < 0) "-" else "±"
-    val magnitude = if (trend.delta != 0L) Math.abs(trend.delta).toString() else "0"
     Row(
         modifier = Modifier
             .clip(CircleShape)
@@ -1089,7 +1155,7 @@ private fun TrendBadge(trend: TrendInfo) {
             modifier = Modifier.size(12.dp)
         )
         Text(
-            text = "$sign$magnitude vs prior ${trend.spanDays}d",
+            text = trend.label,
             color = content,
             // Windows .badge uses the label font (Geist Mono) at 11px 500.
             style = FluenceTypography.labelSmall.copy(

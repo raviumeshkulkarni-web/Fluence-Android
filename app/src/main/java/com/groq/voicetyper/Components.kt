@@ -46,7 +46,6 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -344,7 +343,7 @@ fun SettingsSectionHeader(
             val actionSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = FluenceSpacing.Xxl)
                     .pressScale(actionSource)
                     .clip(FluenceShapes.Small)
                     .background(colors.panel)

@@ -6,14 +6,38 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -21,26 +45,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FeedbackBus
 import com.groq.voicetyper.FluenceEmptyState
-import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
-import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.snippets.Snippet
 import com.groq.voicetyper.snippets.SnippetPreferences
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.ui.FluenceConfirmDialog
+import com.groq.voicetyper.ui.FluenceMultiSelectTopBar
+import com.groq.voicetyper.ui.SettingsToggleRow
 import com.groq.voicetyper.ui.icons.FluenceIcons
 
 @Composable
@@ -94,47 +120,19 @@ fun SnippetsScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (isMultiSelect) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .padding(horizontal = FluenceSpacing.Base),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(48.dp)) {
-                        Icon(FluenceIcons.X, "Exit selection", tint = colors.textPrimary, modifier = Modifier.size(24.dp))
+                val allSnippetIds = snippets.map { it.id }.toSet()
+                FluenceMultiSelectTopBar(
+                    selectedCount = selectedIds.size,
+                    allSelected = selectedIds == allSnippetIds,
+                    onExit = { selectedIds = emptySet() },
+                    onToggleSelectAll = {
+                        selectedIds = if (selectedIds == allSnippetIds) emptySet() else allSnippetIds
+                    },
+                    onDeleteSelected = {
+                        pendingDeleteIds = selectedIds.toList()
+                        showDeleteDialog = true
                     }
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                    Text(
-                        text = "${selectedIds.size} selected",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.headlineMedium
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    TextButton(
-                        onClick = {
-                            val all = snippets.map { it.id }.toSet()
-                            selectedIds = if (selectedIds == all) emptySet() else all
-                        },
-                        contentPadding = PaddingValues(horizontal = FluenceSpacing.Sm),
-                        modifier = Modifier.heightIn(min = 48.dp)
-                    ) {
-                        Text(
-                            if (selectedIds == snippets.map { it.id }.toSet()) "Deselect all" else "Select all",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.labelMedium
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            pendingDeleteIds = selectedIds.toList()
-                            showDeleteDialog = true
-                        },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(FluenceIcons.Trash2, "Delete selected", tint = colors.error, modifier = Modifier.size(20.dp))
-                    }
-                }
+                )
             } else {
                 SettingsTopBar(
                     title = "Text Expansion",
@@ -193,55 +191,16 @@ fun SnippetsScreen(
                 }
                 item {
                     SettingsJointCard {
-                        val switchInteraction = remember { MutableInteractionSource() }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .pressScale(switchInteraction)
-                                .toggleable(
-                                    value = isEnabled,
-                                    interactionSource = switchInteraction,
-                                    indication = androidx.compose.foundation.LocalIndication.current,
-                                    role = Role.Switch,
-                                    onValueChange = { checked ->
-                                        isEnabled = checked
-                                        SnippetPreferences.setSnippetsEnabled(context, checked)
-                                    }
-                                )
-                                .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Base)
-                                .heightIn(min = 48.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Enable Text Expansion",
-                                    color = colors.textPrimary,
-                                    style = FluenceTypography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Dictate a short trigger and Fluence pastes your expansion text instead",
-                                    color = colors.textSecondary,
-                                    style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.Normal)
-                                )
+                        SettingsToggleRow(
+                            title = "Enable Text Expansion",
+                            description = "Dictate a short trigger and Fluence pastes your expansion text instead",
+                            checked = isEnabled,
+                            toggleLabel = "Enable text expansion",
+                            onCheckedChange = { checked ->
+                                isEnabled = checked
+                                SnippetPreferences.setSnippetsEnabled(context, checked)
                             }
-                            Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                            Switch(
-                                checked = isEnabled,
-                                onCheckedChange = null,
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Enable text expansion"
-                                    stateDescription = if (isEnabled) "On" else "Off"
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                                    checkedTrackColor = colors.activeControl,
-                                    uncheckedThumbColor = colors.textPrimary,
-                                    uncheckedTrackColor = colors.panel,
-                                    uncheckedBorderColor = colors.outlineSubtle
-                                )
-                            )
-                        }
+                        )
                     }
                 }
 
@@ -314,37 +273,21 @@ fun SnippetsScreen(
         val snippetName = if (count == 1) {
             snippets.find { it.id == pendingDeleteIds.first() }?.trigger
         } else null
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            containerColor = colors.dialog,
-            titleContentColor = colors.textPrimary,
-            textContentColor = colors.textSecondary,
-            title = { Text("Delete snippet${if (count > 1) "s" else ""}") },
-            text = {
-                Text(
-                    if (count == 1 && snippetName != null) "This action cannot be undone. Delete \"$snippetName\"?"
-                    else "This action cannot be undone. Delete ${if (count > 1) "$count snippets" else "this snippet"}?"
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingDeleteIds.forEach { id ->
-                            SnippetPreferences.deleteSnippet(context, id)
-                        }
-                        selectedIds = selectedIds - pendingDeleteIds.toSet()
-                        showDeleteDialog = false
-                        FeedbackBus.show(if (count > 1) "Deleted $count snippets" else "Snippet deleted")
-                    }
-                ) {
-                    Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
+        FluenceConfirmDialog(
+            title = "Delete snippet${if (count > 1) "s" else ""}",
+            message = if (count == 1 && snippetName != null) "This action cannot be undone. Delete \"$snippetName\"?"
+            else "This action cannot be undone. Delete ${if (count > 1) "$count snippets" else "this snippet"}?",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                pendingDeleteIds.forEach { id ->
+                    SnippetPreferences.deleteSnippet(context, id)
                 }
+                selectedIds = selectedIds - pendingDeleteIds.toSet()
+                showDeleteDialog = false
+                FeedbackBus.show(if (count > 1) "Deleted $count snippets" else "Snippet deleted")
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
-                }
-            }
+            onDismiss = { showDeleteDialog = false }
         )
     }
 
@@ -471,7 +414,7 @@ private fun SnippetRow(
                     .padding(end = FluenceSpacing.Sm)
                     .heightIn(min = 48.dp)
             ) {
-                Text("Delete", color = colors.error, style = FluenceTypography.labelMedium)
+                Text("Delete", color = colors.errorText, style = FluenceTypography.labelMedium)
             }
         }
     }
@@ -557,7 +500,7 @@ private fun AddEditSnippetDialog(
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
-                        color = colors.error,
+                        color = colors.errorText,
                         style = FluenceTypography.labelMedium
                     )
                 }

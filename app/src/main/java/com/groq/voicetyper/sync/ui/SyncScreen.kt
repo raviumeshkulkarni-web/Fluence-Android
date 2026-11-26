@@ -11,9 +11,22 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -23,23 +36,28 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -50,7 +68,12 @@ import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.sync.SyncManager
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.LocalMotionPreferences
+import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.ui.SettingsToggleRow
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -216,13 +239,13 @@ fun SyncScreen(
                                         status.lastError != null -> "Attention required"
                                         !status.syncEnabled -> "Sync paused"
                                         // F4 Success-with-warning: converged with
-                                        // skips — synced, with a visible warning.
-                                        status.degraded -> "Synced — some items skipped"
+                                        // skips - synced, with a visible warning.
+                                        status.degraded -> "Synced. Some items skipped"
                                         status.lastSyncAtMs != null -> "Connected & Synced"
                                         else -> "Connected"
                                     },
                                     color = when {
-                                        status.lastError != null || status.secureStorageUnavailable -> colors.error
+                                        status.lastError != null || status.secureStorageUnavailable -> colors.errorText
                                         status.signedIn -> colors.textSecondary
                                         else -> colors.textTertiary
                                     },
@@ -279,7 +302,7 @@ fun SyncScreen(
                                     }
                                     else -> "Ready to sync"
                                 },
-                                color = if (status.lastError != null || status.secureStorageUnavailable) colors.error else colors.textSecondary,
+                                color = if (status.lastError != null || status.secureStorageUnavailable) colors.errorText else colors.textSecondary,
                                 style = FluenceTypography.bodySmall
                             )
                         }
@@ -313,54 +336,15 @@ fun SyncScreen(
             )
             SettingsJointCard {
                 if (status.signedIn) {
-                    val syncToggleInteraction = remember { MutableInteractionSource() }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .pressScale(syncToggleInteraction)
-                            .toggleable(
-                                value = status.syncEnabled,
-                                role = Role.Switch,
-                                interactionSource = syncToggleInteraction,
-                                indication = LocalIndication.current,
-                                onValueChange = { checked ->
-                                    SyncManager.setSyncEnabled(context, checked)
-                                    manager.refreshStatus()
-                                }
-                            )
-                            .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Automatic Sync",
-                                color = colors.textPrimary,
-                                style = FluenceTypography.titleMedium
-                            )
-                            Spacer(modifier = Modifier.height(FluenceSpacing.Xxs))
-                            Text(
-                                text = "Sync in background and on app launch",
-                                color = colors.textSecondary,
-                                style = FluenceTypography.bodySmall
-                            )
+                    SettingsToggleRow(
+                        title = "Automatic Sync",
+                        description = "Sync in background and on app launch",
+                        checked = status.syncEnabled,
+                        onCheckedChange = { checked ->
+                            SyncManager.setSyncEnabled(context, checked)
+                            manager.refreshStatus()
                         }
-
-                        Switch(
-                            checked = status.syncEnabled,
-                            onCheckedChange = null,
-                            modifier = Modifier.semantics {
-                                stateDescription = if (status.syncEnabled) "On" else "Off"
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                                checkedTrackColor = colors.activeControl,
-                                uncheckedThumbColor = colors.textPrimary,
-                                uncheckedTrackColor = colors.panel,
-                                uncheckedBorderColor = colors.outlineSubtle
-                            )
-                        )
-                    }
+                    )
 
                     SettingsDivider()
 
@@ -452,7 +436,7 @@ fun SyncScreen(
                         if (status.secureStorageUnavailable) {
                             Text(
                                 text = "Sync is temporarily unavailable. Please restart the app.",
-                                color = colors.error,
+                                color = colors.errorText,
                                 style = FluenceTypography.bodySmall,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -487,7 +471,7 @@ fun SyncScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = signInError,
-                                color = colors.error,
+                                color = colors.errorText,
                                 style = FluenceTypography.bodySmall,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -560,7 +544,7 @@ internal fun syncOutcomeMessage(lastError: String?): String = when (lastError) {
     // WILL retry and MAY need attention, and never says the retry will fix it.
     // (Making FATAL latch like Windows is the parity alternative; it changes
     // scheduling behaviour, so it is a separate decision, not a copy fix.)
-    "FATAL" -> "Sync hit a problem. We'll keep retrying — but this may need your attention"
+    "FATAL" -> "Sync hit a problem. We'll keep retrying, but this may need your attention"
     "AUTH_REQUIRED" -> "Please reconnect your Google account"
     "REJECTED" -> "Data too large to sync"
     else -> "Sync needs attention"

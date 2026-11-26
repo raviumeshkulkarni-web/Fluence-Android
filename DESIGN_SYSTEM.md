@@ -290,6 +290,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-11-26: Android PR A (WCAG AA ErrorText conformance, History/Dashboard parity, and shared Compose primitives).**
+Standardized error-colored text on elevated surfaces to `ErrorText`, moved History Export and Clear All to the top header bar and updated `ModeBadge` to neutral outline/elevated pills (Windows PR B parity), wired per-KPI dashboard trend badges (`KpiTrends`), and extracted shared Compose primitives into `ui/SharedComponents.kt` (`SettingsToggleRow`, `fluenceSwitchColors`, `FluenceConfirmDialog`, `FluenceSearchBar`, `FluenceBottomSheet`, `FluenceMultiSelectTopBar`, `FluencePromptEditorDialog`) with zero new design tokens.
+
 **2026-11-22 — BubbleSettingsScreen layout polish & Agent Mode preview toggle.**
 Pinned only the compact `BubblePreviewContent` card at the top of `BubbleSettingsScreen` (moving the intro copy and Activation & Visibility switches into the scrollable column to nearly double scroll room), tightened preview horizontal padding with a `<304dp` stacked fallback to eliminate 360dp halo crowding, added tap-to-toggle Transcription/Agent mode preview using existing `PillTheme` and `amethystObsidianGlow` paints (no new tokens), and wired the disabled Accessibility gate on the master switch to open system Accessibility Settings directly. Live overlay (`FloatingBubbleService`/`FloatingBubbleUI`) untouched. Files touched: `ui/BubbleSettingsScreen.kt`, `DESIGN_SYSTEM.md`.
 

@@ -11,23 +11,50 @@ import android.provider.Settings
 import com.groq.voicetyper.FeedbackBus
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Accessibility
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -39,7 +66,9 @@ import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.isAccessibilityServiceEnabled
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.PrecisionTheme
 
 @Composable
 private fun PermissionRow(
@@ -54,11 +83,17 @@ private fun PermissionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = FluenceSpacing.Xxl)
             .pressScale(interactionSource)
             .semantics(mergeDescendants = true) {
                 stateDescription = if (isGranted) "Granted" else "Not granted"
             }
-            .clickable(onClick = onRequest)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onRequest
+            )
             .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -90,7 +125,7 @@ private fun PermissionRow(
                 .size(10.dp)
                 .background(
                     color = if (isGranted) colors.success else colors.error,
-                    shape = MaterialTheme.shapes.extraSmall
+                    shape = CircleShape
                 )
         )
     }

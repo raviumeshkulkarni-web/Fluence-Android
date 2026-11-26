@@ -5,14 +5,39 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,7 +46,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.offline.ModelAssetManager
@@ -34,7 +58,10 @@ import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.PrecisionTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -149,57 +176,24 @@ fun OfflineConfigScreen(
                 description = "On-device speech recognition without internet access"
             )
             SettingsJointCard {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .toggleable(
-                            value = offlineEnabled,
-                            role = Role.Switch,
-                            onValueChange = { checked ->
-                                val selectedModelReady = when (selectedEngineType) {
-                                    OfflineEngineType.SENSEVOICE -> modelReady
-                                    OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
-                                    OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
-                                }
-                                if (checked && !selectedModelReady) {
-                                    FeedbackBus.show("Download the selected model first.")
-                                } else {
-                                    offlineEnabled = checked
-                                    OfflinePreferences.setOfflineModeEnabled(context, checked)
-                                }
-                            }
-                        )
-                        .padding(horizontal = FluenceSpacing.Base, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Offline Mode",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.titleMedium,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Transcribe without internet.",
-                            color = colors.textSecondary,
-                            style = FluenceTypography.bodySmall
-                        )
+                SettingsToggleRow(
+                    title = "Offline Mode",
+                    description = "Transcribe without internet.",
+                    checked = offlineEnabled,
+                    onCheckedChange = { checked ->
+                        val selectedModelReady = when (selectedEngineType) {
+                            OfflineEngineType.SENSEVOICE -> modelReady
+                            OfflineEngineType.MOONSHINE_V2_SMALL_STREAMING -> v2SmallReady
+                            OfflineEngineType.MOONSHINE_V2_MEDIUM_STREAMING -> v2MediumReady
+                        }
+                        if (checked && !selectedModelReady) {
+                            FeedbackBus.show("Download the selected model first.")
+                        } else {
+                            offlineEnabled = checked
+                            OfflinePreferences.setOfflineModeEnabled(context, checked)
+                        }
                     }
-
-                    Switch(
-                        checked = offlineEnabled,
-                        onCheckedChange = null,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                            checkedTrackColor = colors.activeControl,
-                            uncheckedThumbColor = colors.textPrimary,
-                            uncheckedTrackColor = colors.panel,
-                            uncheckedBorderColor = colors.outlineSubtle
-                        )
-                    )
-                }
+                )
             }
 
             // Section 2: Recognition Model
@@ -533,28 +527,23 @@ private fun ModelDownloadCard(
                 onClick = { showDeleteConfirm = true },
                 colors = ButtonDefaults.buttonColors(containerColor = colors.buttonSubtle),
                 shape = FluenceShapes.Medium,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.heightIn(min = FluenceSpacing.Xxl)
             ) {
-                Text("Delete Model", color = colors.error, style = FluenceTypography.labelMedium)
+                Text("Delete Model", color = colors.errorText, style = FluenceTypography.labelMedium)
             }
         }
     if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            containerColor = colors.dialog,
-            titleContentColor = colors.textPrimary,
-            textContentColor = colors.textSecondary,
-            title = { Text("Delete Model") },
-            text = { Text("Are you sure you want to delete the $title model files to free space ($sizeEstimate)?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteConfirm = false
-                    onDelete()
-                }) { Text("Delete Model", color = colors.errorText) }
+        FluenceConfirmDialog(
+            title = "Delete Model",
+            message = "Are you sure you want to delete the $title model files to free space ($sizeEstimate)?",
+            confirmLabel = "Delete Model",
+            destructive = true,
+            onConfirm = {
+                showDeleteConfirm = false
+                onDelete()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = colors.textSecondary) }
-            }
+            onDismiss = { showDeleteConfirm = false }
         )
     }
     } else if (isVerifying) {
@@ -566,7 +555,7 @@ private fun ModelDownloadCard(
     } else if (isCorrupt) {
         Text(
             text = "Model is corrupted. Re-download required.",
-            color = colors.error,
+            color = colors.errorText,
             style = FluenceTypography.bodySmall
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -627,7 +616,7 @@ private fun ModelDownloadCard(
             "FAILED" -> {
                 Text(
                     text = "Download failed: ${errorMessage ?: "Unknown error"}",
-                    color = colors.error,
+                    color = colors.errorText,
                     style = FluenceTypography.bodySmall
                 )
                 Spacer(modifier = Modifier.height(12.dp))

@@ -6,16 +6,48 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,9 +60,13 @@ import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.PrecisionTheme
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -57,6 +93,8 @@ fun AgentConfigScreen(
     var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var isFetchingModels by remember { mutableStateOf(false) }
     var modelFetchError by remember { mutableStateOf<String?>(null) }
+    var fetchGeneration by remember { mutableStateOf(0) }
+    var loadedKeyForProvider by remember { mutableStateOf("") }
 
     val providerBaseUrl = mapOf(
         "groq" to "https://api.groq.com/openai",
@@ -70,18 +108,30 @@ fun AgentConfigScreen(
     }
 
     fun fetchModelsForProvider() {
-        if (selectedProvider == "custom" || apiKey.isBlank()) {
+        val currentProvider = selectedProvider
+        val currentKey = apiKey
+        val currentUrl = currentBaseUrl()
+        fetchGeneration++
+        val gen = fetchGeneration
+        if (currentProvider == "custom" || currentKey.isBlank()) {
             fetchedModels = emptyList()
             modelFetchError = null
+            isFetchingModels = false
             return
         }
         isFetchingModels = true
         modelFetchError = null
         coroutineScope.launch {
             val result = GroqClient.fetchModels(
-                baseUrl = currentBaseUrl(),
-                apiKey = apiKey
+                baseUrl = currentUrl,
+                apiKey = currentKey
             )
+            if (currentProvider != selectedProvider || gen != fetchGeneration) {
+                if (gen == fetchGeneration) {
+                    isFetchingModels = false
+                }
+                return@launch
+            }
             result.fold(
                 onSuccess = {
                     fetchedModels = it
@@ -96,7 +146,9 @@ fun AgentConfigScreen(
                     modelFetchError = "Failed to fetch models. Check your API key."
                 }
             )
-            isFetchingModels = false
+            if (gen == fetchGeneration) {
+                isFetchingModels = false
+            }
         }
     }
 
@@ -110,18 +162,26 @@ fun AgentConfigScreen(
     }
 
     LaunchedEffect(selectedProvider) {
-        withContext(Dispatchers.IO) {
-            apiKey = SecurityUtils.getProviderApiKey(context, "llm", selectedProvider) ?: ""
-            model = SecurityUtils.getLlmModel(context, selectedProvider)
-            customBaseUrl = SecurityUtils.getLlmBaseUrl(context, "custom")
+        showPassword = false
+        val (loadedKey, loadedModel, loadedBaseUrl) = withContext(Dispatchers.IO) {
+            Triple(
+                SecurityUtils.getProviderApiKey(context, "llm", selectedProvider) ?: "",
+                SecurityUtils.getLlmModel(context, selectedProvider),
+                SecurityUtils.getLlmBaseUrl(context, "custom")
+            )
         }
+        loadedKeyForProvider = loadedKey
+        apiKey = loadedKey
+        model = loadedModel
+        customBaseUrl = loadedBaseUrl
         testResult = null
         fetchModelsForProvider()
     }
 
     LaunchedEffect(apiKey) {
-        if (apiKey.isBlank()) return@LaunchedEffect
-        kotlinx.coroutines.delay(600)
+        if (apiKey.isBlank() || apiKey == loadedKeyForProvider) return@LaunchedEffect
+        loadedKeyForProvider = ""
+        delay(600)
         fetchModelsForProvider()
     }
 
@@ -280,6 +340,13 @@ fun AgentConfigScreen(
                             }
                         } else {
                             var showModelDropdown by remember { mutableStateOf(false) }
+                            val availableModels = remember(fetchedModels, model) {
+                                if (fetchedModels.isNotEmpty()) {
+                                    (fetchedModels + listOfNotNull(model.takeIf { it.isNotBlank() })).distinct()
+                                } else {
+                                    listOfNotNull(model.takeIf { it.isNotBlank() })
+                                }
+                            }
 
                             val agentTriggerInteraction = remember { MutableInteractionSource() }
                             Box(modifier = Modifier.fillMaxWidth()) {
@@ -292,7 +359,7 @@ fun AgentConfigScreen(
                                             indication = LocalIndication.current,
                                             role = Role.Button,
                                             onClickLabel = "Select model",
-                                            onClick = { showModelDropdown = true }
+                                            onClick = { if (availableModels.isNotEmpty()) showModelDropdown = true }
                                         )
                                         .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
                                         .background(colors.inputBg, FluenceShapes.Medium)
@@ -322,7 +389,7 @@ fun AgentConfigScreen(
                                         .background(colors.dialog, FluenceShapes.Medium)
                                         .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
                                 ) {
-                                    fetchedModels.forEach { m ->
+                                    availableModels.forEach { m ->
                                         val isSelected = m == model
                                         DropdownMenuItem(
                                             text = {
@@ -353,7 +420,7 @@ fun AgentConfigScreen(
 
                         modelFetchError?.let { err ->
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = err, color = colors.error, style = FluenceTypography.labelMedium)
+                            Text(text = err, color = colors.errorText, style = FluenceTypography.labelMedium)
                         }
                     }
                 }
@@ -508,7 +575,7 @@ fun AgentConfigScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = result.second,
-                            color = if (result.first) colors.success else colors.error,
+                            color = if (result.first) colors.success else colors.errorText,
                             style = FluenceTypography.bodySmall
                         )
                     }

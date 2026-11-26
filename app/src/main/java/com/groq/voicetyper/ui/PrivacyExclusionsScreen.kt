@@ -34,14 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -154,56 +148,11 @@ fun PrivacyExclusionsScreen(
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Sm))
 
-            // Home-consistent Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = {
-                    Text("Search apps…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
-                },
-                singleLine = true,
-                leadingIcon = {
-                    Icon(
-                        imageVector = FluenceIcons.Search,
-                        contentDescription = null,
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        val clearSearchInteraction = remember { MutableInteractionSource() }
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            interactionSource = clearSearchInteraction,
-                            modifier = Modifier
-                                .size(FluenceSpacing.Xxl)
-                                .pressScale(clearSearchInteraction)
-                        ) {
-                            Icon(
-                                imageVector = FluenceIcons.X,
-                                contentDescription = "Clear search",
-                                tint = colors.textTertiary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = colors.textPrimary,
-                    unfocusedTextColor = colors.textPrimary,
-                    focusedBorderColor = colors.controlFocusBorder,
-                    unfocusedBorderColor = colors.inputBorder,
-                    focusedContainerColor = colors.panelElevated,
-                    unfocusedContainerColor = colors.panelElevated,
-                    cursorColor = colors.textPrimary
-                ),
-                shape = FluenceShapes.Small,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = 48.dp)
-                    .padding(horizontal = FluenceSpacing.Base),
-                textStyle = FluenceTypography.bodySmall
+            FluenceSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                placeholder = "Search apps…",
+                modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
             Spacer(modifier = Modifier.height(FluenceSpacing.Md))
@@ -321,13 +270,7 @@ private fun AppExclusionRow(
         Switch(
             checked = isExcluded,
             onCheckedChange = null,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = if (colors.isLight) androidx.compose.ui.graphics.Color.White else colors.panel,
-                checkedTrackColor = colors.activeControl,
-                uncheckedThumbColor = colors.textPrimary,
-                uncheckedTrackColor = colors.panel,
-                uncheckedBorderColor = colors.outlineSubtle
-            ),
+            colors = fluenceSwitchColors(),
             modifier = Modifier.semantics {
                 contentDescription = "Exclude ${app.label}"
                 stateDescription = if (isExcluded) "Excluded" else "Not excluded"

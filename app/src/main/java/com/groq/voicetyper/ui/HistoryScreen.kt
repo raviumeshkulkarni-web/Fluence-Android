@@ -50,7 +50,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import com.groq.voicetyper.ui.icons.FluenceIcons
@@ -61,16 +60,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +79,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
@@ -138,7 +136,7 @@ enum class DateFilter(val tabLabel: String, val accessibilityLabel: String) {
 
 private const val DAY_MS = 86_400_000L
 
-private data class DayGroup(
+internal data class DayGroup(
     val key: String,
     val label: String,
     val items: List<TranscriptionEntry>,
@@ -178,7 +176,7 @@ private fun midnightOf(timestampMs: Long): Long {
  * only the day buckets themselves order chronologically (reversed for
  * oldest-first).
  */
-private fun groupEntries(entries: List<TranscriptionEntry>, oldestFirst: Boolean): List<DayGroup> {
+internal fun groupEntries(entries: List<TranscriptionEntry>, oldestFirst: Boolean): List<DayGroup> {
     val locale = Locale.getDefault()
     val keyFmt = SimpleDateFormat("yyyy-M-d", locale)
     val weekdayFmt = SimpleDateFormat("EEEE", locale)
@@ -205,8 +203,8 @@ private fun groupEntries(entries: List<TranscriptionEntry>, oldestFirst: Boolean
         acc.items.add(entry)
     }
     val ordered = buckets.values.toList()
-    val sorted = if (oldestFirst) ordered.sortedByDescending { it.dayStart }
-    else ordered.sortedBy { it.dayStart }
+    val sorted = if (oldestFirst) ordered.sortedBy { it.dayStart }
+    else ordered.sortedByDescending { it.dayStart }
     return sorted.map { DayGroup(it.key, it.label, it.items) }
 }
 
@@ -349,7 +347,9 @@ fun HistoryScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    fun refreshChecklistStatus() {
         val imeManager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
         isKeyboardActive = imeManager.enabledInputMethodList.any { it.packageName == context.packageName }
         isMicGranted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -358,7 +358,23 @@ fun HistoryScreen(
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val sttPreset = com.groq.voicetyper.SecurityUtils.getSttPreset(context)
         isApiKeySet = sttPreset == "offline" || !com.groq.voicetyper.SecurityUtils.getProviderApiKey(context, "stt", sttPreset).isNullOrBlank()
+    }
+
+    LaunchedEffect(Unit) {
+        refreshChecklistStatus()
         repository.getAll().collect { allEntries = it }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshChecklistStatus()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // Local-midnight day bounds for the date filter (History display
@@ -420,42 +436,43 @@ fun HistoryScreen(
             .navigationBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: drawer + title + selection actions (64dp height matching Capture top app bar).
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = FluenceSpacing.Base),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isMultiSelect) {
-                    IconButton(onClick = { selectedIds = emptySet() }, modifier = Modifier.size(48.dp)) {
-                        Icon(FluenceIcons.X, "Exit selection", tint = colors.textPrimary, modifier = Modifier.size(24.dp))
+            // Header: drawer + title + actions (64dp height matching Capture top app bar).
+            if (isMultiSelect) {
+                val allDisplayedIds = displayedEntries.map { it.id }.toSet()
+                FluenceMultiSelectTopBar(
+                    selectedCount = selectedIds.size,
+                    allSelected = displayedEntries.isNotEmpty() && selectedIds == allDisplayedIds,
+                    onExit = { selectedIds = emptySet() },
+                    onToggleSelectAll = {
+                        selectedIds = if (selectedIds == allDisplayedIds) emptySet() else allDisplayedIds
+                    },
+                    onDeleteSelected = {
+                        pendingDeleteIds = selectedIds.toList()
+                        showDeleteDialog = true
+                    },
+                    extraActions = {
+                        IconButton(
+                            onClick = { showExportDialog = true },
+                            modifier = Modifier.size(FluenceSpacing.Xxl)
+                        ) {
+                            Icon(
+                                imageVector = FluenceIcons.Download,
+                                contentDescription = "Export selected",
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Base))
-                    Text(
-                        text = "${selectedIds.size} selected",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.headlineMedium
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    IconButton(
-                        onClick = { showExportDialog = true },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(FluenceIcons.Download, "Export selected", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(
-                        onClick = {
-                            pendingDeleteIds = selectedIds.toList()
-                            showDeleteDialog = true
-                        },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(FluenceIcons.Trash2, "Delete selected", tint = colors.error, modifier = Modifier.size(20.dp))
-                    }
-                } else {
-                    // Permanent sidebar is already visible in expanded windows —
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .padding(horizontal = FluenceSpacing.Base),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Permanent sidebar is already visible in expanded windows -
                     // no hamburger; the title row keeps its own padding rhythm.
                     if (showDrawerButton) {
                         val drawerInteraction = remember { MutableInteractionSource() }
@@ -473,6 +490,24 @@ fun HistoryScreen(
                         color = colors.textPrimary,
                         style = FluenceTypography.headlineMedium
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(
+                        onClick = { showExportDialog = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(FluenceIcons.Download, "Export history", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                    }
+                    TextButton(
+                        onClick = { showClearAllDialog = true },
+                        enabled = allEntries.isNotEmpty(),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            text = "Clear All",
+                            color = if (allEntries.isNotEmpty()) colors.errorText else colors.textDisabled,
+                            style = FluenceTypography.labelLarge
+                        )
+                    }
                 }
             }
 
@@ -492,7 +527,7 @@ fun HistoryScreen(
                 )
             }
 
-            // Card fills the remaining viewport (Windows parity): search row with Clear All,
+            // Card fills the remaining viewport (Windows parity): search row,
             // filters, then the list scrolling inside.
             Column(
                 modifier = Modifier
@@ -502,49 +537,14 @@ fun HistoryScreen(
                     .background(colors.cardSurface)
                     .border(1.dp, colors.cardBorder, FluenceShapes.Medium)
             ) {
-                // Search row with Clear All button next to it (Windows parity)
-                Row(
+                FluenceSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search transcriptions…",
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HistorySearchBar(
-                        searchQuery = searchQuery,
-                        onSearchChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                    IconButton(
-                        onClick = { showExportDialog = true },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(FluenceIcons.Download, "Export history", tint = colors.textSecondary, modifier = Modifier.size(20.dp))
-                    }
-                    val clearInteraction = remember { MutableInteractionSource() }
-                    Box(
-                        modifier = Modifier
-                            .heightIn(min = 44.dp)
-                            .pressScale(clearInteraction)
-                            .clip(FluenceShapes.Small)
-                            .background(colors.panel)
-                            .border(1.dp, colors.outlineSubtle, FluenceShapes.Small)
-                            .clickable(
-                                interactionSource = clearInteraction,
-                                indication = androidx.compose.foundation.LocalIndication.current,
-                                enabled = allEntries.isNotEmpty(),
-                                onClick = { showClearAllDialog = true }
-                            )
-                            .padding(horizontal = FluenceSpacing.Md, vertical = FluenceSpacing.Sm),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Clear All",
-                            color = if (allEntries.isNotEmpty()) colors.errorText else colors.textDisabled,
-                            style = FluenceTypography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-                }
+                        .padding(horizontal = FluenceSpacing.Base, vertical = FluenceSpacing.Sm)
+                )
                 Spacer(modifier = Modifier.height(FluenceSpacing.Xs))
 
                 // Date filter (Windows All time / Today / Yesterday), same
@@ -629,7 +629,7 @@ fun HistoryScreen(
                             else if (!isApiKeySet)
                                 "Configure your Speech-to-Text provider API key to start transcribing."
                             else
-                                "Tap the mic on the Fluence keyboard in any app and start speaking — your transcriptions will appear here.",
+                                "Tap the mic on the Fluence keyboard in any app and start speaking. Your transcriptions will appear here.",
                             modifier = Modifier.padding(vertical = FluenceSpacing.Xxl),
                             actionLabel = emptyActionLabel,
                             onAction = emptyAction
@@ -715,44 +715,32 @@ fun HistoryScreen(
 
         if (showDeleteDialog) {
             val count = pendingDeleteIds.size
-            AlertDialog(
-                onDismissRequest = { showDeleteDialog = false },
-                containerColor = colors.dialog,
-                titleContentColor = colors.textPrimary,
-                textContentColor = colors.textSecondary,
-                title = { Text("Delete transcription${if (count > 1) "s" else ""}") },
-                text = { Text("This action cannot be undone. Delete ${if (count > 1) "$count transcriptions" else "this transcription"}?") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        coroutineScope.launch {
-                            repository.deleteByIds(pendingDeleteIds)
-                            selectedIds = selectedIds - pendingDeleteIds.toSet()
-                        }
-                        showDeleteDialog = false
-                    }) { Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge) }
+            FluenceConfirmDialog(
+                title = "Delete transcription${if (count > 1) "s" else ""}",
+                message = "This action cannot be undone. Delete ${if (count > 1) "$count transcriptions" else "this transcription"}?",
+                confirmLabel = "Delete",
+                destructive = true,
+                onConfirm = {
+                    coroutineScope.launch {
+                        repository.deleteByIds(pendingDeleteIds)
+                        selectedIds = selectedIds - pendingDeleteIds.toSet()
+                    }
+                    showDeleteDialog = false
                 },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge) }
-                }
+                onDismiss = { showDeleteDialog = false }
             )
         }
         if (showClearAllDialog) {
-            AlertDialog(
-                onDismissRequest = { showClearAllDialog = false },
-                containerColor = colors.dialog,
-                titleContentColor = colors.textPrimary,
-                textContentColor = colors.textSecondary,
-                title = { Text("Clear History") },
-                text = { Text("This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone. Statistics are unaffected.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        coroutineScope.launch { repository.clearAll() }
-                        showClearAllDialog = false
-                    }) { Text("Clear All", color = colors.errorText, style = FluenceTypography.labelLarge) }
+            FluenceConfirmDialog(
+                title = "Clear History",
+                message = "This will permanently delete all ${allEntries.size} transcriptions. This action cannot be undone. Statistics are unaffected.",
+                confirmLabel = "Clear All",
+                destructive = true,
+                onConfirm = {
+                    coroutineScope.launch { repository.clearAll() }
+                    showClearAllDialog = false
                 },
-                dismissButton = {
-                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge) }
-                }
+                onDismiss = { showClearAllDialog = false }
             )
         }
 
@@ -818,52 +806,6 @@ fun HistoryScreen(
     }
 }
 
-@Composable
-private fun HistorySearchBar(
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = PrecisionTheme.colors
-    OutlinedTextField(
-        value = searchQuery,
-        onValueChange = onSearchChange,
-        placeholder = {
-            Text(
-                text = "Search…",
-                color = colors.textSecondary,
-                style = FluenceTypography.bodySmall,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        singleLine = true,
-        maxLines = 1,
-        leadingIcon = {
-            Icon(FluenceIcons.Search, "Search", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-        },
-        trailingIcon = {
-            if (searchQuery.isNotEmpty()) {
-                IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(FluenceSpacing.Xxl)) {
-                    Icon(FluenceIcons.X, "Clear search", tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                }
-            }
-        },
-        shape = FluenceShapes.Medium,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = colors.controlFocusBorder,
-            unfocusedBorderColor = colors.inputBorder,
-            focusedContainerColor = colors.panel,
-            unfocusedContainerColor = colors.panel,
-            focusedTextColor = colors.textPrimary,
-            unfocusedTextColor = colors.textPrimary,
-            cursorColor = colors.textPrimary
-        ),
-        modifier = modifier.fillMaxWidth().heightIn(min = FluenceSpacing.Xxl)
-    )
-}
-
 /** Windows historyItemMeta parity: "7m ago · 87 words · 6s". */
 private fun historyRowMeta(entry: TranscriptionEntry): String {
     val parts = mutableListOf<String>()
@@ -879,21 +821,20 @@ private fun historyRowMeta(entry: TranscriptionEntry): String {
 @Composable
 private fun ModeBadge(isAgentMode: Boolean) {
     val colors = PrecisionTheme.colors
-    // Windows parity: the row badge renders the raw mode string; agent is
-    // neutral (amethyst is not a badge tone per DESIGN_SYSTEM.md) and
-    // transcription keeps the success treatment both sides use. White mode
-    // follows the light container alphas (success 10%).
-    val tone = if (isAgentMode) colors.textSecondary else colors.success
-    val badgeAlpha = if (colors.isLight && !isAgentMode) 0.10f else 0.15f
     Box(
         modifier = Modifier
             .clip(CircleShape)
-            .background(tone.copy(alpha = badgeAlpha))
+            .background(if (isAgentMode) colors.panelElevated else Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = if (isAgentMode) colors.cardBorder else colors.outlineSubtle,
+                shape = CircleShape
+            )
             .padding(horizontal = FluenceSpacing.Sm, vertical = 3.dp)
     ) {
         Text(
             text = if (isAgentMode) "agent" else "transcription",
-            color = tone,
+            color = if (isAgentMode) colors.textPrimary else colors.textSecondary,
             style = FluenceTypography.labelSmall.copy(
                 fontFamily = GeistMonoFont,
                 fontWeight = FontWeight.SemiBold
@@ -1171,69 +1112,44 @@ private fun HistorySortBottomSheet(
     onDismiss: () -> Unit
 ) {
     val colors = PrecisionTheme.colors
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.panelElevated,
-        contentColor = colors.textPrimary,
-        shape = FluenceShapes.Large,
-        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-            dragHandle = {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = FluenceSpacing.Md)
-                        .width(FluenceSpacing.Xl)
-                        .height(FluenceSpacing.Xs)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(colors.textPrimary.copy(alpha = 0.18f))
-                )
-            }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = FluenceSpacing.Base)
-        ) {
-            Text(
-                text = "Sort by",
-                color = colors.textPrimary,
-                style = FluenceTypography.headlineMedium,
-                modifier = Modifier.padding(start = FluenceSpacing.Lg, end = FluenceSpacing.Lg, top = FluenceSpacing.Xs, bottom = FluenceSpacing.Md)
-            )
+    FluenceBottomSheet(onDismiss = onDismiss) {
+        Text(
+            text = "Sort by",
+            color = colors.textPrimary,
+            style = FluenceTypography.headlineMedium,
+            modifier = Modifier.padding(start = FluenceSpacing.Lg, end = FluenceSpacing.Lg, top = FluenceSpacing.Xs, bottom = FluenceSpacing.Md)
+        )
 
-            SortOption.values().forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(
-                            selected = option == selectedOption,
-                            role = Role.RadioButton,
-                            onClick = {
-                                onOptionSelected(option)
-                                onDismiss()
-                            }
-                        )
-                        .padding(horizontal = 24.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = option.displayName,
-                        color = if (option == selectedOption) colors.textPrimary else colors.textSecondary,
-                        style = FluenceTypography.bodyLarge.copy(
-                            fontWeight = if (option == selectedOption) FontWeight.SemiBold else FontWeight.Normal
-                        ),
-                        modifier = Modifier.weight(1f)
+        SortOption.values().forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(
+                        selected = option == selectedOption,
+                        role = Role.RadioButton,
+                        onClick = {
+                            onOptionSelected(option)
+                            onDismiss()
+                        }
                     )
-                    if (option == selectedOption) {
-                        Icon(
-                            imageVector = FluenceIcons.Check,
-                            contentDescription = null,
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = option.displayName,
+                    color = if (option == selectedOption) colors.textPrimary else colors.textSecondary,
+                    style = FluenceTypography.bodyLarge.copy(
+                        fontWeight = if (option == selectedOption) FontWeight.SemiBold else FontWeight.Normal
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                if (option == selectedOption) {
+                    Icon(
+                        imageVector = FluenceIcons.Check,
+                        contentDescription = null,
+                        tint = colors.textPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }

@@ -1,25 +1,46 @@
 package com.groq.voicetyper.ui
 
 import com.groq.voicetyper.FeedbackBus
-import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import com.groq.voicetyper.ui.icons.FluenceIcons
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.history.HistoryRepository
 import com.groq.voicetyper.history.TranscriptionEntry
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.GeistMonoFont
+import com.groq.voicetyper.theme.PrecisionTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,32 +73,11 @@ fun TranscriptionDetailSheet(
 
     var showDeleteConfirmation by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
+    FluenceBottomSheet(
+        onDismiss = onDismiss,
         modifier = modifier,
-        containerColor = colors.panelElevated,
-        contentColor = colors.textPrimary,
-        tonalElevation = 4.dp,
-        shape = FluenceShapes.Large,
-        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = FluenceSpacing.Md)
-                    .width(32.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(colors.textPrimary.copy(alpha = 0.18f))
-            )
-        }
+        sheetState = sheetState
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = FluenceSpacing.Sm)
-        ) {
             // Title
             Text(
                 text = "Transcription",
@@ -187,7 +187,7 @@ fun TranscriptionDetailSheet(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(FluenceSpacing.Sm))
-                            Text(text = "Delete", color = colors.error, style = FluenceTypography.labelLarge)
+                            Text(text = "Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
                         }
                     }
                 }
@@ -195,33 +195,19 @@ fun TranscriptionDetailSheet(
                 Spacer(modifier = Modifier.height(FluenceSpacing.Base))
 
                 if (showDeleteConfirmation) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteConfirmation = false },
-                        containerColor = colors.dialog,
-                        titleContentColor = colors.textPrimary,
-                        textContentColor = colors.textSecondary,
-                        title = { Text("Delete transcription") },
-                        text = { Text("This action cannot be undone. Delete this transcription?") },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        repository.delete(item)
-                                        showDeleteConfirmation = false
-                                        onDismiss()
-                                    }
-                                }
-                            ) {
-                                Text("Delete", color = colors.errorText, style = FluenceTypography.labelLarge)
+                    FluenceConfirmDialog(
+                        title = "Delete transcription",
+                        message = "This action cannot be undone. Delete this transcription?",
+                        confirmLabel = "Delete",
+                        destructive = true,
+                        onConfirm = {
+                            coroutineScope.launch {
+                                repository.delete(item)
+                                showDeleteConfirmation = false
+                                onDismiss()
                             }
                         },
-                        dismissButton = {
-                            TextButton(
-                                onClick = { showDeleteConfirmation = false }
-                            ) {
-                                Text("Cancel", color = colors.textSecondary, style = FluenceTypography.labelLarge)
-                            }
-                        }
+                        onDismiss = { showDeleteConfirmation = false }
                     )
                 }
             } ?: run {
@@ -234,6 +220,5 @@ fun TranscriptionDetailSheet(
                     CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             }
-        }
     }
 }
