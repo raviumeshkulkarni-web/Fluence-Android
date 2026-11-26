@@ -290,6 +290,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-11-26: Android PR B (Lucide icon family unification, shared provider controls, and pinned privacy exclusions).**
+Replaced remaining Material Filled leading icons across Settings, Permissions, and Privacy Exclusions with 2px outline Lucide icons in `FluenceIcons.kt` (keeping RTL-mirrored `KeyboardArrowRight`), extracted `FluenceApiKeyField` (with saved-key pill and eye toggle), `FluenceDropdownField`, and `FluenceProviderChipsRow` into `ui/SharedComponents.kt`, and pinned excluded apps under an `EXCLUDED` header in `PrivacyExclusionsScreen.kt` with zero new design tokens.
+
 **2026-11-26: Android PR A (WCAG AA ErrorText conformance, History/Dashboard parity, and shared Compose primitives).**
 Standardized error-colored text on elevated surfaces to `ErrorText`, moved History Export and Clear All to the top header bar and updated `ModeBadge` to neutral outline/elevated pills (Windows PR B parity), wired per-KPI dashboard trend badges (`KpiTrends`), and extracted shared Compose primitives into `ui/SharedComponents.kt` (`SettingsToggleRow`, `fluenceSwitchColors`, `FluenceConfirmDialog`, `FluenceSearchBar`, `FluenceBottomSheet`, `FluenceMultiSelectTopBar`, `FluencePromptEditorDialog`) with zero new design tokens.
 

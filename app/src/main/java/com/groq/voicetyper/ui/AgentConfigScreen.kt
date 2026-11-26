@@ -1,42 +1,46 @@
 package com.groq.voicetyper.ui
 
 import com.groq.voicetyper.FeedbackBus
-import androidx.compose.foundation.LocalIndication
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,30 +51,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.GroqClient
-import com.groq.voicetyper.ProviderLogo
 import com.groq.voicetyper.SecurityUtils
 import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsJointCard
 import com.groq.voicetyper.SettingsSectionHeader
 import com.groq.voicetyper.SettingsTopBar
 import com.groq.voicetyper.pressScale
+import com.groq.voicetyper.theme.FluenceMotion
 import com.groq.voicetyper.theme.FluenceShapes
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.LocalMotionPreferences
 import com.groq.voicetyper.theme.PrecisionTheme
-import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
+
+private data class AgentLoadedState(
+    val preset: String,
+    val keysByProvider: Map<String, String>,
+    val modelsByProvider: Map<String, String>,
+    val customBaseUrl: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,20 +87,46 @@ fun AgentConfigScreen(
     val colors = PrecisionTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val reducedMotion = LocalMotionPreferences.current.reducedMotion
+    val sizeAnimationSpec = remember(reducedMotion) {
+        if (reducedMotion) {
+            snap<IntSize>()
+        } else {
+            tween<IntSize>(
+                durationMillis = FluenceMotion.durationStructural,
+                easing = FastOutSlowInEasing
+            )
+        }
+    }
 
     var selectedProvider by remember { mutableStateOf("groq") }
-    var model by remember { mutableStateOf("llama-3.3-70b-versatile") }
-    var apiKey by remember { mutableStateOf("") }
+    var apiKeysByProvider by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var modelsByProvider by remember {
+        mutableStateOf(
+            mapOf(
+                "groq" to "llama-3.3-70b-versatile",
+                "mistral" to "mistral-large-latest",
+                "custom" to ""
+            )
+        )
+    }
     var customBaseUrl by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
-    var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
-    var isFetchingModels by remember { mutableStateOf(false) }
-    var modelFetchError by remember { mutableStateOf<String?>(null) }
+    var fetchedModelsByProvider by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
+    var modelFetchErrorsByProvider by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var fetchGeneration by remember { mutableStateOf(0) }
-    var loadedKeyForProvider by remember { mutableStateOf("") }
+    var lastFetchedKeyByProvider by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var savedKeyProviders by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var initialLoaded by remember { mutableStateOf(false) }
+
+    val apiKey = apiKeysByProvider[selectedProvider].orEmpty()
+    val model = modelsByProvider[selectedProvider].orEmpty()
+    val hasSavedKey = selectedProvider in savedKeyProviders
+    val fetchedModels = fetchedModelsByProvider[selectedProvider].orEmpty()
+    val modelFetchError = modelFetchErrorsByProvider[selectedProvider]
 
     val providerBaseUrl = mapOf(
         "groq" to "https://api.groq.com/openai",
@@ -102,87 +134,89 @@ fun AgentConfigScreen(
         "custom" to ""
     )
 
-    fun currentBaseUrl(): String {
-        return if (selectedProvider == "custom") customBaseUrl
-        else providerBaseUrl[selectedProvider] ?: ""
+    fun currentBaseUrl(provider: String = selectedProvider): String {
+        return if (provider == "custom") customBaseUrl
+        else providerBaseUrl[provider] ?: ""
     }
 
-    fun fetchModelsForProvider() {
-        val currentProvider = selectedProvider
-        val currentKey = apiKey
-        val currentUrl = currentBaseUrl()
+    fun fetchModelsForProvider(provider: String = selectedProvider) {
+        val currentKey = apiKeysByProvider[provider].orEmpty()
+        val currentUrl = currentBaseUrl(provider)
         fetchGeneration++
         val gen = fetchGeneration
-        if (currentProvider == "custom" || currentKey.isBlank()) {
-            fetchedModels = emptyList()
-            modelFetchError = null
-            isFetchingModels = false
+        if (provider == "custom" || currentKey.isBlank()) {
+            modelFetchErrorsByProvider = modelFetchErrorsByProvider - provider
             return
         }
-        isFetchingModels = true
-        modelFetchError = null
+        lastFetchedKeyByProvider = lastFetchedKeyByProvider + (provider to currentKey)
+        modelFetchErrorsByProvider = modelFetchErrorsByProvider - provider
         coroutineScope.launch {
             val result = GroqClient.fetchModels(
                 baseUrl = currentUrl,
                 apiKey = currentKey
             )
-            if (currentProvider != selectedProvider || gen != fetchGeneration) {
-                if (gen == fetchGeneration) {
-                    isFetchingModels = false
-                }
+            if (provider != selectedProvider || gen != fetchGeneration) {
                 return@launch
             }
             result.fold(
-                onSuccess = {
-                    fetchedModels = it
-                    if (it.isEmpty()) {
-                        modelFetchError = "No models returned. Check your API key."
-                    } else if (model !in it) {
-                        model = it.first()
+                onSuccess = { models ->
+                    fetchedModelsByProvider = fetchedModelsByProvider + (provider to models)
+                    if (models.isEmpty()) {
+                        modelFetchErrorsByProvider = modelFetchErrorsByProvider + (provider to "No models returned. Check your API key.")
+                    } else {
+                        modelFetchErrorsByProvider = modelFetchErrorsByProvider - provider
+                        val currentModel = modelsByProvider[provider].orEmpty()
+                        if (currentModel !in models) {
+                            modelsByProvider = modelsByProvider + (provider to models.first())
+                        }
                     }
                 },
                 onFailure = {
-                    fetchedModels = emptyList()
-                    modelFetchError = "Failed to fetch models. Check your API key."
+                    fetchedModelsByProvider = fetchedModelsByProvider - provider
+                    modelFetchErrorsByProvider = modelFetchErrorsByProvider + (provider to "Failed to fetch models. Check your API key.")
                 }
             )
-            if (gen == fetchGeneration) {
-                isFetchingModels = false
-            }
         }
     }
 
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val savedPreset = SecurityUtils.getLlmPreset(context)
-            if (savedPreset != selectedProvider) {
-                selectedProvider = savedPreset
-            }
+        val loaded = withContext(Dispatchers.IO) {
+            val providers = listOf("groq", "mistral", "custom")
+            AgentLoadedState(
+                preset = SecurityUtils.getLlmPreset(context),
+                keysByProvider = providers.associateWith { p ->
+                    SecurityUtils.getProviderApiKey(context, "llm", p) ?: ""
+                },
+                modelsByProvider = providers.associateWith { p ->
+                    SecurityUtils.getLlmModel(context, p)
+                },
+                customBaseUrl = SecurityUtils.getLlmBaseUrl(context, "custom")
+            )
         }
+        selectedProvider = loaded.preset
+        apiKeysByProvider = loaded.keysByProvider
+        modelsByProvider = loaded.modelsByProvider
+        customBaseUrl = loaded.customBaseUrl
+        savedKeyProviders = loaded.keysByProvider.filterValues { it.isNotBlank() }.keys
+        lastFetchedKeyByProvider = loaded.keysByProvider
+        initialLoaded = true
+        fetchModelsForProvider(selectedProvider)
     }
 
     LaunchedEffect(selectedProvider) {
+        if (!initialLoaded) return@LaunchedEffect
         showPassword = false
-        val (loadedKey, loadedModel, loadedBaseUrl) = withContext(Dispatchers.IO) {
-            Triple(
-                SecurityUtils.getProviderApiKey(context, "llm", selectedProvider) ?: "",
-                SecurityUtils.getLlmModel(context, selectedProvider),
-                SecurityUtils.getLlmBaseUrl(context, "custom")
-            )
-        }
-        loadedKeyForProvider = loadedKey
-        apiKey = loadedKey
-        model = loadedModel
-        customBaseUrl = loadedBaseUrl
         testResult = null
-        fetchModelsForProvider()
+        if (fetchedModelsByProvider[selectedProvider].isNullOrEmpty() && apiKey.isNotBlank()) {
+            fetchModelsForProvider(selectedProvider)
+        }
     }
 
-    LaunchedEffect(apiKey) {
-        if (apiKey.isBlank() || apiKey == loadedKeyForProvider) return@LaunchedEffect
-        loadedKeyForProvider = ""
+    LaunchedEffect(apiKey, selectedProvider) {
+        if (!initialLoaded) return@LaunchedEffect
+        if (apiKey.isBlank() || apiKey == lastFetchedKeyByProvider[selectedProvider]) return@LaunchedEffect
         delay(600)
-        fetchModelsForProvider()
+        fetchModelsForProvider(selectedProvider)
     }
 
     Box(
@@ -190,8 +224,9 @@ fun AgentConfigScreen(
             .fillMaxSize()
             .background(colors.canvas)
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
+            .windowInsetsPadding(
+                WindowInsets.navigationBars.union(WindowInsets.ime).only(WindowInsetsSides.Bottom)
+            )
     ) {
         Column(
             modifier = Modifier
@@ -216,7 +251,9 @@ fun AgentConfigScreen(
                 description = "Select language model provider and model architecture"
             )
 
-            SettingsJointCard {
+            SettingsJointCard(
+                modifier = Modifier.animateContentSize(animationSpec = sizeAnimationSpec)
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -229,43 +266,15 @@ fun AgentConfigScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
+                    FluenceProviderChipsRow(
+                        providers = listOf(
                             "groq" to "Groq",
                             "mistral" to "Mistral",
                             "custom" to "Custom"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = selectedProvider == value,
-                                onClick = {
-                                    selectedProvider = value
-                                },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                label = { Text(label, style = FluenceTypography.bodySmall) },
-                                leadingIcon = {
-                                    if (value != "custom") {
-                                        ProviderLogo(providerId = value, size = 18.dp)
-                                    }
-                                },
-                                shape = FluenceShapes.ExtraSmall,
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                                    selectedLabelColor = colors.textPrimary,
-                                    containerColor = colors.buttonSecondary,
-                                    labelColor = colors.textSecondary
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = colors.inputBorder,
-                                    selectedBorderColor = colors.selectionBorder,
-                                    enabled = true,
-                                    selected = selectedProvider == value
-                                )
-                            )
-                        }
-                    }
+                        ),
+                        selectedProvider = selectedProvider,
+                        onSelect = { selectedProvider = it }
+                    )
                 }
 
                 SettingsDivider()
@@ -282,145 +291,95 @@ fun AgentConfigScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (selectedProvider == "custom") {
-                        OutlinedTextField(
-                            value = model,
-                            onValueChange = { model = it },
-                            placeholder = { Text("e.g. llama-3.3-70b-versatile", color = colors.textSecondary) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = colors.textPrimary,
-                                unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = colors.controlFocusBorder,
-                                unfocusedBorderColor = colors.inputBorder,
-                                focusedContainerColor = colors.inputBg,
-                                unfocusedContainerColor = colors.inputBg,
-                                cursorColor = colors.textPrimary
-                            ),
-                            shape = FluenceShapes.Medium,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                    AnimatedContent(
+                        targetState = selectedProvider == "custom",
+                        transitionSpec = {
+                            if (reducedMotion) {
+                                ContentTransform(EnterTransition.None, ExitTransition.None)
+                            } else {
+                                fadeIn(tween(FluenceMotion.durationStructural, easing = FastOutSlowInEasing)) togetherWith
+                                    fadeOut(tween(FluenceMotion.durationImmediate, easing = FastOutSlowInEasing))
+                            }
+                        },
+                        label = "agent_model_section"
+                    ) { isCustom ->
+                        if (isCustom) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = model,
+                                    onValueChange = { updated ->
+                                        modelsByProvider = modelsByProvider + ("custom" to updated)
+                                    },
+                                    placeholder = { Text("e.g. llama-3.3-70b-versatile", color = colors.textSecondary) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = colors.textPrimary,
+                                        unfocusedTextColor = colors.textPrimary,
+                                        focusedBorderColor = colors.controlFocusBorder,
+                                        unfocusedBorderColor = colors.inputBorder,
+                                        focusedContainerColor = colors.inputBg,
+                                        unfocusedContainerColor = colors.inputBg,
+                                        cursorColor = colors.textPrimary
+                                    ),
+                                    shape = FluenceShapes.Medium,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
 
-                        Text(
-                            text = "Base URL",
-                            color = colors.textPrimary,
-                            style = FluenceTypography.labelLarge
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Base URL",
+                                    color = colors.textPrimary,
+                                    style = FluenceTypography.labelLarge
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                        OutlinedTextField(
-                            value = customBaseUrl,
-                            onValueChange = { customBaseUrl = it },
-                            placeholder = { Text("e.g. https://api.example.com", color = colors.textSecondary) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = colors.textPrimary,
-                                unfocusedTextColor = colors.textPrimary,
-                                focusedBorderColor = colors.controlFocusBorder,
-                                unfocusedBorderColor = colors.inputBorder,
-                                focusedContainerColor = colors.inputBg,
-                                unfocusedContainerColor = colors.inputBg,
-                                cursorColor = colors.textPrimary
-                            ),
-                            shape = FluenceShapes.Medium,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    } else {
-                        if (isFetchingModels) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(color = colors.textSecondary, modifier = Modifier.size(20.dp), strokeWidth = 1.5.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Fetching models…", color = colors.textSecondary, style = FluenceTypography.bodySmall)
+                                OutlinedTextField(
+                                    value = customBaseUrl,
+                                    onValueChange = { customBaseUrl = it },
+                                    placeholder = { Text("e.g. https://api.example.com", color = colors.textSecondary) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = colors.textPrimary,
+                                        unfocusedTextColor = colors.textPrimary,
+                                        focusedBorderColor = colors.controlFocusBorder,
+                                        unfocusedBorderColor = colors.inputBorder,
+                                        focusedContainerColor = colors.inputBg,
+                                        unfocusedContainerColor = colors.inputBg,
+                                        cursorColor = colors.textPrimary
+                                    ),
+                                    shape = FluenceShapes.Medium,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
                             }
                         } else {
-                            var showModelDropdown by remember { mutableStateOf(false) }
-                            val availableModels = remember(fetchedModels, model) {
-                                if (fetchedModels.isNotEmpty()) {
-                                    (fetchedModels + listOfNotNull(model.takeIf { it.isNotBlank() })).distinct()
-                                } else {
-                                    listOfNotNull(model.takeIf { it.isNotBlank() })
-                                }
-                            }
-
-                            val agentTriggerInteraction = remember { MutableInteractionSource() }
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .pressScale(agentTriggerInteraction)
-                                        .clickable(
-                                            interactionSource = agentTriggerInteraction,
-                                            indication = LocalIndication.current,
-                                            role = Role.Button,
-                                            onClickLabel = "Select model",
-                                            onClick = { if (availableModels.isNotEmpty()) showModelDropdown = true }
-                                        )
-                                        .border(1.dp, colors.inputBorder, FluenceShapes.Medium)
-                                        .background(colors.inputBg, FluenceShapes.Medium)
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = model.ifBlank { "Select a model" },
-                                        color = if (model.isBlank()) colors.textDisabled else colors.textPrimary,
-                                        style = FluenceTypography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Icon(
-                                        imageVector = FluenceIcons.ChevronDown,
-                                        contentDescription = "Select model",
-                                        tint = colors.textSecondary
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = showModelDropdown,
-                                    onDismissRequest = { showModelDropdown = false },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 280.dp)
-                                        .background(colors.dialog, FluenceShapes.Medium)
-                                        .border(1.dp, colors.outlineSubtle, FluenceShapes.Medium)
-                                ) {
-                                    availableModels.forEach { m ->
-                                        val isSelected = m == model
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = m,
-                                                    color = colors.textPrimary,
-                                                    style = FluenceTypography.bodyLarge
-                                                )
-                                            },
-                                            colors = MenuDefaults.itemColors(
-                                                textColor = colors.textPrimary,
-                                                leadingIconColor = colors.textSecondary,
-                                                trailingIconColor = colors.textSecondary
-                                            ),
-                                            modifier = if (isSelected) Modifier
-                                                .background(colors.textPrimary.copy(alpha = 0.10f), FluenceShapes.Small)
-                                            else Modifier,
-                                            onClick = {
-                                                model = m
-                                                showModelDropdown = false
-                                                testResult = null
-                                            }
-                                        )
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val availableModels = remember(fetchedModels, model) {
+                                    if (fetchedModels.isNotEmpty()) {
+                                        (fetchedModels + listOfNotNull(model.takeIf { it.isNotBlank() })).distinct()
+                                    } else {
+                                        listOfNotNull(model.takeIf { it.isNotBlank() })
                                     }
                                 }
-                            }
-                        }
 
-                        modelFetchError?.let { err ->
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = err, color = colors.errorText, style = FluenceTypography.labelMedium)
+                                FluenceDropdownField(
+                                    selectedLabel = model,
+                                    options = availableModels.map { it to it },
+                                    selectedValue = model,
+                                    onSelect = { m ->
+                                        modelsByProvider = modelsByProvider + (selectedProvider to m)
+                                        testResult = null
+                                    },
+                                    clickLabel = "Select model",
+                                    placeholderText = "Select a model",
+                                    isPlaceholder = model.isBlank()
+                                )
+
+                                modelFetchError?.let { err ->
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = err, color = colors.errorText, style = FluenceTypography.labelMedium)
+                                }
+                            }
                         }
                     }
                 }
@@ -431,53 +390,24 @@ fun AgentConfigScreen(
                 description = "API keys and endpoint configuration"
             )
 
-            SettingsJointCard {
+            SettingsJointCard(
+                modifier = Modifier.animateContentSize(animationSpec = sizeAnimationSpec)
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(FluenceSpacing.Base)
                 ) {
-                    Text(
-                        text = "API Key",
-                        color = colors.textPrimary,
-                        style = FluenceTypography.labelLarge
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Stored securely on this device.",
-                        color = colors.textSecondary,
-                        style = FluenceTypography.labelMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
+                    FluenceApiKeyField(
+                        label = "API Key",
                         value = apiKey,
-                        onValueChange = {
-                            apiKey = it
+                        onValueChange = { updated ->
+                            apiKeysByProvider = apiKeysByProvider + (selectedProvider to updated)
                         },
-                        placeholder = { Text("Enter your API key", color = colors.textSecondary) },
-                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = colors.textPrimary,
-                            unfocusedTextColor = colors.textPrimary,
-                            focusedBorderColor = colors.controlFocusBorder,
-                            unfocusedBorderColor = colors.inputBorder,
-                            focusedContainerColor = colors.inputBg,
-                            unfocusedContainerColor = colors.inputBg,
-                            cursorColor = colors.textPrimary
-                        ),
-                        shape = FluenceShapes.Medium,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        trailingIcon = {
-                            TextButton(onClick = { showPassword = !showPassword }) {
-                                Text(
-                                    text = if (showPassword) "Hide" else "Show",
-                                    color = colors.textSecondary,
-                                    style = FluenceTypography.labelMedium
-                                )
-                            }
-                        }
+                        placeholder = "Enter your API key",
+                        showPassword = showPassword,
+                        onTogglePassword = { showPassword = !showPassword },
+                        isSaved = hasSavedKey
                     )
                 }
 
@@ -506,6 +436,12 @@ fun AgentConfigScreen(
                                     if (selectedProvider == "custom") {
                                         SecurityUtils.saveLlmBaseUrl(context, "custom", customBaseUrl)
                                     }
+                                    savedKeyProviders = if (apiKey.isNotBlank()) {
+                                        savedKeyProviders + selectedProvider
+                                    } else {
+                                        savedKeyProviders - selectedProvider
+                                    }
+                                    showPassword = false
                                     FeedbackBus.show("Settings saved")
                                 } catch (e: IllegalArgumentException) {
                                     FeedbackBus.show(e.message ?: "Base URL must use https://")
@@ -532,27 +468,11 @@ fun AgentConfigScreen(
                                 }
                                 isTesting = true
                                 testResult = null
+                                val providerSnapshot = selectedProvider
+                                val keySnapshot = apiKey
+                                val baseUrlSnapshot = customBaseUrl
                                 coroutineScope.launch {
-                                    val baseUrl = currentBaseUrl()
-                                    val testUrl = "${baseUrl.trimEnd('/')}/v1/models"
-                                    val result = withContext(Dispatchers.IO) {
-                                        try {
-                                            val client = OkHttpClient()
-                                            val request = Request.Builder()
-                                                .url(testUrl)
-                                                .header("Authorization", "Bearer $apiKey")
-                                                .build()
-                                            client.newCall(request).execute().use { response ->
-                                                if (response.isSuccessful) {
-                                                    true to "Connection successful!"
-                                                } else {
-                                                    false to "Verification failed (HTTP ${response.code})."
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            false to "Connection error. Please check your network and settings."
-                                        }
-                                    }
+                                    val result = verifyProviderApiKey(keySnapshot, providerSnapshot, baseUrlSnapshot)
                                     isTesting = false
                                     testResult = result
                                 }

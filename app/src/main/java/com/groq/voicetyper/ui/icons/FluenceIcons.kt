@@ -282,4 +282,128 @@ object FluenceIcons {
             "M15 12.5 a3.5 3.5 0 1 0 7 0 a3.5 3.5 0 1 0 -7 0",
         ),
     )
+    val EyeOff: ImageVector = lucideIcon(
+        "EyeOff",
+        listOf(
+            "M10.733 5.076 a10.744 10.744 0 0 1 11.205 6.575 a1 1 0 0 1 0 0.696 a10.747 10.747 0 0 1 -1.444 2.49",
+            "M14.084 14.158 a3 3 0 0 1 -4.242 -4.242",
+            "M17.479 17.499 a10.75 10.75 0 0 1 -15.417 -5.151 a1 1 0 0 1 0 -0.696 a10.75 10.75 0 0 1 4.446 -5.143",
+            "M2 2 L22 22",
+        ),
+    )
+    val Bot: ImageVector = lucideIcon(
+        "Bot",
+        listOf(
+            "M12 8 V4 H8",
+            "M6 8 H18 A2 2 0 0 1 20 10 V18 A2 2 0 0 1 18 20 H6 A2 2 0 0 1 4 18 V10 A2 2 0 0 1 6 8 Z",
+            "M2 14 H4",
+            "M20 14 H22",
+            "M15 13 V15",
+            "M9 13 V15",
+        ),
+    )
+    val Smartphone: ImageVector = lucideIcon(
+        "Smartphone",
+        listOf(
+            "M7 2 H17 A2 2 0 0 1 19 4 V20 A2 2 0 0 1 17 22 H7 A2 2 0 0 1 5 20 V4 A2 2 0 0 1 7 2 Z",
+            "M12 18 H12.01",
+        ),
+    )
+    val Shield: ImageVector = lucideIcon(
+        "Shield",
+        listOf(
+            "M20 13 c0 5 -3.5 7.5 -7.66 8.95 a1 1 0 0 1 -0.67 -0.01 C7.5 20.5 4 18 4 13 V6 a1 1 0 0 1 1 -1 c2 0 4.5 -1.2 6.24 -2.72 a1.17 1.17 0 0 1 1.52 0 C14.51 3.81 17 5 19 5 a1 1 0 0 1 1 1 Z",
+        ),
+    )
+    val Lock: ImageVector = lucideIcon(
+        "Lock",
+        listOf(
+            "M5 11 H19 A2 2 0 0 1 21 13 V20 A2 2 0 0 1 19 22 H5 A2 2 0 0 1 3 20 V13 A2 2 0 0 1 5 11 Z",
+            "M7 11 V7 a5 5 0 0 1 10 0 v4",
+        ),
+    )
+    val CircleDot: ImageVector = lucideIcon(
+        "CircleDot",
+        listOf(
+            "M12 2 A10 10 0 1 0 12 22 M12 22 A10 10 0 1 0 12 2",
+            "M12 11 A1 1 0 1 0 12 13 M12 13 A1 1 0 1 0 12 11",
+        ),
+    )
+    val Volume2: ImageVector = lucideIcon(
+        "Volume2",
+        listOf(
+            "M11 4.702 a0.705 0.705 0 0 0 -1.203 -0.498 L6.413 7.587 A1.4 1.4 0 0 1 5.416 8 H3 a1 1 0 0 0 -1 1 v6 a1 1 0 0 0 1 1 h2.416 a1.4 1.4 0 0 1 0.997 0.413 l3.383 3.384 A0.705 0.705 0 0 0 11 19.298 Z",
+            "M16 9 a5 5 0 0 1 0 6",
+            "M19.364 18.364 a9 9 0 0 0 0 -12.728",
+        ),
+    )
+    val Sun: ImageVector = lucideIcon(
+        "Sun",
+        listOf(
+            "M12 8 A4 4 0 1 0 12 16 M12 16 A4 4 0 1 0 12 8",
+            "M12 2 V4",
+            "M12 20 V22",
+            "M4.93 4.93 L6.34 6.34",
+            "M17.66 17.66 L19.07 19.07",
+            "M2 12 H4",
+            "M20 12 H22",
+            "M6.34 17.66 L4.93 19.07",
+            "M19.07 4.93 L17.66 6.34",
+        ),
+    )
+    val Moon: ImageVector = lucideIcon(
+        "Moon",
+        listOf(
+            "M12 3 a6 6 0 0 0 9 9 a9 9 0 1 1 -9 -9 Z",
+        ),
+    )
+    val Info: ImageVector = lucideIcon(
+        "Info",
+        listOf(
+            "M12 2 A10 10 0 1 0 12 22 M12 22 A10 10 0 1 0 12 2",
+            "M12 16 V12",
+            "M12 8 H12.01",
+        ),
+    )
+    val Keyboard: ImageVector = lucideIcon(
+        "Keyboard",
+        listOf(
+            "M4 4 H20 A2 2 0 0 1 22 6 V18 A2 2 0 0 1 20 20 H4 A2 2 0 0 1 2 18 V6 A2 2 0 0 1 4 4 Z",
+            "M10 8 H10.01",
+            "M12 12 H12.01",
+            "M14 8 H14.01",
+            "M16 12 H16.01",
+            "M18 8 H18.01",
+            "M6 8 H6.01",
+            "M7 16 H17",
+            "M8 12 H8.01",
+        ),
+    )
+    val Layers: ImageVector = lucideIcon(
+        "Layers",
+        listOf(
+            "M12.83 2.18 a2 2 0 0 0 -1.66 0 L2.6 6.08 a1 1 0 0 0 0 1.83 l8.58 3.91 a2 2 0 0 0 1.66 0 l8.58 -3.9 a1 1 0 0 0 0 -1.83 Z",
+            "M2 12 a1 1 0 0 0 0.58 0.91 l8.6 3.91 a2 2 0 0 0 1.65 0 l8.58 -3.9 A1 1 0 0 0 22 12",
+            "M2 17 a1 1 0 0 0 0.58 0.91 l8.6 3.91 a2 2 0 0 0 1.65 0 l8.58 -3.9 A1 1 0 0 0 22 17",
+        ),
+    )
+    val PersonStanding: ImageVector = lucideIcon(
+        "PersonStanding",
+        listOf(
+            "M12 4 A1 1 0 1 0 12 6 M12 6 A1 1 0 1 0 12 4",
+            "M9 20 L12 14 L15 20",
+            "M6 8 L12 10 L18 8",
+            "M12 10 V14",
+        ),
+    )
+    val BatteryWarning: ImageVector = lucideIcon(
+        "BatteryWarning",
+        listOf(
+            "M10 17 H10.01",
+            "M10 7 V13",
+            "M14 6 H16 A2 2 0 0 1 18 8 V16 A2 2 0 0 1 16 18 H14",
+            "M22 11 V13",
+            "M6 18 H4 A2 2 0 0 1 2 16 V8 A2 2 0 0 1 4 6 H6",
+        ),
+    )
 }

@@ -17,8 +17,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -27,22 +41,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.rotate
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.CircleShape
@@ -60,14 +72,31 @@ import com.groq.voicetyper.offline.ModelAssetManager
 import com.groq.voicetyper.offline.OfflineEngineType
 import com.groq.voicetyper.offline.OfflinePreferences
 import com.groq.voicetyper.pressScale
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.AccentPreset
+import com.groq.voicetyper.theme.AccentThemePrefKey
+import com.groq.voicetyper.theme.FluenceMotion
+import com.groq.voicetyper.theme.FluencePrefsName
+import com.groq.voicetyper.theme.FluenceShapes
+import com.groq.voicetyper.theme.FluenceSpacing
+import com.groq.voicetyper.theme.FluenceTypography
+import com.groq.voicetyper.theme.LocalMotionPreferences
+import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.theme.ThemeModeDark
+import com.groq.voicetyper.theme.ThemeModeLight
+import com.groq.voicetyper.theme.ThemeModeSystem
+import com.groq.voicetyper.theme.ThemePrefKey
+import com.groq.voicetyper.theme.getAccentPreset
+import com.groq.voicetyper.theme.getThemeMode
+import com.groq.voicetyper.theme.resolveDarkTheme
+import com.groq.voicetyper.theme.setAccentPreset
+import com.groq.voicetyper.theme.setThemeMode
 import com.groq.voicetyper.ui.icons.FluenceIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
 private fun SettingsNavRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     title: String,
     summary: String,
     onClick: () -> Unit,
@@ -78,6 +107,7 @@ private fun SettingsNavRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = FluenceSpacing.Xxl)
             .pressScale(interactionSource)
             .clickable(
                 interactionSource = interactionSource,
@@ -209,23 +239,23 @@ fun SettingsScreen(
                 SettingsNavRow(
                     icon = FluenceIcons.Mic,
                     title = "AI Transcription",
-                    summary = "$providerLabel · ${sttModel.value}",
+                    summary = "$providerLabel \u00b7 ${sttModel.value}",
                     onClick = { onNavigateTo(Screen.SttConfig) }
                 )
                 SettingsDivider()
                 SettingsNavRow(
-                    icon = Icons.Default.AutoAwesome,
+                    icon = FluenceIcons.Bot,
                     title = "AI Agent Mode",
-                    summary = "$llmProviderLabel · ${llmModel.value}",
+                    summary = "$llmProviderLabel \u00b7 ${llmModel.value}",
                     onClick = { onNavigateTo(Screen.AgentConfig) }
                 )
                 SettingsDivider()
                 SettingsNavRow(
-                    icon = Icons.Default.PhoneAndroid,
+                    icon = FluenceIcons.Smartphone,
                     title = "Offline Transcription",
                     summary = when {
-                        offlineEnabled.value && modelReady.value -> "Active · Model ready"
-                        modelReady.value -> "Model installed · Disabled"
+                        offlineEnabled.value && modelReady.value -> "Active \u00b7 Model ready"
+                        modelReady.value -> "Model installed \u00b7 Disabled"
                         else -> "Model not installed"
                     },
                     onClick = { onNavigateTo(Screen.OfflineConfig) }
@@ -239,19 +269,19 @@ fun SettingsScreen(
             )
             SettingsJointCard {
                 SettingsNavRow(
-                    icon = Icons.Default.Security,
+                    icon = FluenceIcons.Shield,
                     title = "Permissions & Services",
                     summary = "Microphone, overlay, accessibility, battery",
                     onClick = { onNavigateTo(Screen.Permissions) }
                 )
                 SettingsDivider()
                 SettingsNavRow(
-                    icon = Icons.Default.Lock,
+                    icon = FluenceIcons.Lock,
                     title = "Privacy & App Exclusions",
                     summary = when (excludedAppCount.value) {
                         0 -> "Disabled"
-                        1 -> "Active · 1 app excluded"
-                        else -> "Active · ${excludedAppCount.value} apps excluded"
+                        1 -> "Active \u00b7 1 app excluded"
+                        else -> "Active \u00b7 ${excludedAppCount.value} apps excluded"
                     },
                     onClick = { onNavigateTo(Screen.PrivacyExclusions) }
                 )
@@ -259,12 +289,12 @@ fun SettingsScreen(
                 SettingsNavRow(
                     icon = FluenceIcons.RefreshCw,
                     title = "Google Drive Sync",
-                    summary = "Cloud backup · Cross-device sync",
+                    summary = "Cloud backup \u00b7 Cross-device sync",
                     onClick = { onNavigateTo(Screen.SyncConfig) }
                 )
                 SettingsDivider()
                 SettingsNavRow(
-                    icon = Icons.Default.Circle,
+                    icon = FluenceIcons.CircleDot,
                     title = "Floating Bubble",
                     summary = "Personalize the bubble look",
                     onClick = { onNavigateTo(Screen.BubbleSettings) }
@@ -295,6 +325,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = FluenceSpacing.Xxl)
                             .pressScale(audioPressSource)
                             .clickable(
                                 interactionSource = audioPressSource,
@@ -307,7 +338,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.VolumeDown,
+                            imageVector = FluenceIcons.Volume2,
                             contentDescription = null,
                             tint = colors.textSecondary,
                             modifier = Modifier.size(22.dp)
@@ -414,6 +445,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = FluenceSpacing.Xxl)
                             .pressScale(appearancePressSource)
                             .clickable(
                                 interactionSource = appearancePressSource,
@@ -426,7 +458,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (effectiveDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            imageVector = if (effectiveDark) FluenceIcons.Sun else FluenceIcons.Moon,
                             contentDescription = null,
                             tint = colors.textSecondary,
                             modifier = Modifier.size(22.dp)
@@ -532,7 +564,7 @@ fun SettingsScreen(
             )
             SettingsJointCard {
                 SettingsNavRow(
-                    icon = Icons.Default.Info,
+                    icon = FluenceIcons.Info,
                     title = "About",
                     summary = "Version \u00b7 Licenses",
                     onClick = { onNavigateTo(Screen.About) }

@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.drawable.Drawable
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,19 +19,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,11 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.groq.voicetyper.FluenceEmptyState
+import com.groq.voicetyper.FluenceSectionHeader
 import com.groq.voicetyper.PrivacyPreferences
 import com.groq.voicetyper.SettingsDivider
 import com.groq.voicetyper.SettingsSectionHeader
@@ -159,7 +150,7 @@ fun PrivacyExclusionsScreen(
 
             SettingsSectionHeader(
                 title = "Installed Apps",
-                description = "Toggle apps to exclude them from Fluence's features",
+                description = "Excluded apps appear at the top. Toggle apps to exclude them from Fluence.",
                 modifier = Modifier.padding(horizontal = FluenceSpacing.Base)
             )
 
@@ -186,7 +177,7 @@ fun PrivacyExclusionsScreen(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             FluenceEmptyState(
                                 icon = if (apps.isEmpty()) {
-                                    Icons.Default.PhoneAndroid
+                                    FluenceIcons.Smartphone
                                 } else {
                                     FluenceIcons.Search
                                 },
@@ -204,21 +195,60 @@ fun PrivacyExclusionsScreen(
                         }
                     }
                     else -> {
+                        val (excluded, rest) = filteredApps.partition { it.packageName in excludedPackages }
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            itemsIndexed(filteredApps, key = { _, app -> app.packageName }) { index, app ->
-                                val isExcluded = excludedPackages.contains(app.packageName)
-                                AppExclusionRow(
-                                    app = app,
-                                    isExcluded = isExcluded,
-                                    onCheckedChange = { excluded ->
-                                        PrivacyPreferences.setPackageExcluded(context, app.packageName, excluded)
-                                        excludedPackages = excludedPackages.toMutableSet().apply {
-                                            if (excluded) add(app.packageName) else remove(app.packageName)
+                            if (excluded.isNotEmpty()) {
+                                item(key = "excluded-header") {
+                                    FluenceSectionHeader(
+                                        label = "EXCLUDED",
+                                        modifier = Modifier.padding(
+                                            horizontal = FluenceSpacing.Base,
+                                            vertical = FluenceSpacing.Sm
+                                        )
+                                    )
+                                }
+                                itemsIndexed(excluded, key = { _, app -> "ex-${app.packageName}" }) { index, app ->
+                                    AppExclusionRow(
+                                        app = app,
+                                        isExcluded = true,
+                                        onCheckedChange = { shouldExclude ->
+                                            PrivacyPreferences.setPackageExcluded(context, app.packageName, shouldExclude)
+                                            excludedPackages = excludedPackages.toMutableSet().apply {
+                                                if (shouldExclude) add(app.packageName) else remove(app.packageName)
+                                            }
                                         }
+                                    )
+                                    if (index < excluded.lastIndex || rest.isNotEmpty()) {
+                                        SettingsDivider()
                                     }
-                                )
-                                if (index < filteredApps.size - 1) {
-                                    SettingsDivider()
+                                }
+                            }
+                            if (rest.isNotEmpty()) {
+                                if (excluded.isNotEmpty()) {
+                                    item(key = "all-header") {
+                                        FluenceSectionHeader(
+                                            label = "ALL APPS",
+                                            modifier = Modifier.padding(
+                                                horizontal = FluenceSpacing.Base,
+                                                vertical = FluenceSpacing.Sm
+                                            )
+                                        )
+                                    }
+                                }
+                                itemsIndexed(rest, key = { _, app -> "all-${app.packageName}" }) { index, app ->
+                                    AppExclusionRow(
+                                        app = app,
+                                        isExcluded = false,
+                                        onCheckedChange = { shouldExclude ->
+                                            PrivacyPreferences.setPackageExcluded(context, app.packageName, shouldExclude)
+                                            excludedPackages = excludedPackages.toMutableSet().apply {
+                                                if (shouldExclude) add(app.packageName) else remove(app.packageName)
+                                            }
+                                        }
+                                    )
+                                    if (index < rest.lastIndex) {
+                                        SettingsDivider()
+                                    }
                                 }
                             }
                         }

@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import com.groq.voicetyper.FeedbackBus
@@ -32,12 +31,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Accessibility
-import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +62,7 @@ import com.groq.voicetyper.pressScale
 import com.groq.voicetyper.theme.FluenceSpacing
 import com.groq.voicetyper.theme.FluenceTypography
 import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.ui.icons.FluenceIcons
 
 @Composable
 private fun PermissionRow(
@@ -223,7 +217,7 @@ fun PermissionsScreen(
 
             SettingsJointCard {
                 PermissionRow(
-                    icon = Icons.Default.Keyboard,
+                    icon = FluenceIcons.Keyboard,
                     title = "Voice Typing Keyboard",
                     description = if (keyboardEnabled) "Enabled & Selected" else "Tap to enable or select as active keyboard",
                     isGranted = keyboardEnabled,
@@ -235,7 +229,7 @@ fun PermissionsScreen(
                 SettingsDivider()
 
                 PermissionRow(
-                    icon = Icons.Default.Mic,
+                    icon = FluenceIcons.Mic,
                     title = "Microphone",
                     description = if (micGranted) "Granted" else "Required for voice typing",
                     isGranted = micGranted,
@@ -251,7 +245,7 @@ fun PermissionsScreen(
                 SettingsDivider()
 
                 PermissionRow(
-                    icon = Icons.Default.PictureInPicture,
+                    icon = FluenceIcons.Layers,
                     title = "Display Over Other Apps",
                     description = if (overlayGranted) "Granted" else "Required for floating bubble",
                     isGranted = overlayGranted,
@@ -271,7 +265,7 @@ fun PermissionsScreen(
                 SettingsDivider()
 
                 PermissionRow(
-                    icon = Icons.Default.Accessibility,
+                    icon = FluenceIcons.PersonStanding,
                     title = "Accessibility Service",
                     description = if (accessibilityEnabled) "Enabled" else "Required for orb and auto-mode",
                     isGranted = accessibilityEnabled,
@@ -289,7 +283,7 @@ fun PermissionsScreen(
                 SettingsDivider()
 
                 PermissionRow(
-                    icon = Icons.Default.BatteryAlert,
+                    icon = FluenceIcons.BatteryWarning,
                     title = "Battery Optimization",
                     description = if (batteryUnrestricted) "Unrestricted" else "May kill background service",
                     isGranted = batteryUnrestricted,
