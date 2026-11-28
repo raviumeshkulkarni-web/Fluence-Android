@@ -9,7 +9,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -65,6 +73,9 @@ private val PermanentDrawerWidth = 320.dp
 fun FluenceNavHost(
     syncManager: SyncManager,
     deepLinkToSettings: Boolean = false,
+    deepLinkRoute: String? = null,
+    deepLinkSeq: Int = 0,
+    onDeepLinkConsumed: () -> Unit = {},
     onRequestPermission: () -> Unit = {},
     onSignInClick: () -> Unit = {},
     onSignOutClick: () -> Unit = {},
@@ -98,6 +109,20 @@ fun FluenceNavHost(
         if (deepLinkToSettings && backStack.size == 1 && backStack.first() == Screen.Home) {
             backStack.clear()
             backStack.addAll(listOf(Screen.Home, Screen.SettingsHub))
+        }
+    }
+
+    LaunchedEffect(deepLinkRoute, deepLinkSeq) {
+        val target = when (deepLinkRoute) {
+            com.groq.voicetyper.MainActivity.ROUTE_OFFLINE_CONFIG -> Screen.OfflineConfig
+            com.groq.voicetyper.MainActivity.ROUTE_HISTORY -> Screen.History
+            else -> null
+        }
+        if (target != null) {
+            backStack.clear()
+            backStack.add(Screen.Home)
+            backStack.add(target)
+            onDeepLinkConsumed()
         }
     }
 

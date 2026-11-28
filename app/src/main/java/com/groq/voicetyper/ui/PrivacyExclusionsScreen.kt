@@ -3,6 +3,7 @@ package com.groq.voicetyper.ui
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -78,7 +79,7 @@ fun PrivacyExclusionsScreen(
     }
 
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) { loadLaunchableApps(context) }
+        apps = withContext(Dispatchers.IO) { loadLaunchableApps(context, excludedPackages) }
         isLoading = false
     }
 
@@ -309,13 +310,16 @@ private fun AppExclusionRow(
     }
 }
 
-private fun loadLaunchableApps(context: Context): List<LaunchableApp> {
+private fun loadLaunchableApps(
+    context: Context,
+    excludedPackages: Set<String>
+): List<LaunchableApp> {
     val packageManager = context.packageManager
     val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
         addCategory(Intent.CATEGORY_LAUNCHER)
     }
 
-    return packageManager.queryIntentActivities(launcherIntent, 0)
+    val launchable = packageManager.queryIntentActivities(launcherIntent, 0)
         .asSequence()
         .map { it.activityInfo.applicationInfo }
         .filter { it.packageName != context.packageName }
@@ -327,6 +331,28 @@ private fun loadLaunchableApps(context: Context): List<LaunchableApp> {
                 icon = applicationInfo.loadIcon(packageManager)
             )
         }
-        .sortedBy { it.label.lowercase() }
-        .toList()
+        .toMutableList()
+
+    val presentPackages = launchable.mapTo(HashSet()) { it.packageName }
+    for (pkg in excludedPackages) {
+        if (pkg.isBlank() || pkg == context.packageName || pkg in presentPackages) continue
+        val resolved = try {
+            val appInfo = packageManager.getApplicationInfo(pkg, 0)
+            LaunchableApp(
+                packageName = pkg,
+                label = appInfo.loadLabel(packageManager).toString(),
+                icon = appInfo.loadIcon(packageManager)
+            )
+        } catch (_: PackageManager.NameNotFoundException) {
+            LaunchableApp(
+                packageName = pkg,
+                label = pkg,
+                icon = packageManager.defaultActivityIcon
+            )
+        }
+        launchable.add(resolved)
+        presentPackages.add(pkg)
+    }
+
+    return launchable.sortedBy { it.label.lowercase() }
 }

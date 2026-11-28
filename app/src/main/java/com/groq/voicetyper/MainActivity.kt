@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,19 +34,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.groq.voicetyper.navigation.FluenceNavHost
+import com.groq.voicetyper.quickcontrols.FluenceQuickControls
 import com.groq.voicetyper.sync.SyncManager
 import com.groq.voicetyper.sync.SyncSchedule
 import com.groq.voicetyper.sync.auth.GoogleOAuth
 import com.groq.voicetyper.sync.auth.SyncAuthSession
-import com.groq.voicetyper.theme.*
+import com.groq.voicetyper.theme.AccentThemePrefKey
+import com.groq.voicetyper.theme.FluencePrefsName
+import com.groq.voicetyper.theme.FluenceTranscribeTheme
+import com.groq.voicetyper.theme.OutlineSubtle
+import com.groq.voicetyper.theme.Panel
+import com.groq.voicetyper.theme.PrecisionTheme
+import com.groq.voicetyper.theme.ThemeModeLight
+import com.groq.voicetyper.theme.ThemeModeSystem
+import com.groq.voicetyper.theme.ThemePrefKey
+import com.groq.voicetyper.theme.getAccentPreset
+import com.groq.voicetyper.theme.getThemeMode
+import com.groq.voicetyper.theme.resolveDarkTheme
 
 class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_DEEP_LINK_SETTINGS = "deep_link_settings"
+        const val EXTRA_DEEP_LINK_ROUTE = "deep_link_route"
+        const val ROUTE_OFFLINE_CONFIG = "offline_config"
+        const val ROUTE_HISTORY = "history"
     }
 
     private var deepLinkToSettings by mutableStateOf(false)
+    private var deepLinkRoute by mutableStateOf<String?>(null)
+    private var deepLinkSeq by mutableIntStateOf(0)
     private var signInError by mutableStateOf<String?>(null)
 
     private val googleSignInClient by lazy {
@@ -79,10 +97,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            FeedbackBus.show("Access granted — syncing\u2026")
+            FeedbackBus.show("Access granted - syncing\u2026")
             syncManager.syncNow()
         } else {
-            FeedbackBus.show("Consent denied — sync requires Drive access", long = true)
+            FeedbackBus.show("Consent denied - sync requires Drive access", long = true)
         }
     }
 
@@ -132,6 +150,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         deepLinkToSettings = intent.getBooleanExtra(EXTRA_DEEP_LINK_SETTINGS, false)
+        val route = intent.getStringExtra(EXTRA_DEEP_LINK_ROUTE)
+        if (!route.isNullOrBlank()) {
+            deepLinkRoute = route
+            deepLinkSeq += 1
+        }
 
         val updateManager = com.groq.voicetyper.update.UpdateManager.getInstance(this)
         updateManager.onAppStart()
@@ -202,6 +225,9 @@ class MainActivity : ComponentActivity() {
                     FluenceNavHost(
                         syncManager = syncManager,
                         deepLinkToSettings = deepLinkToSettings,
+                        deepLinkRoute = deepLinkRoute,
+                        deepLinkSeq = deepLinkSeq,
+                        onDeepLinkConsumed = { deepLinkRoute = null },
                         signInError = signInError,
                         onRequestPermission = {
                             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -247,6 +273,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        FluenceQuickControls.refreshAll(this)
+    }
+
     override fun onDestroy() {
         // Tear down orphan passScope (survives ON_STOP by design). Must not run
         // on ON_STOP — that would re-break the token-mint stall fix.
@@ -261,6 +292,11 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.getBooleanExtra(EXTRA_DEEP_LINK_SETTINGS, false)) {
             deepLinkToSettings = true
+        }
+        val route = intent.getStringExtra(EXTRA_DEEP_LINK_ROUTE)
+        if (!route.isNullOrBlank()) {
+            deepLinkRoute = route
+            deepLinkSeq += 1
         }
     }
 }

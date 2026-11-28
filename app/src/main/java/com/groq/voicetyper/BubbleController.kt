@@ -122,7 +122,23 @@ object BubbleController {
      * We use obtain() when caching and recycle the previous node to avoid leaks.
      */
     private var activeNode: AccessibilityNodeInfo? = null
+    private var activeNodePackageName: String? = null
     private val nodeLock = Any()
+
+    @Suppress("DEPRECATION")
+    private fun clearActiveNode() {
+        synchronized(nodeLock) {
+            activeNode?.recycle()
+            activeNode = null
+            activeNodePackageName = null
+        }
+    }
+
+    private fun clearActiveNodeIfHidden() {
+        if (!_isBubbleVisible.value) {
+            clearActiveNode()
+        }
+    }
     // Test seam: controller-lifetime jobs (paste restore, auto-learn arm
     // read-back) launch on the injected dispatcher in unit tests; the
     // production path stays on the main-thread dispatcher.
@@ -151,47 +167,42 @@ object BubbleController {
         }
     }
 
-    fun showBubble(context: Context, node: AccessibilityNodeInfo) {
-        if (PrivacyPreferences.isPackageExcluded(context, node.packageName?.toString())) {
+    fun showBubble(
+        context: Context,
+        node: AccessibilityNodeInfo,
+        resolvedPackage: String? = null
+    ) {
+        val targetPkg = FluenceAccessibilityService.resolveEffectiveNodePackage(
+            node.packageName?.toString(),
+            resolvedPackage
+        )
+        if (PrivacyPreferences.isPackageExcluded(context, targetPkg) ||
+            !FluenceAccessibilityService.isForegroundFreeOfExcludedApps(targetPkg)
+        ) {
             suppressForPrivacy()
             return
         }
 
         applicationContext = context.applicationContext
 
-        // Stage-6 must-fix (rewritten): a re-show swaps the pill's anchor to
-        // the incoming field. A DIFFERENT field still closes the old session
-        // first (regular close, flush) so the swapped anchor identity can
-        // never feed the old baseline - fail-closed on a genuine switch. But
-        // the same field re-enters here constantly: post-paste a11y churn and
-        // re-evaluations call showBubble within the settle window, and device
-        // QA showed each one used to kill the just-armed session (Ended ~50
-        // ms after Started) before any correction could settle. When the
-        // incoming anchor identity matches the live session's observation
-        // (same window, same package), keep the session growing and just
-        // re-show the pill. Fail-closed on an ambiguous identity.
         if (!AutoLearnSessionManager.isSameFieldReShow(
                 node.windowId.toLong(),
-                node.packageName?.toString()
+                targetPkg
             )
         ) {
             AutoLearnSessionManager.endBubbleSessionIfAny()
         }
 
-        // A bubble re-show within the defer window keeps the service alive.
         mainHandler.removeCallbacks(deferredStopService)
 
-        // Cache a strong reference to the focused node.
-        // obtain() creates a copy so the original can be recycled by the caller.
         @Suppress("DEPRECATION")
         synchronized(nodeLock) {
             val newNode = AccessibilityNodeInfo.obtain(node)
             activeNode?.recycle()
             activeNode = newNode
+            activeNodePackageName = targetPkg
         }
 
-        // Only start the foreground service if bubble wasn't already visible.
-        // Avoids redundant startForegroundService calls which can crash on some OEMs.
         val wasVisible = _isBubbleVisible.value
 
         if (!wasVisible && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -215,30 +226,28 @@ object BubbleController {
             }
         }
 
-        // Pre-initialize/pre-warm offline pipeline
         val appCtx = context.applicationContext
         TranscriptionSessionManager.preWarmOfflinePipeline(appCtx)
     }
 
     /**
-     * Removes bubble interaction without cancelling an active recording or
-     * transcription session. The existing hideBubble() intentionally retains
-     * its legacy cancellation behavior for non-privacy lifecycle callers.
+     * Removes bubble interaction immediately when an excluded or secure surface
+     * appears. If a recording started in an allowed app is in progress, stops
+     * the mic immediately so nothing inside the excluded app is captured while
+     * finalizing already-spoken audio to History and clipboard rescue (zero
+     * data loss, never injecting into the excluded app).
      */
     fun suppressForPrivacy() {
         cancelAutoLearnArmConfirm()
         TranscriptionSessionManager.cancelPreWarm()
-        // Privacy-equivalent exit for the observation side as well: the
-        // excluded/secure surface must never flush pending learn state.
         AutoLearnSessionManager.revokeAndEndForSecureField()
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
-        if (recordingState.value == RecordingState.IDLE) {
-            @Suppress("DEPRECATION")
-            synchronized(nodeLock) {
-                activeNode?.recycle()
-                activeNode = null
-            }
+        val state = recordingState.value
+        if (state == RecordingState.RECORDING) {
+            applicationContext?.let { TranscriptionSessionManager.stopRecording(it) }
+        } else if (state == RecordingState.IDLE || state == RecordingState.ERROR) {
+            clearActiveNode()
         }
         mainHandler.removeCallbacks(deferredStopService)
         mainHandler.postDelayed(deferredStopService, STOP_SERVICE_DELAY_MS)
@@ -283,11 +292,7 @@ object BubbleController {
         }
         _isBubbleVisible.value = false
         _isBubbleExpanded.value = false
-        @Suppress("DEPRECATION")
-        synchronized(nodeLock) {
-            activeNode?.recycle()
-            activeNode = null
-        }
+        clearActiveNode()
         // Defer stopping the foreground service so a rapid accessibility show/hide
         // flap cannot stop it before startForeground() runs (crash). Re-shows cancel it.
         mainHandler.removeCallbacks(deferredStopService)
@@ -327,7 +332,10 @@ object BubbleController {
 
     private fun activeNodePackage(): String? {
         return synchronized(nodeLock) {
-            activeNode?.packageName?.toString()
+            FluenceAccessibilityService.resolveEffectiveNodePackage(
+                activeNode?.packageName?.toString(),
+                activeNodePackageName
+            )
         }
     }
 
@@ -383,12 +391,13 @@ object BubbleController {
         if (PrivacyPreferences.isPackageExcluded(context, targetPackage)) {
             return false
         }
-        // Delivery-time freshness: a node from a closed window is a stale
-        // target and must never be written into.
-        if (verifyActiveWindow &&
-            !FluenceAccessibilityService.isInjectionTargetStillVisible(targetPackage)
-        ) {
-            return false
+        if (verifyActiveWindow) {
+            if (!FluenceAccessibilityService.isForegroundFreeOfExcludedApps(targetPackage)) {
+                return false
+            }
+            if (!FluenceAccessibilityService.isInjectionTargetStillVisible(targetPackage)) {
+                return false
+            }
         }
         return true
     }
@@ -399,8 +408,12 @@ object BubbleController {
     }
 
     private fun isNodeTargetAllowed(context: Context, node: AccessibilityNodeInfo): Boolean {
-        return !PrivacyPreferences.isPackageExcluded(context, node.packageName?.toString()) &&
-            isTargetAllowed(context, activeNodePackage())
+        val resolved = FluenceAccessibilityService.resolveEffectiveNodePackage(
+            node.packageName?.toString(),
+            activeNodePackage()
+        )
+        return !PrivacyPreferences.isPackageExcluded(context, resolved) &&
+            isTargetAllowed(context, resolved)
     }
 
     private fun performAllowedAction(
@@ -439,6 +452,12 @@ object BubbleController {
 
     fun startRecording(context: Context, agentMode: Boolean = false) {
         val targetPackage = activeNodePackage()
+        if (PrivacyPreferences.isPackageExcluded(context, targetPackage) ||
+            !FluenceAccessibilityService.isForegroundFreeOfExcludedApps(targetPackage)
+        ) {
+            suppressForPrivacy()
+            return
+        }
         _isBubbleExpanded.value = true
         applicationContext = context.applicationContext
 
@@ -457,6 +476,7 @@ object BubbleController {
                             }
                         }
                         _isBubbleExpanded.value = false
+                        clearActiveNodeIfHidden()
                     }
                 }
 
@@ -466,6 +486,7 @@ object BubbleController {
                             executeCommandAction(context, command, contextText.length)
                         }
                         _isBubbleExpanded.value = false
+                        clearActiveNodeIfHidden()
                     }
                 }
 
@@ -501,6 +522,7 @@ object BubbleController {
                         // Only cancel the pending collapse, never the deferred service stop.
                         mainHandler.removeCallbacks(errorCollapseRunnable)
                         mainHandler.postDelayed(errorCollapseRunnable, 4000)
+                        clearActiveNodeIfHidden()
                     }
                 }
             }

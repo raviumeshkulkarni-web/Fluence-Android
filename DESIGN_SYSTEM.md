@@ -290,6 +290,9 @@ a separate, already-verified system and is NOT affected by this document.
 
 ## Changelog
 
+**2026-11-27: Android Payment Pause & Quick Controls (`AccessibilityPaymentNotice` actions).**
+Upgraded `AccessibilityPaymentNotice` to use Lucide `FluenceIcons.Info`, offer a one-tap `Pause Bubble now` action when the Accessibility Service is enabled (or `Open accessibility settings` when paused), and expose an Android 13+ `Add Quick Settings tile` button using existing `SettingsJointCard`, `FluenceSpacing.Xxl`, and `textLink`/`textSecondary` tokens with zero new design tokens. Floating bubble and IME visuals untouched.
+
 **2026-11-26: Android PR B (Lucide icon family unification, shared provider controls, and pinned privacy exclusions).**
 Replaced remaining Material Filled leading icons across Settings, Permissions, and Privacy Exclusions with 2px outline Lucide icons in `FluenceIcons.kt` (keeping RTL-mirrored `KeyboardArrowRight`), extracted `FluenceApiKeyField` (with saved-key pill and eye toggle), `FluenceDropdownField`, and `FluenceProviderChipsRow` into `ui/SharedComponents.kt`, and pinned excluded apps under an `EXCLUDED` header in `PrivacyExclusionsScreen.kt` with zero new design tokens.
 

@@ -475,6 +475,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // view not finished) — cancel the in-flight voice session so nothing commits there.
         if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
             TranscriptionSessionManager.cancelImeRecording(this, CancelReason.PRIVACY_GUARD)
+        } else if (isTargetExcluded && recordingState == RecordingState.RECORDING) {
+            // Stop the mic immediately on entering an excluded app so nothing
+            // spoken there is captured, while finalizing prior speech to
+            // History + clipboard rescue (zero data loss, zero writes to excluded app).
+            TranscriptionSessionManager.stopRecording(this)
         }
     }
 
@@ -495,6 +500,11 @@ class VoiceInputIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwner,
         // Fail-closed: same guard as onStartInput for the view lifecycle path.
         if (!isSafe && (recordingState == RecordingState.RECORDING || recordingState == RecordingState.TRANSCRIBING)) {
             TranscriptionSessionManager.cancelImeRecording(this, CancelReason.PRIVACY_GUARD)
+        } else if (isTargetExcluded && recordingState == RecordingState.RECORDING) {
+            // Stop the mic immediately on entering an excluded app so nothing
+            // spoken there is captured, while finalizing prior speech to
+            // History + clipboard rescue (zero data loss, zero writes to excluded app).
+            TranscriptionSessionManager.stopRecording(this)
         }
 
         if (!restarting) {

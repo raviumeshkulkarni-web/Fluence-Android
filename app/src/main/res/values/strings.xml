@@ -4,4 +4,16 @@
     <string name="ime_name">Fluence</string>
     <string name="subtype_voice">Voice Typing (Fluence)</string>
     <string name="accessibility_service_label">Fluence On-Screen Dictation</string>
+    <string name="qs_tile_bubble_label">Fluence Bubble</string>
+    <string name="qs_tile_mode_label">Fluence Mode</string>
+    <string name="shortcut_pause_bubble_short">Pause Bubble</string>
+    <string name="shortcut_pause_bubble_long">Pause Bubble for payments</string>
+    <string name="shortcut_resume_bubble_short">Turn on Bubble</string>
+    <string name="shortcut_resume_bubble_long">Turn on Floating Bubble</string>
+    <string name="shortcut_switch_offline_short">Switch Offline</string>
+    <string name="shortcut_switch_offline_long">Switch to Offline mode</string>
+    <string name="shortcut_switch_cloud_short">Switch Cloud</string>
+    <string name="shortcut_switch_cloud_long">Switch to Cloud mode</string>
+    <string name="shortcut_copy_last_short">Copy last</string>
+    <string name="shortcut_copy_last_long">Copy last dictation</string>
 </resources>

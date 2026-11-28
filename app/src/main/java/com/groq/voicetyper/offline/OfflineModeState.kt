@@ -21,8 +21,8 @@ enum class OfflineModeState {
  */
 object OfflinePreferences {
     private const val PREFS_NAME = "fluence_prefs"
-    private const val KEY_OFFLINE_ENABLED = "offline_mode_enabled"
-    private const val KEY_ENGINE_TYPE = "offline_engine_type"
+    const val KEY_OFFLINE_ENABLED = "offline_mode_enabled"
+    const val KEY_ENGINE_TYPE = "offline_engine_type"
 
     fun isOfflineModeEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

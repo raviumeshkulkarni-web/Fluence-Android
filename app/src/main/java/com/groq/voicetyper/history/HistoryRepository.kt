@@ -32,6 +32,18 @@ object HistoryRepository {
 
     fun getAll(): Flow<List<TranscriptionEntry>> = dao?.getAll() ?: emptyFlow()
 
+    suspend fun getLatestText(context: Context): String? {
+        if (dao == null) {
+            init(context.applicationContext)
+        }
+        return try {
+            dao?.getLatestLive()?.text?.trim()?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.w("HistoryRepository", "Failed to read latest transcription", e)
+            null
+        }
+    }
+
     /** Cheap existence/count signal — indexed, no rows loaded. */
     fun getCount(): Flow<Int> = dao?.getCount() ?: emptyFlow()
 

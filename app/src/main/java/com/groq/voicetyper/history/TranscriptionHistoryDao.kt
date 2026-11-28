@@ -12,6 +12,9 @@ interface TranscriptionHistoryDao {
     @Query("SELECT * FROM transcription_history WHERE deletedAt IS NULL ORDER BY timestamp DESC")
     fun getAll(): Flow<List<TranscriptionEntry>>
 
+    @Query("SELECT * FROM transcription_history WHERE deletedAt IS NULL ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestLive(): TranscriptionEntry?
+
     @Query("SELECT * FROM transcription_history WHERE id = :id AND deletedAt IS NULL")
     fun getById(id: Long): Flow<TranscriptionEntry?>
 

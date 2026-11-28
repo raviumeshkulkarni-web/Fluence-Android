@@ -12,7 +12,7 @@ import android.content.SharedPreferences
  */
 object PrivacyPreferences {
     private const val PREFS_NAME = "fluence_prefs"
-    private const val KEY_EXCLUDED_PACKAGES = "privacy_excluded_packages"
+    const val KEY_EXCLUDED_PACKAGES = "privacy_excluded_packages"
 
     private val lock = Any()
 
@@ -38,17 +38,19 @@ object PrivacyPreferences {
     }
 
     fun isPackageExcluded(context: Context, packageName: String?): Boolean {
-        if (packageName.isNullOrBlank()) return false
-        return getExcludedPackages(context).contains(packageName)
+        val normalized = packageName?.trim().orEmpty()
+        if (normalized.isEmpty()) return false
+        return getExcludedPackages(context).contains(normalized)
     }
 
     fun setPackageExcluded(context: Context, packageName: String, excluded: Boolean) {
-        if (packageName.isBlank()) return
+        val normalized = packageName.trim()
+        if (normalized.isEmpty()) return
 
         synchronized(lock) {
             val preferences = ensurePreferences(context)
             val updated = excludedPackagesSnapshot.toMutableSet().apply {
-                if (excluded) add(packageName) else remove(packageName)
+                if (excluded) add(normalized) else remove(normalized)
             }
             publishSnapshot(updated)
             preferences.edit()
@@ -79,7 +81,9 @@ object PrivacyPreferences {
     }
 
     private fun publishSnapshot(packages: Set<String>) {
-        excludedPackagesSnapshot = packages.toSet()
+        excludedPackagesSnapshot = packages.mapNotNull { pkg ->
+            pkg.trim().takeIf { it.isNotEmpty() }
+        }.toSet()
     }
 
     /** Test-only reset for JVM tests that share the process singleton. */

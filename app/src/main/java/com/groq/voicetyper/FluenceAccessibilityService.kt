@@ -2,6 +2,7 @@ package com.groq.voicetyper
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,6 +17,8 @@ import kotlinx.coroutines.launch
 import com.groq.voicetyper.autolearn.domain.AutoLearnFieldSnapshot
 import com.groq.voicetyper.autolearn.domain.AutoLearnSessionManager
 import com.groq.voicetyper.autolearn.domain.AutoLearnSurface
+import com.groq.voicetyper.quickcontrols.FluenceQuickControls
+import com.groq.voicetyper.quickcontrols.PaymentPauseNotifier
 
 /**
  * Anchor field identity (review must-fix 13): window+package alone admits
@@ -169,6 +172,76 @@ class FluenceAccessibilityService : AccessibilityService() {
             return activeInstance?.isCurrentApplicationAllowedInternal(targetPackage) ?: false
         }
 
+        /**
+         * Programmatically disables this AccessibilityService on Android 7+
+         * (API 24+) so payment apps immediately unblock. If a recording is in
+         * progress, stops and finalizes it first (zero data loss).
+         */
+        fun requestPauseForPayments(): Boolean {
+            val service = activeInstance ?: return false
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+            service.cancelPendingEvaluation()
+            if (BubbleController.recordingState.value == RecordingState.RECORDING) {
+                BubbleController.suppressForPrivacy()
+            } else {
+                BubbleController.stopService(service)
+            }
+            return try {
+                service.disableSelf()
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "disableSelf failed", e)
+                false
+            }
+        }
+
+        /**
+         * Delivery/start guard that respects JVM unit tests and transient
+         * service disconnection (mirrors [isInjectionTargetStillVisible]):
+         * returns false whenever the target package is excluded OR any
+         * currently visible application window belongs to an excluded package.
+         */
+        fun isForegroundFreeOfExcludedApps(targetPackage: String? = null): Boolean {
+            val service = activeInstance ?: return true
+            return service.isCurrentApplicationAllowedInternal(targetPackage)
+        }
+
+        /**
+         * Pure decision: true if ANY visible application window belongs to an
+         * excluded package (covers split-screen and payment bottom-sheets).
+         */
+        internal fun evaluateWindowExclusion(
+            visibleAppPackages: List<String?>,
+            isExcluded: (String?) -> Boolean
+        ): Boolean = visibleAppPackages.any { !it.isNullOrBlank() && isExcluded(it) }
+
+        /**
+         * Resolves a node's effective package name by falling back to its
+         * enclosing window/event package when virtual nodes (WebView, Compose,
+         * React Native) report a null or blank packageName.
+         */
+        internal fun resolveEffectiveNodePackage(
+            nodePackage: String?,
+            fallbackPackage: String?
+        ): String? = nodePackage?.trim()?.takeIf { it.isNotEmpty() }
+            ?: fallbackPackage?.trim()?.takeIf { it.isNotEmpty() }
+
+        /**
+         * Pure gate for TYPE_WINDOWS_CHANGED: avoids OS-wide Binder IPC churn
+         * when IME-only mode is off and no bubble/session is active, while
+         * still catching payment overlays and split-screen launches whenever
+         * our bubble or an active session is live.
+         */
+        internal fun shouldEvaluateOnWindowsChanged(
+            imeOnlyEnabled: Boolean,
+            isBubbleVisible: Boolean,
+            hasActiveBubbleSession: Boolean,
+            recordingState: RecordingState
+        ): Boolean = imeOnlyEnabled ||
+            isBubbleVisible ||
+            hasActiveBubbleSession ||
+            recordingState != RecordingState.IDLE
+
         /** Max recursion depth when walking the accessibility tree. */
         private const val MAX_TREE_DEPTH = 25
 
@@ -205,9 +278,10 @@ class FluenceAccessibilityService : AccessibilityService() {
                 }
             } else if (key == FloatingBubblePreferences.KEY_BUBBLE_IME_ONLY) {
                 isImeOnlyEnabled = prefs.getBoolean(key, false)
-                // Converge immediately on toggle: a visible bubble with no
-                // keyboard must hide (if idle), a hidden one with an open
-                // keyboard may show. Debounced like every other evaluation.
+                if (isFloatingBubbleEnabled) {
+                    scheduleFullEvaluation()
+                }
+            } else if (key == PrivacyPreferences.KEY_EXCLUDED_PACKAGES) {
                 if (isFloatingBubbleEnabled) {
                     scheduleFullEvaluation()
                 }
@@ -246,64 +320,70 @@ class FluenceAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || !isFloatingBubbleEnabled) return
 
+        val eventPackage = event.packageName?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_CLICKED,
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
-                // Immediate: the user just tapped/focused a specific view.
+                if (PrivacyPreferences.isPackageExcluded(this, eventPackage)) {
+                    cancelPendingEvaluation()
+                    BubbleController.suppressForPrivacy()
+                    return
+                }
                 val source = event.source
                 if (source != null) {
-                    handleFocusChange(source)
+                    try {
+                        handleFocusChange(source, eventPackage)
+                    } finally {
+                        try { source.recycle() } catch (_: Exception) {}
+                    }
                 } else {
                     scheduleFullEvaluation()
                 }
             }
 
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // A new window appeared (app switch, dialog, etc.) — re-evaluate.
+                if (PrivacyPreferences.isPackageExcluded(this, eventPackage)) {
+                    cancelPendingEvaluation()
+                    BubbleController.suppressForPrivacy()
+                    return
+                }
                 scheduleFullEvaluation()
             }
 
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                // Content changed inside a window (e.g. WebView finished loading).
-                // This fires *very* frequently, so we debounce it.
                 scheduleFullEvaluation()
             }
 
             AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
-                // Window added/removed/bounds changed — this is how IME
-                // (keyboard) show/hide reaches us. Only the opt-in IME mode
-                // needs it; when off, ignore to keep behavior identical.
-                // Debounced: keyboard switches produce a remove+add pair, and
-                // this event fires for every system window transition.
-                if (isImeOnlyEnabled) {
+                if (shouldEvaluateOnWindowsChanged(
+                        imeOnlyEnabled = isImeOnlyEnabled,
+                        isBubbleVisible = BubbleController.isBubbleVisible.value,
+                        hasActiveBubbleSession = AutoLearnSessionManager.hasActiveBubbleSession(),
+                        recordingState = BubbleController.recordingState.value
+                    )
+                ) {
                     scheduleFullEvaluation()
                 }
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                // Text changed in a view — the user is typing or voice text
-                // was injected. While a bubble observation is live, this IS
-                // the per-update feed: full-field text plus the CURRENT
-                // snapshot flow to the session manager (per-update preamble
-                // revokes first on positive security evidence). Other events
-                // keep the legacy show-refresh, now through the SAME gates
-                // as focus events - the old direct showBubble here skipped
-                // the secure-field and excluded-package checks entirely
-                // (review gap).
                 val source = event.source ?: return
-                if (feedBubbleAutoLearnObservation(source)) return
-                if (PrivacyPreferences.isPackageExcluded(this, source.packageName?.toString())) {
-                    // Review fix 14: background churn in an excluded app is
-                    // foreign to any live session (the feed's per-update
-                    // preamble already revokes the session's OWN target when
-                    // that target turns excluded). Suppression is a field-
-                    // switch decision - it belongs to focus events and show
-                    // gates, not to text churn.
-                    return
-                }
-                if (isEditableTextField(source)) {
-                    gatedShowBubble(source)
+                try {
+                    if (feedBubbleAutoLearnObservation(source)) return
+                    val effectivePkg = resolveEffectiveNodePackage(
+                        source.packageName?.toString(),
+                        eventPackage
+                    )
+                    if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+                        return
+                    }
+                    if (effectivePkg != null && isEditableTextField(source)) {
+                        gatedShowBubble(source, effectivePkg)
+                    }
+                } finally {
+                    try { source.recycle() } catch (_: Exception) {}
                 }
             }
         }
@@ -354,8 +434,19 @@ class FluenceAccessibilityService : AccessibilityService() {
      * behaves exactly like the code it replaces. Callers retain node
      * ownership (showBubble copies via obtain), as before.
      */
-    private fun gatedShowBubble(node: AccessibilityNodeInfo) {
-        // Short-circuit: skip the window scan entirely when the mode is off.
+    private fun gatedShowBubble(node: AccessibilityNodeInfo, resolvedPackage: String? = null) {
+        val effectivePkg = resolveEffectiveNodePackage(node.packageName?.toString(), resolvedPackage)
+        if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+            BubbleController.suppressForPrivacy()
+            return
+        }
+        if (effectivePkg.isNullOrBlank()) {
+            return
+        }
+        if (isSecureField(node)) {
+            BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
+            return
+        }
         val imeOnly = isImeOnlyEnabled
         val imeVisible = imeOnly && isImeVisible()
         if (!shouldShowBubble(true, imeOnly, imeVisible)) {
@@ -364,11 +455,7 @@ class FluenceAccessibilityService : AccessibilityService() {
             }
             return
         }
-        if (isSecureField(node)) {
-            BubbleController.hideBubble(CancelReason.PRIVACY_GUARD)
-        } else {
-            BubbleController.showBubble(this, node)
-        }
+        BubbleController.showBubble(this, node, effectivePkg)
     }
 
     /**
@@ -406,19 +493,24 @@ class FluenceAccessibilityService : AccessibilityService() {
      * We first check the node itself; if it's not an editable field, we fall
      * back to scanning all application windows.
      */
-    private fun handleFocusChange(node: AccessibilityNodeInfo) {
-        if (PrivacyPreferences.isPackageExcluded(this, node.packageName?.toString())) {
+    private fun handleFocusChange(node: AccessibilityNodeInfo, fallbackPackage: String? = null) {
+        val effectivePkg = resolveEffectiveNodePackage(node.packageName?.toString(), fallbackPackage)
+        if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+            cancelPendingEvaluation()
+            BubbleController.suppressForPrivacy()
+            return
+        }
+        if (hasExcludedVisibleApplicationWindow()) {
+            cancelPendingEvaluation()
             BubbleController.suppressForPrivacy()
             return
         }
 
-        if (isEditableTextField(node)) {
-            gatedShowBubble(node)
+        if (effectivePkg != null && isEditableTextField(node)) {
+            gatedShowBubble(node, effectivePkg)
             return
         }
 
-        // The event source wasn't editable — maybe focus moved to a label or
-        // container. Do a full scan to find the real focused input.
         evaluateAllWindows()
     }
 
@@ -449,94 +541,183 @@ class FluenceAccessibilityService : AccessibilityService() {
      *    inside a child window.
      */
     private fun evaluateAllWindows() {
-        if (suppressIfRequired(null)) return
+        val windowList = try {
+            windows
+        } catch (e: Exception) {
+            Log.w(TAG, "evaluateAllWindows failed retrieving windows", e)
+            return
+        }
+
+        if (windowList == null) {
+            evaluateLegacyRootFallback()
+            return
+        }
 
         try {
-            val appWindows = windows
-                ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-                ?: emptyList()
+            val appWindows = windowList
+                .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                .sortedByDescending { (if (it.isFocused) 2 else 0) + (if (it.isActive) 1 else 0) }
 
-            // Attempt 1: Use the platform focus API on each application window.
+            val windowPackages = ArrayList<String?>(appWindows.size)
             for (window in appWindows) {
-                val root = window.root ?: continue
-                val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                if (focused != null && isEditableTextField(focused)) {
-                    gatedShowBubble(focused)
-                    focused.recycle()
-                    root.recycle()
-                    return
+                val root = try { window.root } catch (_: Exception) { null }
+                val pkg = try {
+                    root?.packageName?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                } finally {
+                    try { root?.recycle() } catch (_: Exception) {}
                 }
-                focused?.recycle()
-                root.recycle()
+                windowPackages.add(pkg)
             }
 
-            // Attempt 2: Recursive tree walk. Some WebView implementations
-            // don't set FOCUS_INPUT but still report `isFocused()` on the node.
-            for (window in appWindows) {
-                val root = window.root ?: continue
-                // A fresh budget per window so a large first window cannot starve
-                // the remaining windows (split-screen / multi-window) out of search.
-                val budget = intArrayOf(MAX_TRAVERSAL_NODES)
-                val found = findFocusedEditableNode(root, 0, budget)
-                if (found != null) {
-                    if (found !== root) {
-                        root.recycle()
+            // Exclusion always wins over focus, active recordings, and auto-learn:
+            // if ANY visible application window belongs to an excluded package
+            // (including split-screen or payment sheets), suppress immediately so
+            // our overlay never triggers Android tapjacking protection.
+            if (evaluateWindowExclusion(windowPackages) { PrivacyPreferences.isPackageExcluded(this, it) }) {
+                BubbleController.suppressForPrivacy()
+                return
+            }
+
+            // Attempt 1: Platform focus API on each application window (focused/active first).
+            for (i in appWindows.indices) {
+                val root = try { appWindows[i].root } catch (_: Exception) { null } ?: continue
+                var focused: AccessibilityNodeInfo? = null
+                try {
+                    focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                    if (focused != null && isEditableTextField(focused)) {
+                        val effectivePkg = resolveEffectiveNodePackage(
+                            focused.packageName?.toString(),
+                            windowPackages[i]
+                        )
+                        if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+                            BubbleController.suppressForPrivacy()
+                            return
+                        }
+                        if (effectivePkg != null) {
+                            gatedShowBubble(focused, effectivePkg)
+                            return
+                        }
                     }
-                    gatedShowBubble(found)
-                    found.recycle()
-                    return
+                } finally {
+                    try { focused?.recycle() } catch (_: Exception) {}
+                    try { root.recycle() } catch (_: Exception) {}
                 }
-                root.recycle()
+            }
+
+            // Attempt 2: Recursive tree walk for WebViews without FOCUS_INPUT.
+            for (i in appWindows.indices) {
+                val root = try { appWindows[i].root } catch (_: Exception) { null } ?: continue
+                var found: AccessibilityNodeInfo? = null
+                try {
+                    val budget = intArrayOf(MAX_TRAVERSAL_NODES)
+                    found = findFocusedEditableNode(root, 0, budget)
+                    if (found != null) {
+                        val effectivePkg = resolveEffectiveNodePackage(
+                            found.packageName?.toString(),
+                            windowPackages[i]
+                        )
+                        if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+                            BubbleController.suppressForPrivacy()
+                            return
+                        }
+                        if (effectivePkg != null) {
+                            gatedShowBubble(found, effectivePkg)
+                            return
+                        }
+                    }
+                } finally {
+                    if (found != null && found !== root) {
+                        try { found.recycle() } catch (_: Exception) {}
+                    }
+                    try { root.recycle() } catch (_: Exception) {}
+                }
             }
 
             // Attempt 3: Legacy fallback with rootInActiveWindow.
-            val legacyRoot = rootInActiveWindow
-            if (legacyRoot != null) {
-                val focused = legacyRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                if (focused != null && isEditableTextField(focused)) {
-                    gatedShowBubble(focused)
-                    focused.recycle()
-                    legacyRoot.recycle()
-                    return
-                }
-                focused?.recycle()
-                legacyRoot.recycle()
+            if (evaluateLegacyRootFallback()) {
+                return
             }
 
-            // No focused editable field found anywhere. While a session is in
-            // flight, the pill + focused node + foreground service form one
-            // coupled unit; generic focus churn (Home swipe, app switch,
-            // keyboard dismissal) must never tear it down mid-session - the
-            // IDLE collector re-evaluates after the session ends. The armed
-            // observation needs the same protection after the recording has
-            // gone IDLE: device QA showed post-dictation churn re-entered
-            // here tens of ms after the arm and hid the pill (and the old
-            // close killed the session) before any update could settle.
             if (shouldSuppressGenericHide(BubbleController.recordingState.value) ||
                 AutoLearnSessionManager.hasActiveBubbleSession()
             ) {
                 return
             }
             BubbleController.hideBubble()
-
         } catch (e: Exception) {
             Log.w(TAG, "evaluateAllWindows failed", e)
-            // Don't hide on transient errors — keep current state.
+        } finally {
+            windowList.forEach {
+                try { it.recycle() } catch (_: Exception) {}
+            }
         }
     }
 
-    private fun suppressIfRequired(event: AccessibilityEvent?): Boolean {
-        val eventPackage = event?.packageName?.toString()
-        if (PrivacyPreferences.isPackageExcluded(this, eventPackage)) {
-            cancelPendingEvaluation()
-            BubbleController.suppressForPrivacy()
-            return true
+    private fun evaluateLegacyRootFallback(): Boolean {
+        val legacyRoot = try { rootInActiveWindow } catch (_: Exception) { null } ?: return false
+        var focused: AccessibilityNodeInfo? = null
+        try {
+            val rootPkg = legacyRoot.packageName?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            if (PrivacyPreferences.isPackageExcluded(this, rootPkg)) {
+                BubbleController.suppressForPrivacy()
+                return true
+            }
+            focused = legacyRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused != null && isEditableTextField(focused)) {
+                val effectivePkg = resolveEffectiveNodePackage(
+                    focused.packageName?.toString(),
+                    rootPkg
+                )
+                if (PrivacyPreferences.isPackageExcluded(this, effectivePkg)) {
+                    BubbleController.suppressForPrivacy()
+                    return true
+                }
+                if (effectivePkg != null) {
+                    gatedShowBubble(focused, effectivePkg)
+                    return true
+                }
+            }
+            return false
+        } finally {
+            try { focused?.recycle() } catch (_: Exception) {}
+            try { legacyRoot.recycle() } catch (_: Exception) {}
         }
-        return false
+    }
+
+    private fun hasExcludedVisibleApplicationWindow(): Boolean {
+        val windowList = try {
+            windows
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to retrieve accessibility windows", e)
+            return false
+        } ?: return false
+
+        return try {
+            val packages = mutableListOf<String?>()
+            for (window in windowList) {
+                if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+                val root = try { window.root } catch (_: Exception) { null }
+                val pkg = try {
+                    root?.packageName?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                } finally {
+                    try { root?.recycle() } catch (_: Exception) {}
+                }
+                packages.add(pkg)
+            }
+            evaluateWindowExclusion(packages) { PrivacyPreferences.isPackageExcluded(this, it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to inspect visible application windows", e)
+            false
+        } finally {
+            windowList.forEach {
+                try { it.recycle() } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun isCurrentApplicationAllowedInternal(targetPackage: String?): Boolean {
         if (PrivacyPreferences.isPackageExcluded(this, targetPackage)) return false
+        if (hasExcludedVisibleApplicationWindow()) return false
         val activePackage = resolveActiveApplicationPackage() ?: return true
         return !PrivacyPreferences.isPackageExcluded(this, activePackage)
     }
@@ -673,6 +854,12 @@ class FluenceAccessibilityService : AccessibilityService() {
     //  Lifecycle
     // ────────────────────────────────────────────────────────────────────
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        PaymentPauseNotifier.dismiss(this)
+        FluenceQuickControls.refreshAll(this, accessibilityEnabledOverride = true)
+    }
+
     override fun onInterrupt() {
         cancelPendingEvaluation()
         BubbleController.stopService(this)
@@ -688,6 +875,7 @@ class FluenceAccessibilityService : AccessibilityService() {
         val sharedPrefs = getSharedPreferences("fluence_prefs", Context.MODE_PRIVATE)
         sharedPrefs.unregisterOnSharedPreferenceChangeListener(prefListener)
         BubbleController.stopService(this)
+        FluenceQuickControls.refreshAll(this, accessibilityEnabledOverride = false)
         super.onDestroy()
     }
 }
